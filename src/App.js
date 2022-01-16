@@ -103,7 +103,6 @@ function App() {
     setAddString(source)
     setRemoveString(source)
     setGuesses([{full:source, first:source, added:'', last:'',removed:''}])
-    resetGuess()
   }
 
   const updateLength = useEffect(() => {
@@ -186,8 +185,10 @@ function App() {
   const resetGuess = (event) => {
     setAdded('')
     setRemoved('')
-    setAddString(guesses[guesses.length-1]['full'])
-    setRemoveString(guesses[guesses.length-1]['full'])
+    if (guesses.length >0) {
+      setAddString(guesses[guesses.length - 1]['full'])
+      setRemoveString(guesses[guesses.length - 1]['full'])
+    }
     setRemoveCursor(undefined)
     setAddCursor(undefined)
 
@@ -254,7 +255,7 @@ function App() {
               onChange={handlePathlenChange}
           >
             {[...Array(7).keys()].map((val) => (
-                <MenuItem className={'text-white'} id={val+1} value={val+1}>{val+1}</MenuItem>
+                <MenuItem className={'text-white'} key={val+1} id={val+1} value={val+1}>{val+1}</MenuItem>
             ))}
           </Select>
           </FormControl>
@@ -276,7 +277,7 @@ function App() {
 
         <div id={"guesses"}>
           {guesses.map(aguess => (
-            <div id={'guess-'+aguess[0]} className={styles['guesses']['container']}>
+            <div key={'guess-'+aguess['full']} className={styles['guesses']['container']}>
               <span className={styles['guesses']['text']}>
                 {aguess['first']}
               </span>
