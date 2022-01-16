@@ -1,4 +1,4 @@
-name: Build and deploy lab website to github pages 2
+name: Build and deploy Recurse to GitHub Pages
 
 on:
   push:
