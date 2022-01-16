@@ -8,7 +8,7 @@ module.exports = {
       xl: '1440px',
     },
     colors: {
-      'blue': '#1fb6ff',
+      'blue': '#2196f3',
       'purple': '#7e5bef',
       'pink': '#ff49db',
       'orange': '#ff7849',
@@ -17,10 +17,12 @@ module.exports = {
       'gray-dark': '#273444',
       'gray': '#8492a6',
       'gray-light': '#d3dce6',
+      'red': '#ff0000',
+      'white': "#ffffff"
     },
     fontFamily: {
       sans: ['Graphik', 'sans-serif'],
-      serif: ['Merriweather', 'serif'],
+      serif: ['EB Garamond', 'Merriweather', 'serif'],
       mono: ['Courier New' , 'monospace']
     },
     extend: {
