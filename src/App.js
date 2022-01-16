@@ -91,7 +91,7 @@ function App() {
     if (method === "date") {
       let today = new Date();
       let ndays = Math.round((today.getTime() - startDate.getTime())/dayLength);
-      console.log('ndays', ndays);
+      // console.log('ndays', ndays);
       source = paths[ndays]['source'];
       target = paths[ndays]['target']
     } else if (method === "random"){
@@ -103,7 +103,7 @@ function App() {
     setAddString(source)
     setRemoveString(source)
     setGuesses([{full:source, first:source, added:'', last:'',removed:''}])
-
+    resetGuess()
   }
 
   const updateLength = useEffect(() => {
@@ -127,7 +127,7 @@ function App() {
         setAddString(event.target.value)
       }
     } else {
-      console.log('adding', {addCursor, cursorPos})
+      // console.log('adding', {addCursor, cursorPos})
       if (addCursor === 0 || addCursor === undefined || cursorPos === addCursor+1) {
           setAdded(added + event.nativeEvent.data);
           setAddCursor(cursorPos)
@@ -173,7 +173,7 @@ function App() {
     } else {
 
       let cursorPos = removeRef.current.selectionStart;
-      console.log('backspace! position', cursorPos);
+      // console.log('backspace! position', cursorPos);
       if (removeCursor === 0 || removeCursor === undefined || cursorPos === removeCursor - 1) {
         setRemoveCursor(cursorPos)
         setRemoved(getDifference(event.target.value,removeString) + removed)
@@ -194,13 +194,13 @@ function App() {
   }
 
   const confirmGuess = (event) => {
-    console.log('confirmevent', event)
+    // console.log('confirmevent', event)
 
-    if (
-        (words.includes(added) || added === '') &&
-        (words.includes(removed) || removed === '') &&
-        (words.includes(addString))
-    ){
+    // if (
+    //     (words.includes(added) || added === '') &&
+    //     (words.includes(removed) || removed === '') &&
+    //     (words.includes(addString))
+    // ){
       let newg = guesses;
       let guessPieces = textPieces();
       //  set removed text in the previous guess
@@ -210,10 +210,10 @@ function App() {
       newg.push(guessPieces);
       setGuesses(newg);
       resetGuess();
-      console.log(newg)
-    } else {
-      resetGuess()
-    }
+      // console.log(newg)
+    // } else {
+    //   resetGuess()
+    // }
 
   }
 
