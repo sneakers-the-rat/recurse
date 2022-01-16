@@ -1,4 +1,4 @@
-
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600;800&display=swap');
 
 .App {
   text-align: center;
@@ -37,4 +37,9 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+
+.MuiAppBar-colorPrimary {
+  background-color: #ff0000;
 }

@@ -2,6 +2,10 @@
   "name": "recurse",
   "version": "0.1.0",
   "private": true,
+  "repository": "https://github.com/sneakers-the-rat/recurse.git",
+  "author": "sneakers-the-rat <JLSaunders987@gmail.com>",
+  "license": "MPL-2.0",
+  "homepage": "/recurse",
   "dependencies": {
     "@emotion/react": "^11.7.1",
     "@emotion/styled": "^11.6.0",
@@ -43,5 +47,8 @@
     "autoprefixer": "^10.4.2",
     "postcss": "^8.4.5",
     "tailwindcss": "^3.0.14"
+  },
+  "resolutions": {
+    "mini-css-extract-plugin": "2.4.5"
   }
 }
