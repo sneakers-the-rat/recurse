@@ -68,7 +68,6 @@ function App() {
   const [pathlen, setPathlen] = useState(3);
   const [paths, setPaths] = useState(all_paths);
   const [path, setPath] = useState(['', '']);
-  const [guess, setGuess] = useState('');
   const [guesses, setGuesses] = useState([]);
   const [added, setAdded] = useState('');
   const [removed, setRemoved] = useState('');
@@ -76,8 +75,6 @@ function App() {
   const [removeString, setRemoveString] = useState('');
   const [removeCursor, setRemoveCursor] = useState(undefined);
   const [addCursor, setAddCursor] = useState(undefined);
-  const [cursorStart, setCursorStart] = useState(undefined);
-  const [cursorOffset, setCursorOffset] = useState(0);
 
   const removeRef = useRef();
   const addRef = useRef();
@@ -97,13 +94,12 @@ function App() {
       console.log('ndays', ndays);
       source = paths[ndays]['source'];
       target = paths[ndays]['target']
-    } else if (method == "random"){
+    } else if (method === "random"){
       let pathidx = Math.floor(Math.random()*paths.length)
       source = paths[pathidx]['source'];
       target = paths[pathidx]['target']
     }
     setPath([source, target]);
-    setGuess(source)
     setAddString(source)
     setRemoveString(source)
     setGuesses([{full:source, first:source, added:'', last:'',removed:''}])
@@ -187,14 +183,7 @@ function App() {
     }
   }
 
-  const handleCursor = (event) => {
-    console.log('cursor', event)
-  }
-
   const resetGuess = (event) => {
-    setCursorStart(undefined)
-    setCursorOffset(0)
-    setGuess(path[0])
     setAdded('')
     setRemoved('')
     setAddString(guesses[guesses.length-1]['full'])
@@ -203,8 +192,6 @@ function App() {
     setAddCursor(undefined)
 
   }
-
-
 
   const confirmGuess = (event) => {
     console.log('confirmevent', event)
@@ -230,9 +217,6 @@ function App() {
 
   }
 
-  const popInfobox = (event) => {
-
-  }
 
   return (
       <ThemeProvider theme={theme}>
