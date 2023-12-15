@@ -90,7 +90,7 @@ function App() {
     let target
     if (method === "date") {
       let today = new Date();
-      let ndays = Math.round((today.getTime() - startDate.getTime())/dayLength);
+      let ndays = Math.round((today.getTime() - startDate.getTime())/dayLength) % paths.length;
       // console.log('ndays', ndays);
       source = paths[ndays]['source'];
       target = paths[ndays]['target']
