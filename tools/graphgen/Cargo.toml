@@ -1,0 +1,13 @@
+[package]
+name = "graphgen"
+version = "0.2.0"
+edition = "2021"
+
+# No dependencies on purpose: this is a build utility that should work from a
+# cold checkout without a crates.io fetch. Everything it needs — threads, a fast
+# hasher, JSON writing — is a few dozen lines of std.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1

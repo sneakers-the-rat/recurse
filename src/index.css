@@ -1,30 +1,171 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/*
+ * ReCurse — an elegant, cursed thing.
+ *
+ * The project named itself: "ReCurse is a Cursed Game". So the register is a
+ * refined vampire story rather than occult clutter — near-black, blood red, bone
+ * ivory, antique gilt, and Deco geometry held to hairlines and double rules.
+ * Restraint is the point: one accent doing real work, ornament only where it
+ * marks structure.
+ *
+ * The dark ground is functional, not atmospheric. Most nodes on screen are
+ * deliberately anonymous, and the game needs four legible steps of presence —
+ * barely there, hinted, revealed, on the route. Grading dim-to-bright on black
+ * gives usable range where grading toward muddy on cream does not.
+ *
+ * The two accents map to the two things a move can do, so colour is never
+ * decorative: letters that ARRIVE are gilt, letters that LEAVE are blood.
+ */
+
+@font-face {
+  font-family: 'Bodoni Moda';
+  src: url('/fonts/bodoni.woff2') format('woff2-variations');
+  font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Bodoni Moda';
+  src: url('/fonts/bodoni-italic.woff2') format('woff2-variations');
+  font-weight: 400 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@theme {
+  --color-noir: #0d0b0c;
+  --color-noir-2: #141112;
+  --color-noir-3: #1c1719;
+  --color-rule: #2e2729;
+  --color-ash: #443b3e;
+  --color-ash-lit: #665a5e;
+  --color-bone: #ece7e1;
+  --color-bone-dim: #948b86;
+  /* Deep, not bright. Blood that has been on the cuff a while. */
+  --color-blood: #a3172f;
+  --color-blood-lit: #c9304a;
+  --color-gilt: #bf9f60;
+  --color-gilt-dim: #7d6844;
+
+  --font-display: 'Bodoni Moda', 'Didot', 'Hoefler Text', Georgia, serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
 
 body {
   margin: 0;
-  font-family: 'EB Garamond', serif, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  background-color: var(--color-noir);
+  color: var(--color-bone);
+  font-family: var(--font-display);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* The plate is pannable; stop the page rubber-banding behind it on iOS. */
+  overscroll-behavior: none;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/*
+ * Marginalia. Letter-spaced Didone caps, the way a Deco title page sets its
+ * secondary lines. Used for every label, count and caption.
+ */
+.label {
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--color-bone-dim);
 }
 
-h1 {
-  font-size: 30pt;
+/*
+ * Words are the game's material, so they are set in mono. That is functional:
+ * the fixed letter grid is what makes an insertion legible at a glance
+ * (base → base·ball) and stops node labels jittering as they change width.
+ */
+.word {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  letter-spacing: 0.04em;
 }
 
-a {
-  color: #ff0000;
-  text-decoration: underline;
+/* Deco double rule: a thick hair and a thin one, the classic pairing. */
+.rule-double {
+  border-top: 1px solid var(--color-rule);
+  box-shadow: 0 3px 0 -2px var(--color-rule);
 }
 
-emph {
-  font-weight: 600
+*:focus-visible {
+  outline: 1px solid var(--color-gilt);
+  outline-offset: 3px;
+  border-radius: 1px;
+}
+
+/*
+ * Tapping a node on the plate left a blue system focus ring sitting on the
+ * board: the browser rings a focused SVG shape even when the focus came from a
+ * touch rather than the keyboard. Keyboard focus still shows, in gilt, above.
+ */
+svg :focus:not(:focus-visible) {
+  outline: none;
+}
+
+/*
+ * The reveal — a word being named. The one place motion is spent, because it is
+ * the whole feeling of the game: something unnamed becomes known.
+ */
+@keyframes surface {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.surface {
+  animation: surface 300ms cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes refuse {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  60% {
+    transform: translateX(3px);
+  }
+  85% {
+    transform: translateX(-1px);
+  }
+}
+
+.refuse {
+  animation: refuse 200ms ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface,
+  .refuse {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
 }
