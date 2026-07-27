@@ -1,9 +1,9 @@
 /**
  * Choosing what to draw.
  *
- * The whole language graph is far too big to show — 3,010 words in the giant
- * component, and almost any word lies on *some* meandering route between two
- * others. So the board is a filtered neighbourhood, assembled in three steps.
+ * The whole language graph is far too big to show — 151k words carry a move, and
+ * almost any word lies on *some* meandering route between two others. So the
+ * board is a filtered neighbourhood, assembled in three steps.
  *
  * 1. Routes, not balls. Keep nodes where
  *    `d(anchor, v) + d(v, target) <= d(anchor, target) + slack`, then prune dead
@@ -73,7 +73,7 @@ export interface PlateOptions {
  *
  * The board is rebuilt after every guess, and each rebuild needs distances from
  * the source, the target and each word found so far. Recomputing them meant two
- * or more full sweeps of a 109k-node graph per keystroke-turned-guess. The graph
+ * or more full sweeps of a 151k-node graph per keystroke-turned-guess. The graph
  * is immutable once loaded, so these never go stale; the cache is keyed weakly so
  * swapping graphs cannot leak.
  */
@@ -135,10 +135,6 @@ function pruneDeadEnds(graph: Graph, nodes: Set<string>, keep: ReadonlySet<strin
   return live;
 }
 
-function setOf(excess: Map<string, number> | null): Set<string> | null {
-  return excess ? new Set(excess.keys()) : null;
-}
-
 /**
  * A second way out of the source, with a route onward so it is not a stub.
  *
@@ -189,21 +185,8 @@ export function buildPlate(
   const found = [...revealed];
   const named = found.map((r) => r.word);
 
-  /**
-   * Words the player reached that the board has never heard of.
-   *
-   * Guesses are judged against the full dictionary, so a legal move can land on
-   * an ordinary word outside the common corpus the graph was built from — and
-   * such a word has no edges here at all. Left alone it would draw as an
-   * unconnected dot, so its edge back to where it was found is added by hand,
-   * and its distances are inherited from that parent.
-   */
-  // Includes the ordinary-but-unreachable and the plainly obscure alike: anything
-  // the board would not have drawn on its own is attached where it was found.
-  const offBoard = found.filter((r) => !graph.has(r.word) || !graph.isCommon(r.word));
-
-  // Copied, because off-board words get spliced in below and the cached maps
-  // must not be mutated.
+  // Copied, because stranded words get spliced in below and the cached maps must
+  // not be mutated.
   const distToTarget = new Map(distancesFrom(graph, target));
   const distFromSource = new Map(distancesFrom(graph, source));
 
@@ -342,15 +325,23 @@ export function buildPlate(
     return best;
   };
 
+  // Slack 0 — the best routes and nothing else — is the floor, and it is drawn
+  // whatever happens. Each widening either fits, and is kept, or overflows, in
+  // which case it is trimmed back to the budget and the widening stops there.
+  const floor = gather(0, cap);
   let slack = 0;
-  let live = pruneDeadEnds(graph, setOf(gather(slack, cap)) ?? protectedNodes, protectedNodes);
+  let live = pruneDeadEnds(graph, floor ? new Set(floor.keys()) : protectedNodes, protectedNodes);
   for (let wider = 2; wider <= options.slack; wider += 2) {
     const candidates = gather(wider, cap);
     if (!candidates) break;
-    const pruned = pruneDeadEnds(graph, setOf(candidates)!, protectedNodes);
-    live = pruned.size > maxDrawn ? trim(candidates, maxDrawn) : pruned;
+    const pruned = pruneDeadEnds(graph, new Set(candidates.keys()), protectedNodes);
     slack = wider;
-    if (pruned.size > maxDrawn) break;
+    if (pruned.size <= maxDrawn) {
+      live = pruned;
+      continue;
+    }
+    live = trim(candidates, maxDrawn);
+    break;
   }
 
   const nodes = [...live].sort();
@@ -370,13 +361,50 @@ export function buildPlate(
     }
   }
 
-  // Reconnect the words the board has never heard of, and give them a place in
-  // the vertical ordering by inheriting from whatever they were reached from.
-  for (const entry of offBoard) {
-    if (!entry.via || !live.has(entry.via)) continue;
-    addEdge(entry.via, entry.word);
-    const parentToTarget = distToTarget.get(entry.via);
-    const parentFromSource = distFromSource.get(entry.via);
+  /**
+   * Nothing drawn is ever drawn unattached.
+   *
+   * A word the player found is never pruned — they must be able to see where they
+   * are standing — but being kept is not the same as being connected, and a word
+   * can end up on the board with no drawn neighbour in two different ways:
+   *
+   *  - The graph has never heard of it. Guesses are judged against the whole
+   *    dictionary, so a legal move can land on an ordinary word outside the common
+   *    corpus, and such a word has no edges here at all.
+   *  - The graph knows it perfectly well, but the route joining it to everything
+   *    else did not survive the drawing budget. This is the one that was missed,
+   *    and it is not rare: restoring a saved game materialises every word found so
+   *    far at once, against a budget of thirty, so the connecting routes are
+   *    exactly what gets trimmed. The word was left as a dot in the corner, which
+   *    reads as the game having lost it.
+   *
+   * Both have the same answer — attach it to whatever it was reached from, which
+   * the player has by definition also found, and inherit a place in the vertical
+   * ordering from there. Asking "did this end up with an edge?" rather than "is
+   * this word in the corpus?" catches both, and cannot be outgrown by a third way.
+   */
+  const attached = new Set<string>();
+  for (const { a, b } of edges) {
+    attached.add(a);
+    attached.add(b);
+  }
+
+  for (const entry of found) {
+    if (!live.has(entry.word) || attached.has(entry.word)) continue;
+    // Up the trail to the first word that is actually on the board. The source
+    // always is, so this terminates.
+    let via = entry.via;
+    while (via !== null && !live.has(via)) {
+      via = found.find((r) => r.word === via)?.via ?? null;
+    }
+    if (via === null) continue;
+
+    addEdge(via, entry.word);
+    attached.add(entry.word);
+    attached.add(via);
+
+    const parentToTarget = distToTarget.get(via);
+    const parentFromSource = distFromSource.get(via);
     if (parentToTarget !== undefined && !distToTarget.has(entry.word)) {
       distToTarget.set(entry.word, parentToTarget + 1);
     }

@@ -1,48 +1,16 @@
 /**
- * Test fixtures read the shipped data from disk and reason about it with the
- * same library the game uses. That way a test knows the real answer to a real
- * puzzle without hard-coding words that a data rebuild would invalidate.
+ * Real puzzles and their real answers, derived rather than written down.
+ *
+ * These read the shipped data from disk (see src/test/shipped.ts) and reason
+ * about it with the same library the game uses, so a test knows the answer to a
+ * real puzzle without hard-coding words that a data rebuild would invalidate.
  */
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { buildGraph, shortestPath, shortestPathNodes } from '../src/lib/graph';
-import type { Graph, Puzzle, RawDictionary, RawGraph, RawPuzzles } from '../src/lib/types';
+import { shortestPath, shortestPathNodes } from '../src/lib/graph';
+import { shippedData } from '../src/test/shipped';
+import type { Puzzle } from '../src/lib/types';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const dataDir = join(here, '..', 'public', 'data');
-
-function read<T>(name: string): T {
-  return JSON.parse(readFileSync(join(dataDir, name), 'utf8')) as T;
-}
-
-/**
- * The shipped graph, built the way the app builds it — including the common word
- * list, without which every word counts as ordinary and the board under test is
- * not the board that ships.
- */
-function realGraph() {
-  const words = read<RawDictionary>('dictionary.json').words.split('\n');
-  const common = new Set<string>();
-  let at = 0;
-  for (const delta of read<{ common: number[] }>('common.json').common) {
-    at += delta;
-    const word = words[at];
-    if (word !== undefined) common.add(word);
-  }
-  return buildGraph(read<RawGraph>('graph.json'), words, common);
-}
-
-let cached: { graph: Graph; puzzles: Puzzle[] } | null = null;
-
-export function gameData() {
-  cached ??= {
-    graph: realGraph(),
-    puzzles: read<RawPuzzles>('puzzles.json').puzzles,
-  };
-  return cached;
-}
+export const gameData = shippedData;
 
 export interface SolvedPuzzle {
   index: number;

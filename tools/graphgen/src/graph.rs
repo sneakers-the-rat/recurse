@@ -40,31 +40,21 @@ pub type FxBuild = BuildHasherDefault<FxHasher>;
 pub type FxMap<K, V> = HashMap<K, V, FxBuild>;
 pub type FxSet<T> = std::collections::HashSet<T, FxBuild>;
 
-/// One legal move, as word indices plus where the subword sat.
-#[derive(Clone, Copy, Debug)]
-pub struct Edge {
-    pub big: u32,
-    pub small: u32,
-    /// Start of the run inside `big`. Also the insertion index into `small`,
-    /// because big == small[..pos] + sub + small[pos..].
-    pub pos: u32,
-    pub sub_len: u32,
-}
-
 /// An undirected graph over a fixed, sorted word list.
 pub struct Graph {
     pub words: Vec<String>,
     pub index: FxMap<String, u32>,
-    pub edges: Vec<Edge>,
+    /// `(big, small)` word ids, sorted and deduplicated.
+    ///
+    /// Where the subword sat is deliberately not kept. It used to be, and nothing
+    /// ever read it: the client re-derives the position from the word pair, which
+    /// is also what lets the edge file ship as bare index pairs.
+    pub edges: Vec<(u32, u32)>,
     /// Neighbour lists, indexed by word id.
     pub adjacency: Vec<Vec<u32>>,
 }
 
 impl Graph {
-    pub fn degree(&self, word: u32) -> usize {
-        self.adjacency[word as usize].len()
-    }
-
     pub fn neighbors(&self, word: u32) -> &[u32] {
         &self.adjacency[word as usize]
     }
@@ -86,7 +76,6 @@ pub fn build(
     subs: &FxSet<&str>,
     min_word: usize,
     min_sub: usize,
-    internal_only: bool,
     threads: usize,
 ) -> Graph {
     let index: FxMap<String, u32> = nodes
@@ -96,7 +85,7 @@ pub fn build(
         .collect();
 
     let chunk = nodes.len().div_ceil(threads.max(1));
-    let mut edges: Vec<Edge> = Vec::new();
+    let mut edges: Vec<(u32, u32)> = Vec::new();
 
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
@@ -105,18 +94,14 @@ pub fn build(
             let nodes = &nodes;
             let index = &index;
             handles.push(scope.spawn(move || {
-                let mut found: Vec<Edge> = Vec::new();
+                let mut found: Vec<(u32, u32)> = Vec::new();
                 // Reused so the inner loop does not allocate per candidate.
                 let mut scratch = String::with_capacity(64);
                 for id in start..end {
                     let big = nodes[id].as_str();
-                    let bytes = big.as_bytes();
-                    let n = bytes.len();
+                    let n = big.len();
                     for i in 0..n {
                         for j in (i + min_sub)..=n {
-                            if internal_only && (i == 0 || j == n) {
-                                continue;
-                            }
                             // Length of what remains after deleting big[i..j].
                             if n - (j - i) < min_word {
                                 continue;
@@ -129,12 +114,7 @@ pub fn build(
                             scratch.push_str(&big[..i]);
                             scratch.push_str(&big[j..]);
                             if let Some(&small) = index.get(scratch.as_str()) {
-                                found.push(Edge {
-                                    big: id as u32,
-                                    small,
-                                    pos: i as u32,
-                                    sub_len: (j - i) as u32,
-                                });
+                                found.push((id as u32, small));
                             }
                         }
                     }
@@ -147,13 +127,16 @@ pub fn build(
         }
     });
 
-    // Deterministic regardless of how the work was split across threads.
-    edges.sort_unstable_by_key(|e| (e.big, e.small, e.pos, e.sub_len));
+    // Deterministic regardless of how the work was split across threads. Deduped
+    // because repeated letters give one word pair several readings, and an edge
+    // is a pair of words — `banana` minus `ana` reaches `ban` two ways, once.
+    edges.sort_unstable();
+    edges.dedup();
 
     let mut adjacency = vec![Vec::new(); nodes.len()];
-    for edge in &edges {
-        adjacency[edge.big as usize].push(edge.small);
-        adjacency[edge.small as usize].push(edge.big);
+    for &(big, small) in &edges {
+        adjacency[big as usize].push(small);
+        adjacency[small as usize].push(big);
     }
     for list in &mut adjacency {
         list.sort_unstable();

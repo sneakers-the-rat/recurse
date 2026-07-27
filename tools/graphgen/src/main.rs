@@ -31,7 +31,7 @@ mod words;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use config::Config;
+use config::{Audit, Config};
 use graph::{FxMap, FxSet};
 
 fn main() {
@@ -101,54 +101,33 @@ fn run() -> Result<(), String> {
         .map(|(i, w)| (w.clone(), i))
         .collect();
 
-    // ------------------------------------------------------------ legal graph
-    let phase = Instant::now();
+    // ---------------------------------------------------------- the two graphs
+    //
+    // Identical construction over different corpora: a word can be a node if it
+    // is long enough, and a run can be removed if the corpus contains it. The
+    // tiers differ only in which words those are.
     let legal_subs: FxSet<&str> = legal_words.iter().map(String::as_str).collect();
-    let legal_nodes: Vec<String> = legal_words
-        .iter()
-        .filter(|w| w.len() >= config.min_word)
-        .cloned()
-        .collect();
-    let legal = graph::build(
-        legal_nodes,
-        &legal_subs,
-        config.min_word,
-        config.min_sub,
-        false,
-        threads,
-    );
-    eprintln!(
-        "legal graph:  {} edges over {} words in {:.1}s",
-        legal.edges.len(),
-        legal.adjacency.iter().filter(|a| !a.is_empty()).count(),
-        phase.elapsed().as_secs_f64()
-    );
-
-    // ----------------------------------------------------------- common graph
-    let phase = Instant::now();
     let common_subs: FxSet<&str> = common_words.iter().map(String::as_str).collect();
-    let common_nodes: Vec<String> = common_words
-        .iter()
-        .filter(|w| w.len() >= config.min_word)
-        .cloned()
-        .collect();
-    let common = graph::build(
-        common_nodes,
-        &common_subs,
-        config.min_word,
-        config.min_sub,
-        false,
-        threads,
-    );
-    eprintln!(
-        "common graph: {} edges over {} words in {:.1}s",
-        common.edges.len(),
-        common.adjacency.iter().filter(|a| !a.is_empty()).count(),
-        phase.elapsed().as_secs_f64()
-    );
 
-    // Quality is judged on the legal graph inside select(), because that is the
-    // graph a player moves in — see solutions_are_interesting.
+    let tier = |name: &str, words: &[String], subs: &FxSet<&str>| {
+        let phase = Instant::now();
+        let nodes: Vec<String> = words
+            .iter()
+            .filter(|w| w.len() >= config.min_word)
+            .cloned()
+            .collect();
+        let graph = graph::build(nodes, subs, config.min_word, config.min_sub, threads);
+        eprintln!(
+            "{name} graph: {} edges over {} words in {:.1}s",
+            graph.edges.len(),
+            graph.adjacency.iter().filter(|a| !a.is_empty()).count(),
+            phase.elapsed().as_secs_f64()
+        );
+        graph
+    };
+
+    let legal = tier("legal ", &legal_words, &legal_subs);
+    let common = tier("common", &common_words, &common_subs);
 
     // --------------------------------------------------------------- puzzles
     let phase = Instant::now();
@@ -159,7 +138,7 @@ fn run() -> Result<(), String> {
         selection.candidates,
         phase.elapsed().as_secs_f64()
     );
-    report_rules(&selection, config.audit > 0);
+    report_rules(&selection, config.audit != Audit::Off);
     if selection.unplaceable > 0 {
         eprintln!("  {} could not be spaced apart", selection.unplaceable);
     }
@@ -191,15 +170,14 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-/// What each rule cost, and which rules are actually doing the work.
+/// The rules that refused anything, costliest first.
 ///
-/// `refused` is how many candidates the rule turned down. `only reason` is how
-/// many it was the sole objection to — the number that matters when tuning, since
-/// it is exactly what relaxing that one rule would let in. Without `RECURSE_AUDIT`
-/// the rules run as a cascade and every candidate stops at its first failure, so
-/// the two columns are the same and both are attributed to whichever rule ran
-/// earliest. With it, each rule is judged against every candidate.
-fn report_rules(selection: &select::Selection, audited: bool) {
+/// `refused` is how many candidates the rule turned down. `only` is how many it
+/// was the sole objection to — the number that matters when tuning, since it is
+/// exactly what relaxing that one rule would let in. Without `RECURSE_AUDIT` the
+/// rules run as a cascade and every candidate stops at its first failure, so both
+/// are attributed to whichever rule ran earliest.
+fn rule_rows(selection: &select::Selection) -> Vec<(select::Rule, usize, usize)> {
     let mut rows: Vec<(select::Rule, usize, usize)> = selection
         .rejections
         .alone
@@ -209,17 +187,20 @@ fn report_rules(selection: &select::Selection, audited: bool) {
         .filter(|(_, refused, _)| *refused > 0)
         .collect();
     rows.sort_by_key(|(_, refused, _)| std::cmp::Reverse(*refused));
+    rows
+}
 
+/// What each rule cost, and which rules are actually doing the work.
+fn report_rules(selection: &select::Selection, audited: bool) {
     eprintln!(
         "  rules ({}):",
         if audited { "audited independently" } else { "cascade — first failure only" }
     );
     eprintln!("    {:>9}  {:>9}   {:<48} {}", "refused", "only reason", "rule", "knob");
-    for (rule, refused, sole) in rows {
+    for (rule, refused, sole) in rule_rows(selection) {
         let (what, knob) = rule.describe();
         eprintln!("    {refused:>9}  {sole:>11}   {what:<48} {knob}");
     }
-
 }
 
 /// The bank in calendar order, with the answers the filters let through.
@@ -247,16 +228,7 @@ fn write_survey(
     // The whole rule table, so a survey read weeks later still says which settings
     // produced it. `only` is what relaxing that one rule would let back in.
     out.push_str("refused by each rule (only reason it was refused, in brackets):\n");
-    let mut rows: Vec<(select::Rule, usize, usize)> = selection
-        .rejections
-        .alone
-        .iter()
-        .zip(selection.rejections.only.iter())
-        .map(|((rule, refused), (_, sole))| (*rule, *refused, *sole))
-        .filter(|(_, refused, _)| *refused > 0)
-        .collect();
-    rows.sort_by_key(|(_, refused, _)| std::cmp::Reverse(*refused));
-    for (rule, refused, sole) in rows {
+    for (rule, refused, sole) in rule_rows(selection) {
         let (what, knob) = rule.describe();
         out.push_str(&format!("  {refused:>7} ({sole:>6})  {what}  [{knob}]\n"));
     }
@@ -287,6 +259,22 @@ fn write_survey(
     Ok(())
 }
 
+/// Append `values` as a JSON array of steps between them.
+///
+/// Sorted indices delta-encode to small repeated integers, which gzip handles far
+/// better than the absolute values. Both index files are written this way; the
+/// client's `decodeDeltas` in src/lib/data.ts is the other end of it.
+fn push_deltas(out: &mut String, values: impl IntoIterator<Item = u32>) {
+    let mut previous = 0i64;
+    for (i, value) in values.into_iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&(value as i64 - previous).to_string());
+        previous = value as i64;
+    }
+}
+
 fn write_outputs(
     data: &Path,
     config: &Config,
@@ -296,48 +284,42 @@ fn write_outputs(
     selection: &select::Selection,
 ) -> Result<(), String> {
     // The dictionary does double duty: the set of legal guesses, and the
-    // canonical index the edge list refers to. One sorted list, so the graph
-    // never repeats a word.
-    let mut dictionary = String::from("{\"words\":\"");
-    for (i, word) in legal_words.iter().enumerate() {
-        if i > 0 {
-            dictionary.push_str("\\n");
-        }
-        dictionary.push_str(word);
-    }
-    dictionary.push_str("\"}");
+    // canonical index the other two files refer to. One sorted list, so no word
+    // is ever stored twice.
+    let dictionary = format!("{{\"words\":\"{}\"}}", legal_words.join("\\n"));
     words::write_file(&data.join("dictionary.json"), &dictionary)?;
 
-    // Edges carry only the two words: the subword and its position are
-    // recoverable from the pair plus the dictionary, and deriving the handful
-    // actually displayed beats shipping hundreds of thousands of them.
     let index: FxMap<&str, u32> = legal_words
         .iter()
         .enumerate()
         .map(|(i, w)| (w.as_str(), i as u32))
         .collect();
+
+    // Edges carry only the two words: the subword and its position are
+    // recoverable from the pair plus the dictionary, and deriving the handful
+    // actually displayed beats shipping hundreds of thousands of them.
+    //
+    // Sorted by the first index so the deltas below are small and mostly zero.
     let mut pairs: Vec<(u32, u32)> = legal
         .edges
         .iter()
-        .filter_map(|e| {
+        .filter_map(|&(big, small)| {
             Some((
-                *index.get(legal.word(e.big))?,
-                *index.get(legal.word(e.small))?,
+                *index.get(legal.word(big))?,
+                *index.get(legal.word(small))?,
             ))
         })
         .collect();
     pairs.sort_unstable();
-    pairs.dedup();
 
     let mut graph_json = String::with_capacity(pairs.len() * 12 + 512);
-    graph_json.push_str("{\"params\":{");
-    graph_json.push_str(&format!("\"commonScowl\":{},", config.common_scowl));
-    graph_json.push_str(&format!("\"legalScowl\":{},", config.legal_scowl));
-    graph_json.push_str(&format!("\"minWord\":{},", config.min_word));
-    graph_json.push_str(&format!("\"minSub\":{},", config.min_sub));
-    graph_json.push_str("\"internalOnly\":false},\"edges\":[");
-    // First element delta-encoded: sorted deltas are small repeated integers,
-    // which gzip handles far better than absolute indices.
+    graph_json.push_str(&format!(
+        "{{\"params\":{{\"commonScowl\":{},\"legalScowl\":{},\"minWord\":{},\"minSub\":{}}},\
+         \"edges\":[",
+        config.common_scowl, config.legal_scowl, config.min_word, config.min_sub
+    ));
+    // Only the first of each pair is delta-encoded; the second is an absolute
+    // index, so the two are interleaved rather than run through push_deltas.
     let mut previous = 0i64;
     for (i, (big, small)) in pairs.iter().enumerate() {
         if i > 0 {
@@ -380,8 +362,7 @@ fn write_outputs(
     // Which dictionary words are ordinary ones. The client draws the board from
     // these and no others: the whole 189k list is what a player may *guess*, but a
     // board built from it shows routes through words nobody knows, and a gilt
-    // "best route" that is not the answer the puzzle advertises. Delta-encoded
-    // indices into the dictionary, which gzip handles far better than the words.
+    // "best route" that is not the answer the puzzle advertises.
     let mut common_ids: Vec<u32> = common_words
         .iter()
         .filter_map(|w| index.get(w.as_str()).copied())
@@ -389,14 +370,7 @@ fn write_outputs(
     common_ids.sort_unstable();
     let mut common_json = String::with_capacity(common_ids.len() * 5 + 32);
     common_json.push_str("{\"common\":[");
-    let mut previous = 0i64;
-    for (i, &id) in common_ids.iter().enumerate() {
-        if i > 0 {
-            common_json.push(',');
-        }
-        common_json.push_str(&(id as i64 - previous).to_string());
-        previous = id as i64;
-    }
+    push_deltas(&mut common_json, common_ids);
     common_json.push_str("]}");
     words::write_file(&data.join("common.json"), &common_json)?;
 

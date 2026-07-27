@@ -276,8 +276,11 @@ export function GraphPlate({
           // room and a word's legibility.
           const spelled = hinted && namesWords;
           const named = isRevealed || isEndpoint || spelled;
-          const r = isRevealed || isEndpoint ? NODE_R : hinted ? NODE_R - 3 : DOT_R;
 
+          // The whole visual grammar for one node, decided in one place. Left as
+          // nested ternaries inside the JSX it was four separate ladders over the
+          // same five booleans, and no two of them read the same way.
+          const r = isRevealed || isEndpoint ? NODE_R : hinted ? NODE_R - 3 : DOT_R;
           const ring = isEndpoint
             ? 'var(--color-bone)'
             : isRevealed
@@ -287,6 +290,23 @@ export function GraphPlate({
               : onRoute
                 ? 'var(--color-gilt)'
                 : 'var(--color-ash-lit)';
+          const fill = named
+            ? 'var(--color-noir-3)'
+            : hinted
+              ? 'var(--color-noir-2)'
+              : onRoute
+                ? 'var(--color-gilt-dim)'
+                : 'var(--color-ash)';
+          const weight = named ? 1.4 : hinted ? 1 : 0.8;
+          const presence = named ? 1 : onRoute ? 0.95 : 0.7;
+          // A word named by dev mode, rather than earned, is set dim: it is an
+          // inspection of the board, not a move on it.
+          const ink =
+            spelled && !isRevealed
+              ? 'var(--color-bone-dim)'
+              : named
+                ? 'var(--color-bone)'
+                : 'var(--color-bone-dim)';
 
           // The target is named from the start — it is the goal, not a secret.
           const label =
@@ -320,21 +340,7 @@ export function GraphPlate({
                   />
                 )}
 
-                <circle
-                  r={r}
-                  fill={
-                    named
-                      ? 'var(--color-noir-3)'
-                      : hinted
-                        ? 'var(--color-noir-2)'
-                        : onRoute
-                          ? 'var(--color-gilt-dim)'
-                          : 'var(--color-ash)'
-                  }
-                  stroke={ring}
-                  strokeWidth={named ? 1.4 : hinted ? 1 : 0.8}
-                  opacity={named ? 1 : onRoute ? 0.95 : 0.7}
-                />
+                <circle r={r} fill={fill} stroke={ring} strokeWidth={weight} opacity={presence} />
 
                 {/* Deco double ring marks the two words you are given. */}
                 {isEndpoint && (
@@ -366,13 +372,7 @@ export function GraphPlate({
                     className="word"
                     fontSize={named ? 12.5 : 10}
                     fontWeight={isEndpoint ? 600 : 400}
-                    // A word named by dev mode, rather than earned, is set dim:
-                    // it is an inspection of the board, not a move on it.
-                    fill={
-                      spelled && !isRevealed ? 'var(--color-bone-dim)' : named
-                        ? 'var(--color-bone)'
-                        : 'var(--color-bone-dim)'
-                    }
+                    fill={ink}
                     paintOrder="stroke"
                     stroke="var(--color-noir)"
                     strokeWidth="3.5"

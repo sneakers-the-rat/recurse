@@ -1,4 +1,9 @@
-/** Shared shapes for the puzzle data and game state. */
+/**
+ * The game's vocabulary: the shapes that cross module boundaries.
+ *
+ * What the *files* look like belongs to data.ts, which is the only module that
+ * should ever have to know.
+ */
 
 /** A single legal step: add or remove `sub` at `pos`. */
 export interface Move {
@@ -16,39 +21,6 @@ export interface GraphParams {
   legalScowl: number;
   minWord: number;
   minSub: number;
-  internalOnly: boolean;
-}
-
-/**
- * `public/data/graph.json`, as written by tools/build_graph.py.
- *
- * `edges` is a flat array of index pairs into the dictionary, with the first of
- * each pair delta-encoded — see decodeEdges. Subwords and positions are not
- * stored; they are derived from a word pair on demand. That keeps 162k edges to
- * 352KB gzipped rather than 1,278KB.
- */
-export interface RawGraph {
-  params: GraphParams;
-  edges: number[];
-}
-
-/** `public/data/dictionary.json`: newline-joined, sorted, the canonical index. */
-export interface RawDictionary {
-  words: string;
-}
-
-/** `public/data/puzzles.json`. */
-export interface RawPuzzles {
-  params: {
-    /** Selection's neighbourhood measure on the common graph. Not a draw budget. */
-    slack: number;
-    /** What the board draws, on the legal graph. See .env. */
-    drawSlack: number;
-    drawMax: number;
-    minPar: number;
-    maxPar: number;
-  };
-  puzzles: Puzzle[];
 }
 
 export interface Puzzle {
@@ -93,7 +65,6 @@ export interface Graph {
   commonNeighbors(word: string): readonly string[];
   /** Does this word have at least one move? */
   has(word: string): boolean;
-  movesFrom(word: string): readonly Move[];
   neighbors(word: string): readonly string[];
   findMove(from: string, to: string): Move | null;
   degree(word: string): number;
@@ -134,9 +105,14 @@ export interface InsertionSpot {
   sub: string;
 }
 
+/**
+ * A verdict on a guess. A refusal carries a sentence, not a structure: the code
+ * is for tests to pin the reason, and the message is what the player reads. An
+ * `EditShape` used to ride along too, and nothing ever looked at it.
+ */
 export type Judgement =
   | { ok: true; move: Move; word: string }
-  | { ok: false; code: Rejection; message: string; detail?: EditShape & { sub?: string } };
+  | { ok: false; code: Rejection; message: string };
 
 export interface Point {
   x: number;

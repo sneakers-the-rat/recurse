@@ -7,7 +7,7 @@
  * arrive in two separate places so no single word was ever inserted.
  */
 
-import type { EditShape, Graph, InsertionSpot, Judgement, Move } from './types';
+import type { EditShape, Graph, InsertionSpot, Judgement } from './types';
 
 /**
  * Every way a contiguous run could be inserted into `shorter` to give `longer`.
@@ -60,53 +60,51 @@ export function analyzeEdit(from: string, to: string): EditShape {
   return { shape: 'swap' };
 }
 
+/** Readings long enough to be a legal move, longest first, then leftmost. */
+function legalReadings(spots: readonly InsertionSpot[], minSub: number): InsertionSpot[] {
+  return [...spots]
+    .sort((a, b) => b.sub.length - a.sub.length || a.pos - b.pos)
+    .filter((s) => s.sub.length >= minSub);
+}
+
 /**
- * Pick which reading of an ambiguous edit to show the player.
+ * The reading of an ambiguous edit that names a real word, if there is one.
  *
- * Removing letters is often ambiguous: `lifetime` → `lime` could be dropping
- * `ifet` or `feti`. The game is generous — if *any* reading is a legal word the
- * move counts — so the display has to agree with that rather than showing an
- * arbitrary slice. Preference order: a reading that is actually a word, then a
- * legal-length one, then the longest.
+ * This is the whole of the game's generosity about ambiguity, in one place.
+ * `lifetime` → `lime` can be read as dropping `ifet` or `feti`; the move counts
+ * if *any* reading names a word, so every consumer has to ask the same question
+ * — judging the guess, drawing the edge, and describing an edge in the shipped
+ * list. Each of those asked it separately once, and they disagreed about which
+ * moves existed.
+ */
+export function wordReading(
+  spots: readonly InsertionSpot[],
+  minSub: number,
+  isWord: ((word: string) => boolean) | null,
+): InsertionSpot | undefined {
+  if (!isWord) return undefined;
+  return legalReadings(spots, minSub).find((s) => isWord(s.sub));
+}
+
+/**
+ * Pick which reading to show the player.
+ *
+ * A word if one can be found, since that is the move the game would accept;
+ * otherwise the longest legal-length run, which is the one they probably meant.
+ * Used for a guess that is *not* a legal move, where there is nothing to agree
+ * with and the job is only to name what they appear to have tried.
  */
 export function bestReading(
   spots: readonly InsertionSpot[],
   minSub: number,
   isWord: ((word: string) => boolean) | null,
 ): InsertionSpot {
-  const longest = [...spots].sort((a, b) => b.sub.length - a.sub.length || a.pos - b.pos);
-  const legal = longest.filter((s) => s.sub.length >= minSub);
-  if (isWord) {
-    const real = legal.find((s) => isWord(s.sub));
-    if (real) return real;
-  }
-  return legal[0] ?? longest[0]!;
-}
-
-export interface MoveSegments {
-  kind: 'add' | 'remove';
-  shorter: string;
-  longer: string;
-  before: string;
-  sub: string;
-  after: string;
-}
-
-/**
- * Split the longer word around the subword, so the UI can render
- * `base[ball]` with the arriving or departing letters marked.
- */
-export function moveSegments(from: string, to: string, move: Move): MoveSegments {
-  const longer = move.kind === 'add' ? to : from;
-  const shorter = move.kind === 'add' ? from : to;
-  return {
-    kind: move.kind,
-    shorter,
-    longer,
-    before: longer.slice(0, move.pos),
-    sub: longer.slice(move.pos, move.pos + move.sub.length),
-    after: longer.slice(move.pos + move.sub.length),
-  };
+  const legal = legalReadings(spots, minSub);
+  return (
+    wordReading(spots, minSub, isWord) ??
+    legal[0] ??
+    [...spots].sort((a, b) => b.sub.length - a.sub.length || a.pos - b.pos)[0]!
+  );
 }
 
 /**
@@ -114,14 +112,13 @@ export function moveSegments(from: string, to: string, move: Move): MoveSegments
  *
  * Legality has two sources, and they are not the same thing:
  *
- *  - the shipped edge list, covering the ~20k common words puzzles are built
- *    from. Available immediately, and it carries the exact subword and position.
+ *  - the shipped edge list, which carries the exact subword and position for
+ *    every move it knows about.
  *  - `isWord`, the full ~189k dictionary. Any real word is a legal guess, so a
- *    move it accepts is legal even though it never appears on the board.
- *    Ordinary words like `lifespan` live here, outside the common corpus.
+ *    move it accepts is legal even where the pair has no stored edge.
  *
- * The edge list is tried first because it is loaded first and is cheaper. Until
- * the dictionary arrives, wording avoids asserting anything it cannot check.
+ * The edge list is tried first because it is cheaper and already knows the answer.
+ * Without `isWord`, wording avoids asserting anything it cannot check.
  */
 export function judgeGuess(
   graph: Graph,
@@ -160,16 +157,13 @@ export function judgeGuess(
   // `ifet` or `feti`; if *any* reading names a real word the move stands, so
   // every reading is tried rather than just the longest or the leftmost.
   if (isWord && (edit.shape === 'add' || edit.shape === 'remove') && word.length >= minWord) {
-    if (isWord(word)) {
-      const valid = edit.spots.filter((s) => s.sub.length >= minSub && isWord(s.sub));
-      const chosen = valid.sort((a, b) => b.sub.length - a.sub.length || a.pos - b.pos)[0];
-      if (chosen) {
-        return {
-          ok: true,
-          word,
-          move: { to: word, sub: chosen.sub, pos: chosen.pos, kind: edit.shape },
-        };
-      }
+    const chosen = isWord(word) ? wordReading(edit.spots, minSub, isWord) : undefined;
+    if (chosen) {
+      return {
+        ok: true,
+        word,
+        move: { to: word, sub: chosen.sub, pos: chosen.pos, kind: edit.shape },
+      };
     }
   }
 
@@ -182,7 +176,6 @@ export function judgeGuess(
       message:
         `${word} is the same length as ${from}. Each turn you add a whole word ` +
         `or remove one — you can’t swap letters.`,
-      detail: edit,
     };
   }
 
@@ -195,7 +188,6 @@ export function judgeGuess(
       message:
         `Those letters would be ${verb} in more than one place. The word you ` +
         `${inf} has to be a single unbroken run.`,
-      detail: edit,
     };
   }
 
@@ -216,7 +208,6 @@ export function judgeGuess(
       message:
         `“${subs[0]}” is too short — the word you add or remove needs at least ` +
         `${minSub} letters.`,
-      detail: { ...edit, sub: subs[0] },
     };
   }
 
@@ -225,12 +216,11 @@ export function judgeGuess(
       ok: false,
       code: 'too-short',
       message: `Words in this puzzle are at least ${minWord} letters.`,
-      detail: edit,
     };
   }
 
   if (isWord && !isWord(word)) {
-    return { ok: false, code: 'not-a-word', message: `${word} isn’t in the word list.`, detail: edit };
+    return { ok: false, code: 'not-a-word', message: `${word} isn’t in the word list.` };
   }
 
   // `word` is real (or unverifiable) and the edit is one clean run, so the run
@@ -241,7 +231,6 @@ export function judgeGuess(
       ok: false,
       code: 'sub-not-word',
       message: `That would ${adding ? 'add' : 'remove'} “${named}”, which isn’t a word.`,
-      detail: { ...edit, sub: named },
     };
   }
 
@@ -249,6 +238,5 @@ export function judgeGuess(
     ok: false,
     code: 'no-move',
     message: `No legal move gets from ${from} to ${word}.`,
-    detail: edit,
   };
 }

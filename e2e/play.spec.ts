@@ -121,6 +121,93 @@ test('guessing an off-target word keeps the board and adds to it', async ({ page
   await expect.poll(() => nodes().count()).toBeGreaterThanOrEqual(before);
 });
 
+test('typing goes to the guess box wherever focus is', async ({ page }) => {
+  const { index, path } = puzzleWithPar(3);
+  await page.goto(`/?dev=0&puzzle=${index}`);
+
+  const input = page.getByLabel(/Your guess/);
+  await expect(input).toBeVisible();
+
+  // Put focus somewhere else entirely: a word on the plate.
+  const node = page.locator('main svg circle[role="button"]').first();
+  await node.click();
+  await expect(input).not.toBeFocused();
+
+  // Now just type. The first letter must not be swallowed by the handover.
+  const word = path[1]!;
+  await page.keyboard.type(word);
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue(word);
+
+  // And it is a real guess, not just text in a box.
+  await page.getByRole('button', { name: 'Name it' }).click();
+  await expect(page.locator('header')).toContainText('1 guessed');
+});
+
+test('typing does not hijack the other places text can go', async ({ page }) => {
+  await page.goto('/?dev&puzzle=0');
+
+  // The dev bar has a field of its own, and it must keep what is typed into it.
+  const jump = page.getByLabel('Jump to puzzle number');
+  await jump.click();
+  await page.keyboard.type('12');
+  await expect(jump).toHaveValue('12');
+  await expect(page.getByLabel(/Your guess/)).toHaveValue('');
+
+  // While the rules are open, focus belongs to the dialog.
+  await page.getByRole('button', { name: 'How to play' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.type('base');
+  await expect(page.getByLabel(/Your guess/)).toHaveValue('');
+});
+
+test('a reload picks the game up where it was left', async ({ page }) => {
+  // The case this is for: a phone backgrounds the tab, the browser discards it,
+  // and the player comes back expecting their board rather than a fresh one.
+  const { index, path } = puzzleWithPar(3);
+  await page.goto(`/?dev=0&puzzle=${index}`);
+
+  await guess(page, path[1]!);
+  await expect(page.locator('header')).toContainText('1 guessed');
+
+  await page.reload();
+
+  await expect(page.locator('header')).toContainText('1 guessed');
+  // The word is on the board, and the game still knows where the player stands.
+  await expect(
+    page.locator('main svg text', { hasText: new RegExp(`^${path[1]}$`) }).first(),
+  ).toBeVisible();
+  await expect(page.getByLabel(/Your guess/)).toHaveAttribute(
+    'aria-label',
+    new RegExp(`from ${path[1]}`),
+  );
+
+  // And the restored game is a real game, not a picture of one: finish it.
+  for (const word of path.slice(2)) await guess(page, word);
+  await expect(page.locator('section').last()).toContainText('Perfect');
+});
+
+test('two puzzles keep their progress separately', async ({ page }) => {
+  const first = puzzleWithPar(3);
+  const second = puzzleWithPar(4);
+
+  await page.goto(`/?dev=0&puzzle=${first.index}`);
+  await guess(page, first.path[1]!);
+  await expect(page.locator('header')).toContainText('1 guessed');
+
+  // Wander off to another board...
+  await page.goto(`/?dev=0&puzzle=${second.index}`);
+  await expect(page.locator('header')).toContainText('no guesses yet');
+  await guess(page, second.path[1]!);
+  await guess(page, second.path[2]!);
+  await expect(page.locator('header')).toContainText('2 guessed');
+
+  // ...and back. Each board remembers its own.
+  await page.goto(`/?dev=0&puzzle=${first.index}`);
+  await expect(page.locator('header')).toContainText(first.puzzle.source);
+  await expect(page.locator('header')).toContainText('1 guessed');
+});
+
 test('beating par is a secret, not a mistake', async ({ page }) => {
   // Par is the best route through ordinary words. A rarer word can cut a corner,
   // and the game celebrates that rather than pretending it is impossible.

@@ -119,7 +119,84 @@ export function useHint(state: GameState, word: string): GameState {
   return { ...state, hinted: new Set(state.hinted).add(word) };
 }
 
-/** Legal next words from the selected node that the player has not found yet. */
-export function undiscoveredMoves(state: GameState, graph: Graph): readonly Move[] {
-  return graph.movesFrom(state.selected).filter((m) => !state.revealed.has(m.to));
+/**
+ * A game in progress, in a form that survives being written down.
+ *
+ * Only what cannot be derived. `revealed` is exactly the source plus one entry
+ * per logged move, `guesses` is the log's length, and `solved` is whether the
+ * target is among them — so storing those too would be storing the same facts
+ * twice and inviting them to disagree. What is left is the log, where the cursor
+ * is (moving it costs nothing, so it leaves no trace in the log), and the two
+ * tallies that are not about words at all.
+ */
+export interface GameSnapshot {
+  log: LogEntry[];
+  selected: string;
+  misses: number;
+  hinted: string[];
+}
+
+export function snapshot(state: GameState): GameSnapshot {
+  return {
+    log: state.log,
+    selected: state.selected,
+    misses: state.misses,
+    hinted: [...state.hinted],
+  };
+}
+
+function isMove(value: unknown): value is Move {
+  const move = value as Move | null;
+  return (
+    typeof move === 'object' &&
+    move !== null &&
+    typeof move.sub === 'string' &&
+    typeof move.pos === 'number' &&
+    (move.kind === 'add' || move.kind === 'remove')
+  );
+}
+
+/**
+ * Rebuild a game from a snapshot, or start a fresh one.
+ *
+ * Total by construction: anything that does not make sense is dropped rather
+ * than trusted. A snapshot is a string that was in a browser for a month — it
+ * may have been written by an older version, or by a bank in which one of these
+ * words no longer exists, and a half-restored map that crashes the board is a
+ * far worse outcome than a game that quietly starts again.
+ *
+ * A move is replayed only if it starts from a word already revealed, so the trail
+ * stays a connected chain back to the source however mangled the input.
+ */
+export function restore(puzzle: Puzzle, saved: GameSnapshot | null | undefined): GameState {
+  const fresh = newGame(puzzle);
+  if (!saved) return fresh;
+
+  const revealed = new Map(fresh.revealed);
+  const log: LogEntry[] = [];
+  for (const entry of Array.isArray(saved.log) ? saved.log : []) {
+    if (!entry || !revealed.has(entry.from) || revealed.has(entry.to)) continue;
+    if (typeof entry.to !== 'string' || !isMove(entry.move)) continue;
+    const order = log.length + 1;
+    revealed.set(entry.to, { word: entry.to, via: entry.from, move: entry.move, order });
+    // Renumbered, not trusted: a dropped entry must not leave a gap in the count.
+    log.push({ from: entry.from, to: entry.to, move: entry.move, order });
+  }
+
+  const hinted = Array.isArray(saved.hinted) ? saved.hinted : [];
+  return {
+    puzzle,
+    revealed,
+    log,
+    selected: revealed.has(saved.selected) ? saved.selected : puzzle.source,
+    guesses: log.length,
+    misses: Number.isFinite(saved.misses) ? Math.max(0, Math.trunc(saved.misses)) : 0,
+    solved: revealed.has(puzzle.target),
+    hinted: new Set(hinted.filter((word) => typeof word === 'string')),
+  };
+}
+
+/** Has anything happened here worth remembering? */
+export function inProgress(state: GameState): boolean {
+  return state.log.length > 0 || state.misses > 0 || state.hinted.size > 0;
 }

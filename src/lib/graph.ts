@@ -13,29 +13,17 @@
  * `big === small.slice(0, pos) + sub + small.slice(pos)`. One number serves both
  * directions.
  *
- * This module is the single authority on whether a move is legal. The build
- * script suppresses some subwords (bare affixes like -ing) and enforces minimum
+ * This module is the single authority on whether a move is legal. The builder
+ * suppresses some subwords (bare affixes like -ing) and enforces minimum
  * lengths; rather than re-deriving those rules in the UI and risking drift, the
  * UI asks the edge list. `analyzeEdit` in moves.ts exists only to *explain*
  * rejections, never to decide them.
+ *
+ * What is *on disk* is data.ts's business. This takes a decoded edge list.
  */
 
-import { insertionSpots } from './moves';
-import type { Graph, Move, RawGraph } from './types';
-
-/**
- * Undo the delta encoding: pairs of dictionary indices, first element as a
- * running sum. See delta_encode in tools/build_graph.py.
- */
-export function decodeEdges(flat: readonly number[]): [number, number][] {
-  const pairs: [number, number][] = [];
-  let big = 0;
-  for (let i = 0; i + 1 < flat.length; i += 2) {
-    big += flat[i]!;
-    pairs.push([big, flat[i + 1]!]);
-  }
-  return pairs;
-}
+import { insertionSpots, wordReading } from './moves';
+import type { Graph, GraphParams, Move } from './types';
 
 /**
  * Build the graph from the edge list and the dictionary that indexes it.
@@ -46,12 +34,11 @@ export function decodeEdges(flat: readonly number[]): [number, number][] {
  * them, and not shipping them cut the edge list from 1,278KB to 352KB gzipped.
  */
 export function buildGraph(
-  raw: RawGraph,
+  params: GraphParams,
   dictionary: readonly string[],
+  edges: Iterable<readonly [number, number]>,
   common?: ReadonlySet<string>,
 ): Graph {
-  const { edges, params } = raw;
-
   const words = new Set<string>(dictionary);
   const adjacency = new Map<string, string[]>();
 
@@ -61,7 +48,7 @@ export function buildGraph(
     else adjacency.set(from, [to]);
   };
 
-  for (const [bigIdx, smallIdx] of decodeEdges(edges)) {
+  for (const [bigIdx, smallIdx] of edges) {
     const big = dictionary[bigIdx];
     const small = dictionary[smallIdx];
     if (big === undefined || small === undefined) {
@@ -82,15 +69,12 @@ export function buildGraph(
 
   const describe = (from: string, to: string): Move => {
     const adding = to.length > from.length;
-    const shorter = adding ? from : to;
-    const longer = adding ? to : from;
-    const spots = insertionSpots(shorter, longer);
-    // The edge exists, so at least one reading is a legal word; prefer that one,
-    // and be generous when several readings are possible.
-    const valid = spots.filter((s) => s.sub.length >= params.minSub && isWord(s.sub));
+    const spots = insertionSpots(adding ? from : to, adding ? to : from);
+    // The edge exists, so some reading names a word; that is the one to show. The
+    // fallback is for callers that describe a pair which is not an edge at all.
     const chosen =
-      valid.sort((a, b) => b.sub.length - a.sub.length || a.pos - b.pos)[0] ??
-      spots.sort((a, b) => b.sub.length - a.sub.length)[0];
+      wordReading(spots, params.minSub, isWord) ??
+      [...spots].sort((a, b) => b.sub.length - a.sub.length)[0];
     return {
       to,
       sub: chosen?.sub ?? '',
@@ -148,7 +132,6 @@ export function buildGraph(
     commonNeighbors,
     has: (word) => adjacency.has(word),
     neighbors: (word) => adjacency.get(word) ?? empty,
-    movesFrom: (word) => (adjacency.get(word) ?? empty).map((to) => describe(word, to)),
     findMove: (from, to) =>
       (adjacency.get(from) ?? empty).includes(to) ? describe(from, to) : null,
     degree: (word) => (adjacency.get(word) ?? empty).length,
@@ -185,34 +168,6 @@ export function bfs(
     frontier = next;
   }
   return dist;
-}
-
-export interface Corridor {
-  nodes: Set<string>;
-  fromSrc: Map<string, number>;
-  fromTgt: Map<string, number>;
-}
-
-/**
- * The nodes worth drawing: those on some path from `src` to `tgt` no longer
- * than `par + slack`.
- *
- * Only even slack changes anything. A node `v` sits on a walk of length
- * `d(src,v) + d(v,tgt)`, whose parity matches `par` throughout the relevant
- * region, so slack 1 yields exactly the slack 0 set. Slack 0 is just the
- * shortest paths — 4 to 9 nodes, with no visible alternatives. Slack 2 is what
- * makes it a graph rather than a line.
- */
-export function corridor(graph: Graph, src: string, tgt: string, par: number, slack = 2): Corridor {
-  const limit = par + slack;
-  const fromSrc = bfs(graph, src, limit);
-  const fromTgt = bfs(graph, tgt, limit);
-  const nodes = new Set<string>();
-  for (const [word, ds] of fromSrc) {
-    const dt = fromTgt.get(word);
-    if (dt !== undefined && ds + dt <= limit) nodes.add(word);
-  }
-  return { nodes, fromSrc, fromTgt };
 }
 
 /** Nodes on at least one shortest src->tgt path, endpoints included. */

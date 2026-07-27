@@ -2,49 +2,17 @@
  * Board selection, against the real shipped data.
  *
  * Using the real graph matters here: the whole point of plate.ts is keeping a
- * 109k-node graph drawable, and a toy fixture cannot show whether it does.
+ * 151k-node graph drawable, and a toy fixture cannot show whether it does.
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildGraph } from './graph';
-import { buildPlate, type PlateOptions } from './plate';
-import type { Graph, Puzzle, RawDictionary, RawGraph, RawPuzzles } from './types';
+import { drawOptions, shippedData } from '../test/shipped';
+import { buildPlate } from './plate';
+import type { Revealed } from './types';
 
-const dataDir = join(process.cwd(), 'public', 'data');
-const read = <T,>(name: string): T =>
-  JSON.parse(readFileSync(join(dataDir, name), 'utf8')) as T;
-
-/**
- * The shipped graph, built the way the app builds it — including the common word
- * list, without which every word counts as ordinary and the board under test is
- * not the board that ships.
- */
-function realGraph() {
-  const words = read<RawDictionary>('dictionary.json').words.split('\n');
-  const common = new Set<string>();
-  let at = 0;
-  for (const delta of read<{ common: number[] }>('common.json').common) {
-    at += delta;
-    const word = words[at];
-    if (word !== undefined) common.add(word);
-  }
-  return buildGraph(read<RawGraph>('graph.json'), words, common);
-}
-
-let cached: { graph: Graph; puzzles: Puzzle[]; draw: PlateOptions } | null = null;
 function real() {
-  if (!cached) {
-    const rawPuzzles = read<RawPuzzles>('puzzles.json');
-    cached = {
-      graph: realGraph(),
-      puzzles: rawPuzzles.puzzles,
-      // The budget the client actually draws with, not selection's wider measure.
-      draw: { slack: rawPuzzles.params.drawSlack, maxDrawn: rawPuzzles.params.drawMax },
-    };
-  }
-  return cached;
+  const data = shippedData();
+  return { graph: data.graph, puzzles: data.puzzles, draw: drawOptions(data) };
 }
 
 describe('buildPlate', () => {
@@ -132,6 +100,59 @@ describe('buildPlate', () => {
     expect(grown.edges.some((e) => e.a === stray || e.b === stray)).toBe(true);
     // And it has somewhere to go, or is at least placed vertically.
     expect(grown.distToTarget.has(stray)).toBe(true);
+  });
+
+  /**
+   * The symptom: restoring a saved game drew some of the words found so far as
+   * loose dots in the corner, joined to nothing.
+   *
+   * Being kept is not the same as being connected. A found word is never pruned,
+   * but the *route* joining it to the rest of the board is ordinary board and gets
+   * trimmed to the budget like anything else — and a restored game asks for every
+   * word found so far at once, which is exactly when the budget runs out. It went
+   * unnoticed because only words outside the corpus were being reattached, and
+   * these were ordinary words the graph knew perfectly well.
+   */
+  it('never draws a word without an edge, however far the player strayed', () => {
+    const { graph, puzzles, draw } = real();
+    const stranded: string[] = [];
+
+    for (const puzzle of puzzles.slice(0, 20)) {
+      const drawn = new Set(buildPlate(graph, puzzle.source, puzzle.target, [], draw).nodes);
+
+      // Walk several moves off the board, the way a restored game arrives: all at
+      // once, rather than one word at a time with the board growing between.
+      const revealed: Revealed[] = [{ word: puzzle.source, via: null, move: null, order: 0 }];
+      let at = puzzle.source;
+      for (let step = 1; step <= 3; step++) {
+        const next = graph
+          .neighbors(at)
+          .find((w) => !drawn.has(w) && !revealed.some((r) => r.word === w));
+        if (!next) break;
+        revealed.push({ word: next, via: at, move: graph.findMove(at, next), order: step });
+        at = next;
+      }
+      if (revealed.length < 3) continue;
+
+      // Before the found words have been expanded, and after. Both are real
+      // states the board is rendered in, a beat apart.
+      for (const anchors of [new Set([puzzle.source]), undefined]) {
+        const plate = buildPlate(graph, puzzle.source, puzzle.target, revealed, {
+          ...draw,
+          ...(anchors ? { anchors } : {}),
+        });
+        const degree = new Map(plate.nodes.map((word) => [word, 0]));
+        for (const { a, b } of plate.edges) {
+          degree.set(a, degree.get(a)! + 1);
+          degree.set(b, degree.get(b)! + 1);
+        }
+        for (const word of plate.nodes) {
+          if (degree.get(word) === 0) stranded.push(`${puzzle.source}: ${word}`);
+        }
+      }
+    }
+
+    expect(stranded).toEqual([]);
   });
 
   it('keeps a word the player found even if it is a dead end', () => {

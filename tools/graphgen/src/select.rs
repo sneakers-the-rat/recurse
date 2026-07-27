@@ -7,7 +7,7 @@
 //! Filters run cheapest first, because the last one — proving par cannot be
 //! beaten anywhere in the 190k-word graph — is by far the most expensive.
 
-use crate::config::Config;
+use crate::config::{Audit, Config};
 use crate::graph::{Bfs, FxMap, FxSet, Graph, UNREACHED};
 use crate::word::{by_length, is_compound_swap, readings, same_family};
 
@@ -158,7 +158,6 @@ fn judge_solutions(
     /// How many answers the survey shows per puzzle. Every one is still judged.
     const SHOWN: usize = 3;
     let mut shown: Vec<String> = Vec::new();
-    let legal = common;
 
     // A subword has to be an ordinary word too, or the answer is only "interesting"
     // by way of something nobody would think of.
@@ -191,7 +190,7 @@ fn judge_solutions(
             let mut family_clash = false;
             for i in 0..path.len() {
                 for j in (i + 1)..path.len() {
-                    if same_family(legal.word(path[i]), legal.word(path[j])) {
+                    if same_family(common.word(path[i]), common.word(path[j])) {
                         family_clash = true;
                     }
                 }
@@ -203,7 +202,7 @@ fn judge_solutions(
             let swaps = path
                 .windows(3)
                 .filter(|w| {
-                    is_compound_swap(legal.word(w[0]), legal.word(w[1]), legal.word(w[2]))
+                    is_compound_swap(common.word(w[0]), common.word(w[1]), common.word(w[2]))
                 })
                 .count();
             if swaps > config.max_swaps {
@@ -214,8 +213,8 @@ fn judge_solutions(
                 .windows(2)
                 .filter(|w| {
                     has_internal_reading(
-                        legal.word(w[0]),
-                        legal.word(w[1]),
+                        common.word(w[0]),
+                        common.word(w[1]),
                         &is_word,
                         config.min_sub,
                     )
@@ -229,7 +228,7 @@ fn judge_solutions(
             if broken.is_empty() && shown.len() < SHOWN {
                 shown.push(
                     path.iter()
-                        .map(|&id| legal.word(id))
+                        .map(|&id| common.word(id))
                         .collect::<Vec<_>>()
                         .join(" → "),
                 );
@@ -245,7 +244,7 @@ fn judge_solutions(
 
         // A step back towards the source: any neighbour one move closer to it.
         let depth = depth_from_src(last);
-        for &previous in legal.neighbors(last) {
+        for &previous in common.neighbors(last) {
             let closer = depth_from_src(previous);
             if closer != UNREACHED && closer + 1 == depth {
                 let mut extended = path.clone();
@@ -425,16 +424,12 @@ pub fn select(
     // most of the build.
     let mut searched_from: Option<u32> = None;
 
-    // Auditing judges every rule against a candidate instead of stopping at its
-    // first failure, and the last rules cost a search of the legal graph each. Over
-    // all 190k candidates that is minutes; over an evenly spread sample it is
-    // seconds and answers the same question, so `RECURSE_AUDIT=1` samples and
-    // scales, and only `RECURSE_AUDIT=full` pays for exact integers.
+    // Judge one candidate in `stride`, or none at all. See Audit in config.rs.
     const AUDIT_SAMPLE: usize = 12_000;
     let stride = match config.audit {
-        0 => 0,
-        1 => (candidate_count / AUDIT_SAMPLE).max(1),
-        given => given,
+        Audit::Off => 0,
+        Audit::Sampled => (candidate_count / AUDIT_SAMPLE).max(1),
+        Audit::Every(n) => n,
     };
     let mut audited = 0usize;
 

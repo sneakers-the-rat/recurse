@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DICTIONARY, RAW, testGraph } from './fixture';
+import { DICTIONARY, PARAMS, testGraph } from '../test/fixture';
 import { bfs, buildGraph, distance, shortestPath, shortestPathNodes } from './graph';
 
 const graph = testGraph();
@@ -34,10 +34,8 @@ describe('buildGraph', () => {
     expect(graph.has('lifespan')).toBe(false);
   });
 
-  it('rejects an edge file referencing a missing index', () => {
-    expect(() =>
-      buildGraph({ ...RAW, edges: [999, 0] }, DICTIONARY),
-    ).toThrow(/missing index/);
+  it('rejects an edge list referencing a missing index', () => {
+    expect(() => buildGraph(PARAMS, DICTIONARY, [[999, 0]])).toThrow(/missing index/);
   });
 });
 

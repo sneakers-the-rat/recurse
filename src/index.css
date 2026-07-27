@@ -96,12 +96,6 @@ body {
   letter-spacing: 0.04em;
 }
 
-/* Deco double rule: a thick hair and a thin one, the classic pairing. */
-.rule-double {
-  border-top: 1px solid var(--color-rule);
-  box-shadow: 0 3px 0 -2px var(--color-rule);
-}
-
 *:focus-visible {
   outline: 1px solid var(--color-gilt);
   outline-offset: 3px;

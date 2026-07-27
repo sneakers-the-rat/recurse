@@ -27,12 +27,37 @@ pub struct Config {
     pub min_alt_nodes: usize,
     pub min_gap: usize,
     pub seed: u64,
-    /// Judge every rule against one candidate in `audit`, instead of stopping each
-    /// candidate at its first failure — so each rule's cost is its own rather than
-    /// the earliest rule's. 0 is off. `RECURSE_AUDIT=1` samples enough candidates to
-    /// answer the question in seconds; `RECURSE_AUDIT=full` judges all of them, which
-    /// costs a legal-graph search per candidate and takes minutes.
-    pub audit: usize,
+    pub audit: Audit,
+}
+
+/// How thoroughly to attribute each refusal.
+///
+/// Ordinarily the rules run as a cascade and each candidate stops at its first
+/// failure, so every cost lands on whichever rule runs earliest. Auditing judges
+/// every rule against a candidate instead, which costs a legal-graph search each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Audit {
+    /// Cascade. What a plain build does.
+    Off,
+    /// Judge an evenly spread sample and scale the counts up. Seconds, and it
+    /// answers the same question. `RECURSE_AUDIT=1`.
+    Sampled,
+    /// Judge one candidate in `n`; `Every(1)` is exact and takes minutes.
+    /// `RECURSE_AUDIT=full`, or `RECURSE_AUDIT=<n>`.
+    Every(usize),
+}
+
+impl Audit {
+    fn parse(raw: Option<&str>) -> Audit {
+        match raw {
+            None | Some("0") | Some("false") | Some("") => Audit::Off,
+            // `full` used to map to 1, which is the *sampled* mode — so the one
+            // setting documented as exact was the one that could not be had.
+            Some("full") => Audit::Every(1),
+            Some("1") => Audit::Sampled,
+            Some(n) => Audit::Every(n.parse::<usize>().unwrap_or(1).max(1)),
+        }
+    }
 }
 
 fn parse_env(text: &str) -> HashMap<String, String> {
@@ -91,12 +116,7 @@ impl Config {
             min_gap: num("RECURSE_MIN_GAP")?,
             seed: num("RECURSE_SEED")? as u64,
             // Not in .env: a way of looking at the bank, not a property of it.
-            // The stride is chosen against the candidate count in select().
-            audit: match std::env::var("RECURSE_AUDIT").as_deref() {
-                Ok("full") => 1,
-                Ok("0") | Ok("false") | Err(_) => 0,
-                Ok(other) => other.parse::<usize>().unwrap_or(usize::MAX).max(1),
-            },
+            audit: Audit::parse(std::env::var("RECURSE_AUDIT").ok().as_deref()),
         };
 
         if config.min_sub < 1 {
@@ -124,5 +144,21 @@ impl Config {
             }
         }
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Audit;
+
+    #[test]
+    fn reads_every_audit_setting() {
+        assert_eq!(Audit::parse(None), Audit::Off);
+        assert_eq!(Audit::parse(Some("0")), Audit::Off);
+        assert_eq!(Audit::parse(Some("1")), Audit::Sampled);
+        // The case that was broken: `full` has to mean every candidate.
+        assert_eq!(Audit::parse(Some("full")), Audit::Every(1));
+        assert_eq!(Audit::parse(Some("50")), Audit::Every(50));
+        assert_eq!(Audit::parse(Some("nonsense")), Audit::Every(1));
     }
 }

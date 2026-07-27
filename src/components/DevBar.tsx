@@ -28,6 +28,37 @@ interface Props {
   onReset: () => void;
 }
 
+/** Every control here is the same flat outlined thing. */
+function Key({
+  onClick,
+  label,
+  children,
+}: {
+  onClick: () => void;
+  label?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="border border-neutral-700 px-1.5 hover:border-neutral-500 hover:text-neutral-200"
+      aria-label={label}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** `name value`, the only other shape in the bar. */
+function Stat({ name, children }: { name: string; children: React.ReactNode }) {
+  return (
+    <span>
+      {name} <span className="text-neutral-200">{children}</span>
+    </span>
+  );
+}
+
 export function DevBar({
   index,
   total,
@@ -50,22 +81,12 @@ export function DevBar({
         <span className="font-semibold tracking-wider text-neutral-500">DEV</span>
 
         <span className="flex items-center gap-1">
-          <button
-            onClick={() => step(-1)}
-            className="border border-neutral-700 px-1.5 hover:border-neutral-500 hover:text-neutral-200"
-            aria-label="Previous puzzle"
-            type="button"
-          >
+          <Key onClick={() => step(-1)} label="Previous puzzle">
             ◀
-          </button>
-          <button
-            onClick={() => step(1)}
-            className="border border-neutral-700 px-1.5 hover:border-neutral-500 hover:text-neutral-200"
-            aria-label="Next puzzle"
-            type="button"
-          >
+          </Key>
+          <Key onClick={() => step(1)} label="Next puzzle">
             ▶
-          </button>
+          </Key>
         </span>
 
         <span className="text-neutral-200">
@@ -89,48 +110,20 @@ export function DevBar({
           />
         </form>
 
-        <span>
-          par <span className="text-neutral-200">{puzzle.par}</span>
-        </span>
-        <span>
-          routes <span className="text-neutral-200">{puzzle.shortestPaths}</span>
-        </span>
+        <Stat name="par">{puzzle.par}</Stat>
+        <Stat name="routes">{puzzle.shortestPaths}</Stat>
         <span>
           corridor <span className="text-neutral-200">{puzzle.corridorSize}</span>
           {drawn !== puzzle.corridorSize && <span className="text-neutral-500"> → {drawn}</span>}
         </span>
-        <span>
-          alt <span className="text-neutral-200">{puzzle.altNodes}</span>
-        </span>
-        <span>
-          rank <span className="text-neutral-200">{puzzle.maxRank}</span>
-        </span>
-        <span>
-          guessed <span className="text-neutral-200">{guesses}</span>
-        </span>
+        <Stat name="alt">{puzzle.altNodes}</Stat>
+        <Stat name="rank">{puzzle.maxRank}</Stat>
+        <Stat name="guessed">{guesses}</Stat>
 
         <span className="ml-auto flex items-center gap-1.5">
-          <button
-            onClick={onNameAll}
-            className="border border-neutral-700 px-1.5 hover:border-neutral-500 hover:text-neutral-200"
-            type="button"
-          >
-            name all
-          </button>
-          <button
-            onClick={onSolve}
-            className="border border-neutral-700 px-1.5 hover:border-neutral-500 hover:text-neutral-200"
-            type="button"
-          >
-            solve
-          </button>
-          <button
-            onClick={onReset}
-            className="border border-neutral-700 px-1.5 hover:border-neutral-500 hover:text-neutral-200"
-            type="button"
-          >
-            reset
-          </button>
+          <Key onClick={onNameAll}>name all</Key>
+          <Key onClick={onSolve}>solve</Key>
+          <Key onClick={onReset}>reset</Key>
         </span>
 
         <p className="w-full break-words text-neutral-500">

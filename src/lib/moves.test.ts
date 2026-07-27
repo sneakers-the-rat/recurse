@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { testGraph } from './fixture';
-import { analyzeEdit, bestReading, insertionSpots, judgeGuess, moveSegments } from './moves';
+import { testGraph } from '../test/fixture';
+import { analyzeEdit, bestReading, insertionSpots, judgeGuess, wordReading } from './moves';
 
 const graph = testGraph();
 // The graph carries the whole dictionary now, so legality and word-ness come
@@ -144,14 +144,16 @@ describe('judgeGuess', () => {
   });
 });
 
-describe('moveSegments', () => {
-  it('splits the longer word around the subword', () => {
-    const move = graph.findMove('base', 'baseball')!;
-    expect(moveSegments('base', 'baseball', move)).toMatchObject({
-      before: 'base',
-      sub: 'ball',
-      after: '',
-      kind: 'add',
-    });
+describe('wordReading', () => {
+  it('is the one question every consumer asks', () => {
+    // The reading the game accepts, the one the board draws, and the one the
+    // readout shows are all this. Nothing without a word in it is a reading.
+    const spots = insertionSpots('ball', 'baseball');
+    expect(wordReading(spots, 2, dict)?.sub).toBe('base');
+    expect(wordReading(insertionSpots('lime', 'lifetime'), 2, dict)).toBeUndefined();
+    // Without a dictionary nothing can be confirmed, so nothing is claimed.
+    expect(wordReading(spots, 2, null)).toBeUndefined();
+    // A run that is a word but too short to be a legal move does not count.
+    expect(wordReading(insertionSpots('all', 'ball'), 2, dict)).toBeUndefined();
   });
 });

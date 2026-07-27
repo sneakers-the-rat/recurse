@@ -1,4 +1,7 @@
-name: Build and deploy Recurse to GitHub Pages
+name: Build and deploy ReCurse to GitHub Pages
+
+# The puzzle data in public/data is committed, so a deploy is just a Vite build:
+# the Rust builder is a tool for changing the game, not a step in shipping it.
 
 on:
   push:
@@ -10,22 +13,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
-          persist-credentials: False
+          persist-credentials: false
+
       - name: Install Node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: '17.x'
-          registry-url: 'https://registry.npmjs.org'
-      - name: Install Dependencies
-        run: |
-          yarn install
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Build
-        run: |
-          npm run build
-      - name: Deploy to github pages
-        uses: peaceiris/actions-gh-pages@v3
+        run: npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build
+          # Vite emits dist/. This said ./build for as long as it was broken.
+          publish_dir: ./dist

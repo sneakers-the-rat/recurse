@@ -12,6 +12,14 @@
  * it settles the new arrival into place over a few hundred milliseconds. That is
  * what d3-force is for, and it is why the layout is animated rather than static.
  *
+ * Motion is spent only on that. A board is *settled before it is first shown* —
+ * stepped to rest with the tick event suppressed, so not one frame of it reaches
+ * the screen — because a first draw has no information in its movement: every
+ * node begins somewhere arbitrary, and animating from there opened the game by
+ * flinging thirty words out of a single point and hauling them back. The rule is
+ * that the figure only ever moves in response to the player. A new word eases in;
+ * a resized frame is re-settled at once rather than wobbling into shape.
+ *
  * The frame is fixed, not fitted. The figure is confined to a box the shape of
  * the plate on screen, and that box *is* the viewBox — so the scale from graph
  * units to pixels is known in advance and never changes. Fitting the view to the
@@ -46,6 +54,29 @@ const COLLIDE_R = 27;
 const PADDING = 42;
 /** How hard the simulation is reheated when something new arrives. */
 const REHEAT = 0.55;
+/**
+ * Nothing but the source may come this close to the top of the frame, so the
+ * source always has clear air in front of it.
+ */
+const TOP_MARGIN = COLLIDE_R * 1.5;
+/** Ticks a settle may take before it gives up and draws what it has. */
+const SETTLE_LIMIT = 500;
+/**
+ * How fast an off-screen settle cools, against 0.035 for an animated one.
+ *
+ * Nobody watches this one, so there is no reason to anneal at a pace chosen to
+ * look good: the same figure is reached in a third of the steps. The pace matters
+ * because the settle is synchronous. At the animated rate a full board took the
+ * best part of 200ms of blocked main thread, and blocked main thread on a phone is
+ * a stall before the game appears; at this rate a thirty-word board settles in
+ * around 15ms, which is lost in the noise of parsing the word list.
+ */
+const SETTLE_DECAY = 0.1;
+/**
+ * How hard a re-settle runs when only the frame changed shape. Lower than a
+ * first draw: the figure should adapt to its new box, not be rebuilt in it.
+ */
+const RESHAPE_ALPHA = 0.35;
 /** Fallback plate shape, for the first render and for tests without a DOM box. */
 const DEFAULT_ASPECT = 0.75;
 
@@ -142,12 +173,25 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
     const nodes = nodesRef.current;
     const links = linksRef.current;
 
-    /** Where a node belongs vertically: further from the target means higher. */
+    /**
+     * Where a node belongs vertically: how far along it is, source to target.
+     *
+     * `ds / (ds + dt)`, not distance-to-target alone. On a best route the two are
+     * the same number — `ds + dt` is par there, so the spine is unaffected — but
+     * off it they are not, and measuring from the target alone gave every node
+     * further from the target than par a negative height, which clamped to zero.
+     * That is not a rare case: it was between a quarter and two thirds of every
+     * board, all of it stacked on the source's own row in a heap the source was
+     * buried in. Progress cannot go negative, so nothing can pile up there, and a
+     * detour off the first move now sits just in front of the source where it
+     * belongs.
+     */
     const preferredY = (id: string) => {
+      const ds = spec.distFromSource.get(id);
       const dt = spec.distToTarget.get(id);
-      if (dt === undefined) return spineHeight / 2;
-      const wanted = spineHeight - (dt / Math.max(spec.par, 1)) * spineHeight;
-      return Math.min(Math.max(wanted, 0), spineHeight);
+      if (ds === undefined || dt === undefined) return spineHeight / 2;
+      const total = ds + dt;
+      return total === 0 ? 0 : (ds / total) * spineHeight;
     };
 
     /**
@@ -182,6 +226,29 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
       if (walked.length === 1) centred.add(walked[0]!);
     }
 
+    /**
+     * Roughly where each arriving word should appear, from the words it joins.
+     *
+     * Naming one word can pull in a whole region of routes at once, and only the
+     * named word itself has a parent to grow out of. The rest had nowhere to start
+     * from and were all seeded at the origin, so they burst outward from a single
+     * point and then found their places — the same explosion the first draw used
+     * to have, just later. Starting each of them among the words it is actually
+     * joined to means the settle that follows is a nudge rather than a scramble.
+     */
+    const seeds = new Map<string, { x: number; y: number; n: number }>();
+    for (const { a, b } of spec.edges) {
+      const from = nodes.get(a);
+      const to = nodes.get(b);
+      if (from && !to) {
+        const seed = seeds.get(b) ?? { x: 0, y: 0, n: 0 };
+        seeds.set(b, { x: seed.x + (from.x ?? 0), y: seed.y + (from.y ?? 0), n: seed.n + 1 });
+      } else if (to && !from) {
+        const seed = seeds.get(a) ?? { x: 0, y: 0, n: 0 };
+        seeds.set(a, { x: seed.x + (to.x ?? 0), y: seed.y + (to.y ?? 0), n: seed.n + 1 });
+      }
+    }
+
     let added = 0;
     spec.nodes.forEach((id, i) => {
       const existing = nodes.get(id);
@@ -194,14 +261,19 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
       added += 1;
 
       // Start next to whatever it was reached from, so it appears to grow out of
-      // the move the player just made rather than materialising across the board.
+      // the move the player just made rather than materialising across the board;
+      // failing that, among its neighbours; failing that, at its own height.
       const parent = spec.parentOf.get(id);
       const anchor = parent ? nodes.get(parent) : undefined;
+      const seed = seeds.get(id);
       const side = i % 2 === 0 ? 1 : -1;
+      const from =
+        anchor ??
+        (seed && seed.n > 0 ? { x: seed.x / seed.n, y: seed.y / seed.n } : undefined);
       const node: SimNode = {
         id,
-        x: (anchor?.x ?? 0) + side * (18 + (i % 4) * 7),
-        y: anchor?.y ?? preferredY(id),
+        x: (from?.x ?? 0) + side * (18 + (i % 4) * 7),
+        y: from?.y ?? preferredY(id),
       };
       applyPins(node, id, spec, spineHeight, centred);
       nodes.set(id, node);
@@ -238,8 +310,13 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
           node.x = limitX;
           node.vx = 0;
         }
-        if (node.y < 0) {
-          node.y = 0;
+        // The source keeps the top of the frame to itself. Everything else is
+        // held below it, so a fan of first moves spreads out in front of the
+        // source rather than crowding onto it — the top edge was where nodes
+        // with nowhere better to be used to collect.
+        const ceiling = node.id === spec.source ? 0 : TOP_MARGIN;
+        if (node.y < ceiling) {
+          node.y = ceiling;
           node.vy = 0;
         } else if (node.y > spineHeight) {
           node.y = spineHeight;
@@ -249,6 +326,7 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
     };
 
     let simulation = simRef.current;
+    const created = simulation === null;
     if (!simulation) {
       simulation = forceSimulation<SimNode>(nodeList)
         .force('charge', forceManyBody<SimNode>().strength(-320).distanceMax(520))
@@ -261,7 +339,10 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
         .on('tick', () => {
           confine();
           setTick((n) => n + 1);
-        });
+        })
+        // Nothing is drawn until it has been settled below, so the internal timer
+        // must not start on its own and animate the way there.
+        .stop();
       simRef.current = simulation;
     } else {
       simulation.nodes(nodeList);
@@ -280,15 +361,55 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
         .strength(0.55),
     );
 
-    // Only disturb the figure when something actually arrived, or when the frame
-    // changed shape under it — a resized window needs a re-settle inside its new
-    // box. An ordinary re-render must leave a settled board exactly as it is.
-    const reshaped = frameRef.current !== `${halfWidth}x${spineHeight}`;
-    frameRef.current = `${halfWidth}x${spineHeight}`;
-    if (added > 0 || newLinks > 0 || reshaped) {
+    /**
+     * Run the layout to rest without drawing a frame of it.
+     *
+     * `simulation.tick()` steps the layout without dispatching the tick event, so
+     * nothing re-renders while this runs. Confinement has to be applied by hand
+     * each step, because that normally rides on the event this deliberately skips.
+     *
+     * Synchronous, and therefore paid for in blocked main thread — see
+     * SETTLE_DECAY, which is what keeps the bill small.
+     */
+    const settle = (from: number) => {
+      const animated = simulation.alphaDecay();
+      simulation.stop().alpha(from).alphaDecay(SETTLE_DECAY);
+      let steps = 0;
+      while (simulation.alpha() > simulation.alphaMin() && steps < SETTLE_LIMIT) {
+        simulation.tick();
+        confine();
+        steps += 1;
+      }
+      simulation.alphaDecay(animated);
+      confine();
+      // The layout moved without saying so, so ask for the one render that shows it.
+      setTick((n) => n + 1);
+    };
+
+    const shape = `${halfWidth}x${spineHeight}`;
+    const reshaped = frameRef.current !== shape;
+    frameRef.current = shape;
+
+    if (created) {
+      // The first sight of a board is of a board, not of one assembling itself.
+      // Every node starts somewhere arbitrary, and letting the simulation animate
+      // its way from there meant the game opened by flinging thirty words out of a
+      // single point and reeling them back in. Settled off-screen, the opening
+      // frame is the finished figure and the only motion left is the game's own.
+      settle(1);
+    } else if (added > 0 || newLinks > 0) {
+      // Words arriving is the one thing worth animating: it is the player's move
+      // landing, and it should ease in from where they made it.
       confine();
       simulation.alpha(REHEAT).restart();
+    } else if (reshaped) {
+      // A rotated phone, an opening keyboard, a dragged window edge. None of them
+      // is a move, so the figure adapts to its new box at once instead of wobbling
+      // into it — which is also what stopped the board lurching once on load, when
+      // the measured plate size arrived a beat after the first layout.
+      settle(RESHAPE_ALPHA);
     }
+    // An ordinary re-render must leave a settled board exactly as it is.
   }, [spec, nodeKey, edgeKey, spineHeight, halfWidth]);
 
   useEffect(
