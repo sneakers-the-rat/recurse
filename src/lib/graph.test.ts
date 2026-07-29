@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DICTIONARY, PARAMS, testGraph } from '../test/fixture';
-import { bfs, buildGraph, distance, shortestPath, shortestPathNodes } from './graph';
+import { testGraph } from '../test/fixture';
+import { bfs, distance, shortestPath, shortestPathNodes } from './graph';
+import { decodeRows } from './data';
 
 const graph = testGraph();
 
@@ -34,8 +35,10 @@ describe('buildGraph', () => {
     expect(graph.has('lifespan')).toBe(false);
   });
 
-  it('rejects an edge list referencing a missing index', () => {
-    expect(() => buildGraph(PARAMS, DICTIONARY, [[999, 0]])).toThrow(/missing index/);
+  it('rejects a row referencing a missing index', () => {
+    // The guard lives in the decoder now that the builder ships rows rather than an
+    // edge list: see decodeRows.
+    expect(() => decodeRows({ counts: [1], above: [999] })).toThrow(/missing/);
   });
 });
 

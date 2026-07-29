@@ -7,12 +7,22 @@
 //! Filters run cheapest first, because the last one — proving par cannot be
 //! beaten anywhere in the 190k-word graph — is by far the most expensive.
 
+use std::collections::VecDeque;
+
 use crate::config::{Audit, Config};
 use crate::graph::{Bfs, FxMap, FxSet, Graph, UNREACHED};
+use crate::id::{puzzle_id, shard_of, SHARDS};
+use crate::progress::{Progress, BATCH};
 use crate::word::{by_length, is_compound_swap, readings, same_family};
 
 #[derive(Debug, Clone)]
 pub struct Puzzle {
+    /// The puzzle's public address, a digest of `answer`. See id.rs.
+    pub id: String,
+    /// Which day of the calendar this puzzle is, assigned by `spread`. Metadata rather
+    /// than an address — no URL carries it — but it is what the header calls the
+    /// puzzle and what the client looks up to find today's board.
+    pub day: usize,
     pub source: String,
     pub target: String,
     pub par: u32,
@@ -31,10 +41,19 @@ pub struct Puzzle {
     /// A few of the best routes, as text, for the survey. Not shipped to the
     /// client — it can derive them from the graph, and this is for reading.
     pub routes: Vec<String>,
+    /// The board this puzzle declares: its ways through and a little of what joins them,
+    /// encoded for the shard files. See board.rs — the client draws exactly this.
+    pub board: String,
 }
 
 /// Fewest words a board may have and still be worth drawing.
 const MIN_BOARD: usize = 10;
+
+/// How far past par the search for a way out of the source will look, as a multiple
+/// of par. A bound on pointless work rather than a property of a good puzzle: a
+/// branch that has to wander further than this to reach the target is not a route
+/// any answer presents.
+const BRANCH_REACH: u32 = 3;
 
 /// Every reason a candidate pair can be refused.
 ///
@@ -53,30 +72,36 @@ const MIN_BOARD: usize = 10;
 /// * A ceiling on how many words the board would draw. That is the client's
 ///   business: it has its own budget and trims to fit. It was the single most
 ///   expensive rule in the bank for a reason that no longer existed.
-/// * A ceiling on how many equally short answers a puzzle may have. Several ways
-///   through is a strength. It also, measurably, never rejected anything on its
-///   own.
+/// * A ceiling on how many equally short answers a puzzle may have, whether phrased
+///   as taste or as a cap on the route walk. Several ways through is a strength, so
+///   every answer of exactly par is enumerated and judged.
 /// * A rarer word beating par. Now a *secret*, not a rejection — see `secret` on
 ///   Puzzle. Finding one is the best thing that can happen to a player.
+/// * Refusing a puzzle because one of its endpoints appears in another puzzle.
+///   Endpoint reuse is a matter of *calendar order* — see `spread`, which never
+///   rejects anything.
+/// * A ceiling on par. Par is a difficulty statistic, recorded on every puzzle;
+///   `RECURSE_MAX_PAR` bounds the search and nothing else.
+///
+/// Every filter that can remove a puzzle from the bank is a variant here. A filter
+/// outside this enum is a filter nobody is auditing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Rule {
     BoardTooSmall,
     NoAlternatives,
     OpeningForced,
     NotInLegalGraph,
-    ManyLegalRoutes,
     SameFamilyOnRoute,
     CompoundSwap,
     NoInternalMove,
 }
 
 impl Rule {
-    pub const ALL: [Rule; 8] = [
+    pub const ALL: [Rule; 7] = [
         Rule::BoardTooSmall,
         Rule::NoAlternatives,
         Rule::OpeningForced,
         Rule::NotInLegalGraph,
-        Rule::ManyLegalRoutes,
         Rule::SameFamilyOnRoute,
         Rule::CompoundSwap,
         Rule::NoInternalMove,
@@ -91,13 +116,55 @@ impl Rule {
                 ("first move is forced — no branch at the root", "RECURSE_MIN_SOURCE_MOVES")
             }
             Rule::NotInLegalGraph => ("an endpoint has no moves in the legal graph", "none"),
-            Rule::ManyLegalRoutes => ("too many best routes to check them all", "400, fixed"),
             Rule::SameFamilyOnRoute => ("two words on the answer are the same word", "none"),
             Rule::CompoundSwap => ("answer splits or merges a compound", "RECURSE_MAX_SWAPS"),
             Rule::NoInternalMove => ("answer never finds a word inside a word", "RECURSE_MIN_INTERNAL"),
         }
     }
+
+    /// What the rule has to look at, which is what decides the order they run in.
+    pub fn needs(self) -> Needs {
+        match self {
+            Rule::SameFamilyOnRoute | Rule::CompoundSwap | Rule::NoInternalMove => Needs::Chain,
+            Rule::BoardTooSmall
+            | Rule::NoAlternatives
+            | Rule::OpeningForced
+            | Rule::NotInLegalGraph => Needs::Neighbourhood,
+        }
+    }
+
+    pub fn slot(self) -> usize {
+        Rule::ALL.iter().position(|&r| r == self).expect("every rule is in ALL")
+    }
 }
+
+/// How much a rule has to look at to answer.
+///
+/// This is the difference between a rule that costs nothing and a rule that costs
+/// most of the build, so it decides the order they are judged in: every `Chain` rule
+/// runs before any `Neighbourhood` rule.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Needs {
+    /// The words on the answers, and nothing else. The answers come out of a walk of
+    /// the route DAG over distances that are already tabulated, so no search and no
+    /// scan is involved — a few string tests over seven words.
+    Chain,
+    /// The graph around the answer: a scan of the neighbourhood, or a search through
+    /// it. Two to three orders of magnitude dearer than a `Chain` rule.
+    Neighbourhood,
+}
+
+impl Needs {
+    pub fn label(self) -> &'static str {
+        match self {
+            Needs::Chain => "chain",
+            Needs::Neighbourhood => "graph",
+        }
+    }
+}
+
+/// One tally per rule, sized from `Rule::ALL`.
+pub type Tally = [usize; Rule::ALL.len()];
 
 /// How each rule fared over every candidate, independent of the others.
 #[derive(Default, Debug)]
@@ -109,7 +176,7 @@ pub struct Rejections {
 }
 
 impl Rejections {
-    fn from_tallies(alone: &[usize; 8], only: &[usize; 8]) -> Rejections {
+    pub fn from_tallies(alone: &Tally, only: &Tally) -> Rejections {
         Rejections {
             alone: Rule::ALL.iter().copied().zip(alone.iter().copied()).collect(),
             only: Rule::ALL.iter().copied().zip(only.iter().copied()).collect(),
@@ -150,113 +217,155 @@ fn judge_solutions(
     subs: &FxSet<&str>,
     src: u32,
     tgt: u32,
-    depth_from_src: &dyn Fn(u32) -> u32,
+    depth_from_tgt: &dyn Fn(u32) -> u32,
     config: &Config,
     stop_early: bool,
     broken: &mut Vec<Rule>,
 ) -> Vec<String> {
-    /// How many answers the survey shows per puzzle. Every one is still judged.
-    const SHOWN: usize = 3;
     let mut shown: Vec<String> = Vec::new();
-
-    // A subword has to be an ordinary word too, or the answer is only "interesting"
-    // by way of something nobody would think of.
-    let is_word = |w: &str| subs.contains(w);
-
-    // Walk the route DAG backwards, from the target towards the source.
-    //
-    // Backwards because that needs only the distances *from the source*, which are
-    // already computed and shared by every candidate starting at this word. Going
-    // forwards needs a second search from the target, per candidate, and that
-    // second search was most of the build: a step back from `v` is any neighbour
-    // one closer to the source, and every such walk reaches the source in exactly
-    // `best` moves, so the two directions enumerate the same routes.
-    const MAX_PATHS: usize = 400;
-    let mut stack: Vec<Vec<u32>> = vec![vec![tgt]];
-    let mut seen_paths = 0;
-
-    while let Some(mut path) = stack.pop() {
-        let last = *path.last().expect("never empty");
-        if last == src {
-            // Reversed, so the answer reads from the source as the player walks it.
-            path.reverse();
-            seen_paths += 1;
-            if seen_paths > MAX_PATHS {
-                note(broken, Rule::ManyLegalRoutes);
-                return shown;
-            }
-
-            // No two words anywhere on the route may be forms of the same word.
-            let mut family_clash = false;
-            for i in 0..path.len() {
-                for j in (i + 1)..path.len() {
-                    if same_family(common.word(path[i]), common.word(path[j])) {
-                        family_clash = true;
-                    }
-                }
-            }
-            if family_clash {
-                note(broken, Rule::SameFamilyOnRoute);
-            }
-
-            let swaps = path
-                .windows(3)
-                .filter(|w| {
-                    is_compound_swap(common.word(w[0]), common.word(w[1]), common.word(w[2]))
-                })
-                .count();
-            if swaps > config.max_swaps {
-                note(broken, Rule::CompoundSwap);
-            }
-
-            let internal = path
-                .windows(2)
-                .filter(|w| {
-                    has_internal_reading(
-                        common.word(w[0]),
-                        common.word(w[1]),
-                        &is_word,
-                        config.min_sub,
-                    )
-                })
-                .count();
-            if internal < config.min_internal {
-                note(broken, Rule::NoInternalMove);
-            }
-
-            // A route only reaches the survey if it broke nothing at all.
-            if broken.is_empty() && shown.len() < SHOWN {
-                shown.push(
-                    path.iter()
-                        .map(|&id| common.word(id))
-                        .collect::<Vec<_>>()
-                        .join(" → "),
-                );
-            }
-            // One refusal is enough for a plain build; the audit keeps going so it
-            // can attribute the cost to every rule the answer breaks, not just the
-            // first. Either way, nothing more is learned once they have all fired.
-            if (stop_early && !broken.is_empty()) || broken.len() >= 3 {
-                return shown;
-            }
-            continue;
-        }
-
-        // A step back towards the source: any neighbour one move closer to it.
-        let depth = depth_from_src(last);
-        for &previous in common.neighbors(last) {
-            let closer = depth_from_src(previous);
-            if closer != UNREACHED && closer + 1 == depth {
-                let mut extended = path.clone();
-                extended.push(previous);
-                stack.push(extended);
-            }
-        }
-    }
+    // One buffer for the whole walk, pushed and popped as it descends. The answer
+    // reads source-first, which is the order the swap rule is defined in.
+    let mut path: Vec<u32> = Vec::with_capacity(config.max_par + 1);
+    path.push(src);
+    descend(
+        common, subs, tgt, depth_from_tgt, config, stop_early, broken, &mut shown, &mut path,
+    );
 
     // Stable regardless of the order the DAG walk happened to find them.
     shown.sort();
     shown
+}
+
+/// Walk every answer of exactly par, depth first, judging each as it completes.
+///
+/// The route DAG is walked forwards from the source using distances *to the target*:
+/// a step is any neighbour one closer, and every such walk arrives in exactly par
+/// moves, so this enumerates the answers and nothing else.
+///
+/// `path` is one buffer for the whole walk — pushed on the way down, popped on the way
+/// back up. A candidate averages a handful of answers but a hub-heavy one can have
+/// thousands, and cloning the path at every branch made the number of allocations a
+/// multiple of the number of DAG edges rather than of the answers.
+#[allow(clippy::too_many_arguments)]
+fn descend(
+    common: &Graph,
+    subs: &FxSet<&str>,
+    tgt: u32,
+    depth_from_tgt: &dyn Fn(u32) -> u32,
+    config: &Config,
+    stop_early: bool,
+    broken: &mut Vec<Rule>,
+    shown: &mut Vec<String>,
+    path: &mut Vec<u32>,
+) {
+    /// How many answers the survey shows per puzzle. Every one is still judged.
+    const SHOWN: usize = 3;
+
+    let last = *path.last().expect("never empty");
+    if last == tgt {
+        judge_one_answer(common, subs, path, config, broken);
+        if broken.is_empty() && shown.len() < SHOWN {
+            shown.push(
+                path.iter().map(|&id| common.word(id)).collect::<Vec<_>>().join(" → "),
+            );
+        }
+        return;
+    }
+
+    let depth = depth_from_tgt(last);
+    for &next in common.neighbors(last) {
+        // One refusal is enough for a plain build, and there is no more to learn once
+        // every rule a walk can find has fired.
+        if stop_early && !broken.is_empty() {
+            return;
+        }
+        let closer = depth_from_tgt(next);
+        if closer != UNREACHED && closer + 1 == depth {
+            path.push(next);
+            descend(
+                common, subs, tgt, depth_from_tgt, config, stop_early, broken, shown, path,
+            );
+            path.pop();
+        }
+    }
+}
+
+/// The three chain rules, against one complete answer.
+///
+/// Reads only the words on the answer, so it costs no search and no scan — which is
+/// why these run before anything that touches the neighbourhood.
+fn judge_one_answer(
+    common: &Graph,
+    subs: &FxSet<&str>,
+    path: &[u32],
+    config: &Config,
+    broken: &mut Vec<Rule>,
+) {
+    // No two words anywhere on the route may be forms of the same word.
+    let family_clash = (0..path.len()).any(|i| {
+        ((i + 1)..path.len())
+            .any(|j| same_family(common.word(path[i]), common.word(path[j])))
+    });
+    if family_clash {
+        note(broken, Rule::SameFamilyOnRoute);
+    }
+
+    let swaps = path
+        .windows(3)
+        .filter(|w| is_compound_swap(common.word(w[0]), common.word(w[1]), common.word(w[2])))
+        .count();
+    if swaps > config.max_swaps {
+        note(broken, Rule::CompoundSwap);
+    }
+
+    let is_word = |w: &str| subs.contains(w);
+    let internal = path
+        .windows(2)
+        .filter(|w| {
+            has_internal_reading(common.word(w[0]), common.word(w[1]), &is_word, config.min_sub)
+        })
+        .count();
+    if internal < config.min_internal {
+        note(broken, Rule::NoInternalMove);
+    }
+}
+
+/// The one answer that stands for the puzzle: the alphabetically first route of
+/// exactly par on the common graph.
+///
+/// A puzzle can have several equally short answers and they all passed the rules,
+/// so any of them would describe it — but the *id* is a digest of this one, and an
+/// address has to come out the same on every build of the same bank.
+/// `judge_solutions` cannot supply it: it keeps the first three routes its walk of
+/// the route DAG happens to find and sorts only those, so which route sorts first
+/// there depends on the order neighbours are stored in.
+///
+/// Greedy is exact here. Every candidate step is on some route of exactly par, so
+/// taking the alphabetically smallest available word at each step can never paint
+/// the route into a corner, and the sequence it builds is the smallest there is.
+fn canonical_answer(
+    common: &Graph,
+    src: u32,
+    tgt: u32,
+    par: u32,
+    from_src: &dyn Fn(u32) -> u32,
+    from_tgt: &dyn Fn(u32) -> u32,
+) -> Vec<String> {
+    let mut answer = vec![common.word(src).to_string()];
+    let mut at = src;
+    for step in 1..=par {
+        let next = common
+            .neighbors(at)
+            .iter()
+            .copied()
+            .filter(|&n| from_src(n) == step && from_tgt(n) == par - step)
+            .min_by_key(|&n| common.word(n))
+            .expect("par is the distance between the endpoints, so a next step exists");
+        answer.push(common.word(next).to_string());
+        at = next;
+    }
+    debug_assert_eq!(answer.last().map(String::as_str), Some(common.word(tgt)));
+    answer
 }
 
 /// Record a broken rule once, however many answers break it.
@@ -266,40 +375,214 @@ fn note(broken: &mut Vec<Rule>, rule: Rule) {
     }
 }
 
-/// Nodes on some route between the endpoints, with dead ends pruned away.
+/// The words a puzzle draws.
 ///
-/// Repeatedly dropping degree-1 nodes cannot remove a node that is genuinely on a
-/// route — such a node has an edge toward each end — and it clears spurs of any
-/// length. At the radius needed to expose alternatives, spurs outnumber route
-/// nodes about four to one, so this is what keeps a board drawable.
-fn routes_only(graph: &Graph, candidates: &[u32], keep: &[u32]) -> Vec<u32> {
-    let mut live: FxSet<u32> = candidates.iter().copied().collect();
-    let protected: FxSet<u32> = keep.iter().copied().collect();
-    loop {
-        let mut doomed = Vec::new();
-        for &word in &live {
-            if protected.contains(&word) {
-                continue;
-            }
-            let degree = graph
-                .neighbors(word)
-                .iter()
-                .filter(|n| live.contains(n))
-                .count();
-            if degree <= 1 {
-                doomed.push(word);
-            }
-        }
-        if doomed.is_empty() {
-            break;
-        }
-        for word in doomed {
-            live.remove(&word);
+/// One filter, and it produces exactly what ships. The board used to be a ball around the
+/// answer with its dead ends pruned off, which is a different filter reaching for the same
+/// thing and needing a second one on top: a ball wide enough to hold an alternative holds
+/// hundreds of words that are not on one, and pruning degree-1 nodes removes spurs without
+/// distinguishing a genuine way round from a bulge on the answer.
+///
+/// So the board is built out of routes instead of pared down to them:
+///
+/// 1. **The answer**, and every other route of exactly par — gold. Found by blocking one
+///    interior word at a time and asking again, so a puzzle with several equally short answers
+///    shows all of them and not whichever the walk happened to find first.
+/// 2. **Longer ways round** — green. Same trick, allowing `alt_slack` extra moves, and kept
+///    only if the route spends `min_divergence` consecutive words away from everything already
+///    on the board. That last test is the whole difference between a board that shows a choice
+///    and one that shows the answer with warts: in a graph averaging 2.1 moves per word almost
+///    any neighbour of the answer can step off it and back a move later, and those detours are
+///    worthless. Requiring the route to *stay* away is what a player means by another way.
+/// 3. **What joins them** — words with at least two neighbours already on the board, best
+///    connected first, capped at `around_percent` of it. Two and not one, because one drawn
+///    neighbour is a spur that says only "there is more graph out here", while two shows the
+///    ways through are one neighbourhood rather than parallel lines.
+fn board_words(
+    common: &Graph,
+    src: u32,
+    tgt: u32,
+    par: u32,
+    from_tgt: &dyn Fn(u32) -> u32,
+    config: &Config,
+    bfs: &mut Bfs,
+) -> Vec<u32> {
+    let empty: FxSet<u32> = FxSet::default();
+    let Some(primary) = bfs.route_avoiding(common, src, tgt, &empty, par) else {
+        return Vec::new();
+    };
+    let mut live: FxSet<u32> = primary.iter().copied().collect();
+    let interior: Vec<u32> = primary
+        .iter()
+        .copied()
+        .filter(|&w| w != src && w != tgt)
+        .collect();
+
+    let mut blocked: FxSet<u32> = FxSet::default();
+    for &pivot in &interior {
+        blocked.clear();
+        blocked.insert(pivot);
+        if let Some(route) = bfs.route_avoiding(common, src, tgt, &blocked, par) {
+            live.extend(route.iter().copied());
         }
     }
+
+    let limit = par + config.alt_slack as u32;
+
+    // A second way out of the source, whatever it costs in divergence.
+    //
+    // `OpeningForced` promised the first move is a choice, and a promise about the graph is not
+    // a promise about the drawing: if every route drawn so far leaves by the same word, the
+    // board shows one way out and the guarantee is invisible.
+    //
+    // Routed *from* the other neighbour rather than found by blocking the answer's first move,
+    // and the difference is the whole of why this needs its own step. `overstated → zincking`
+    // leaves by `over` or by `stated`, and `stated`'s way onward runs through `over` — so
+    // blocking `over` to force a detour finds nothing at all, while walking forward from
+    // `stated` finds a perfectly good second opening that merges onto the answer one move
+    // later. A branch that merges immediately is still a branch, which is exactly what the
+    // rule counted when it let the puzzle through.
+    if let Some(&first) = interior.first() {
+        let mut others: Vec<u32> = common
+            .neighbors(src)
+            .iter()
+            .copied()
+            .filter(|&w| w != first && w != tgt)
+            .collect();
+        // Nearest the target first, so the branch drawn is the one a player would most likely
+        // try; the id breaks ties so a rebuild draws the same board.
+        others.sort_unstable_by_key(|&w| (from_tgt(w), w));
+        // Searched at the *rule's* reach, not the alternative-route limit.
+        //
+        // `OpeningForced` counts a branch that reaches the target without the source within
+        // `BRANCH_REACH * par`, so that is how far the board has to be willing to follow one:
+        // `restart → railroading` is a par-8 puzzle whose second way out needs fourteen moves
+        // to come back, which the rule allows and a search bounded at `par + alt_slack` cannot
+        // reach. Promising a choice and then drawing one way out is worse than either.
+        let opening_reach = par.saturating_mul(BRANCH_REACH);
+        for word in others {
+            blocked.clear();
+            blocked.insert(src);
+            if let Some(route) = bfs.route_avoiding(common, word, tgt, &blocked, opening_reach) {
+                live.insert(src);
+                live.extend(route.iter().copied());
+                break;
+            }
+        }
+    }
+
+    let mut ways = 0;
+    for &pivot in &interior {
+        if ways >= config.max_alt_ways {
+            break;
+        }
+        blocked.clear();
+        blocked.insert(pivot);
+        let Some(route) = bfs.route_avoiding(common, src, tgt, &blocked, limit) else {
+            continue;
+        };
+        if diverges(&route, &live) < config.min_divergence {
+            continue;
+        }
+        live.extend(route.iter().copied());
+        ways += 1;
+    }
+
+    // Then what runs *between* the ways through.
+    //
+    // Without this most boards come out as the answer and one alternative beside it — two
+    // chains, parallel, joined only at the ends, which reads as two separate puzzles rather
+    // than a neighbourhood with choices in it. The interesting structure is the rungs: the
+    // short hops from a word on one chain to a word on another.
+    //
+    // So: walk outward from everything declared, through *undeclared* words only, up to
+    // `link_reach` steps, remembering which declared word each was reached from. Any word
+    // reachable from two different ones is on a chain between them, and the chain is recovered
+    // by following the parents back. `link_reach` of 1 is the special case of a single word
+    // with two declared neighbours; further reaches find the longer rungs, which is where the
+    // graph's real texture is.
+    let reach = config.link_reach as u32;
+    let mut root: FxMap<u32, u32> = FxMap::default();
+    let mut parent: FxMap<u32, u32> = FxMap::default();
+    let mut frontier: Vec<u32> = live.iter().copied().collect();
+    for &word in &frontier {
+        root.insert(word, word);
+    }
+    // Words joining two chains, with the pair they join, best (shortest) first.
+    let mut rungs: Vec<(u32, u32)> = Vec::new();
+    for _ in 0..reach {
+        let mut next: Vec<u32> = Vec::new();
+        for &word in &frontier {
+            let from = root[&word];
+            for &near in common.neighbors(word) {
+                if live.contains(&near) {
+                    continue;
+                }
+                match root.get(&near) {
+                    None => {
+                        root.insert(near, from);
+                        parent.insert(near, word);
+                        next.push(near);
+                    }
+                    // Reached from a second chain: this word is a rung between them.
+                    Some(&other) if other != from => rungs.push((near, word)),
+                    Some(_) => {}
+                }
+            }
+        }
+        frontier = next;
+        if frontier.is_empty() {
+            break;
+        }
+    }
+
+    // Take the rungs, cheapest first, until the board has had its share. Each brings its own
+    // way back to both chains, because half a rung is a spur.
+    rungs.sort_unstable_by_key(|&(word, touched)| (word, touched));
+    let room = (live.len() * config.around_percent) / 100;
+    let mut added = 0usize;
+    for (word, touched) in rungs {
+        if added >= room {
+            break;
+        }
+        let mut chain: Vec<u32> = vec![word];
+        // Back to the chain this word grew from, and to the one that found it.
+        for &start in &[word, touched] {
+            let mut at = start;
+            while let Some(&up) = parent.get(&at) {
+                chain.push(up);
+                at = up;
+            }
+        }
+        for step in chain {
+            if live.insert(step) {
+                added += 1;
+            }
+        }
+    }
+
     let mut out: Vec<u32> = live.into_iter().collect();
     out.sort_unstable();
     out
+}
+
+/// The longest run of consecutive words in `route` that are not already on the board.
+///
+/// A route sharing all but one word with the answer scores 1 — a bulge. One that leaves for
+/// three moves and comes back scores 3, and only the second is a way a player would call
+/// different.
+fn diverges(route: &[u32], live: &FxSet<u32>) -> usize {
+    let mut best = 0;
+    let mut run = 0;
+    for &word in route {
+        if live.contains(&word) {
+            run = 0;
+        } else {
+            run += 1;
+            best = best.max(run);
+        }
+    }
+    best
 }
 
 /// How many distinct shortest paths connect the endpoints.
@@ -329,7 +612,11 @@ pub struct Selection {
     pub puzzles: Vec<Puzzle>,
     pub rejections: Rejections,
     pub candidates: usize,
-    pub unplaceable: usize,
+    /// Candidates that broke no rule, which is the size of the bank.
+    pub passed: usize,
+    /// Days whose number names their own shard, so the client can reach them with one
+    /// fetch and no index. See `spread`.
+    pub aligned_days: usize,
 }
 
 pub fn select(
@@ -338,19 +625,17 @@ pub fn select(
     legal: &Graph,
     config: &Config,
     rank: &FxMap<String, usize>,
+    threads: usize,
 ) -> Selection {
     // One tally per rule: how many candidates it refused, and how many it was the
     // sole objection to.
-    let mut alone = [0usize; 8];
-    let mut only = [0usize; 8];
+    let mut alone: Tally = [0; Rule::ALL.len()];
+    let mut only: Tally = [0; Rule::ALL.len()];
 
-    // Endpoints come from the most frequent words, so both ends are familiar.
-    let mut endpoints: Vec<u32> = (0..common.words.len() as u32)
+    // Every ordinary word that has a move is a possible endpoint.
+    let endpoints: Vec<u32> = (0..common.words.len() as u32)
         .filter(|&id| !common.neighbors(id).is_empty())
         .collect();
-    endpoints.sort_by_key(|&id| rank.get(common.word(id)).copied().unwrap_or(usize::MAX));
-    endpoints.truncate(config.endpoint_pool);
-
 
     // Distances from every endpoint, computed once.
     //
@@ -366,8 +651,6 @@ pub fn select(
         slot_of.insert(id, slot);
     }
 
-    let mut bfs = Bfs::new(common.words.len());
-    let mut counter = Bfs::new(common.words.len());
     let mut tables: Vec<Vec<u8>> = Vec::with_capacity(endpoints.len());
     // The words each endpoint can actually reach, which is what a corridor is
     // drawn from. Scanning every connected word per candidate instead was the
@@ -376,17 +659,49 @@ pub fn select(
     // corridor node has to be within `far` of *both* ends, so scanning the smaller
     // of the two reachable sets is not an approximation — it is the same answer.
     let mut balls: Vec<Vec<u32>> = Vec::with_capacity(endpoints.len());
-    for &id in &endpoints {
-        let mut row = vec![unreachable_u8; common.words.len()];
-        bfs.run(common, id, far);
-        for &word in &bfs.touched {
-            row[word as usize] = bfs.get(word).min(u8::MAX as u32 - 1) as u8;
+
+    // One search per endpoint, independent of every other, so they run in parallel
+    // with a `Bfs` scratch buffer per thread. Chunks are spawned and joined in order,
+    // which is what keeps a table's index equal to its endpoint's `slot_of`.
+    let table_chunk = endpoints.len().div_ceil(threads.max(1)).max(1);
+    let table_progress = Progress::new("distances", endpoints.len());
+    std::thread::scope(|scope| {
+        scope.spawn(|| table_progress.watch());
+        let mut handles = Vec::new();
+        for part in endpoints.chunks(table_chunk) {
+            let table_progress = &table_progress;
+            handles.push(scope.spawn(move || {
+                let mut bfs = Bfs::new(common.words.len());
+                let mut rows: Vec<Vec<u8>> = Vec::with_capacity(part.len());
+                let mut local_balls: Vec<Vec<u32>> = Vec::with_capacity(part.len());
+                let mut counted = 0usize;
+                for &id in part {
+                    let mut row = vec![unreachable_u8; common.words.len()];
+                    bfs.run(common, id, far);
+                    for &word in &bfs.touched {
+                        row[word as usize] = bfs.get(word).min(u8::MAX as u32 - 1) as u8;
+                    }
+                    rows.push(row);
+                    let mut ball = bfs.touched.clone();
+                    ball.sort_unstable();
+                    local_balls.push(ball);
+                    counted += 1;
+                    if counted == BATCH {
+                        table_progress.advance(counted);
+                        counted = 0;
+                    }
+                }
+                table_progress.advance(counted);
+                (rows, local_balls)
+            }));
         }
-        tables.push(row);
-        let mut ball = bfs.touched.clone();
-        ball.sort_unstable();
-        balls.push(ball);
-    }
+        for handle in handles {
+            let (rows, local_balls) = handle.join().expect("table worker panicked");
+            tables.extend(rows);
+            balls.extend(local_balls);
+        }
+        table_progress.finish();
+    });
     let ball_total: usize = balls.iter().map(Vec::len).sum();
     eprintln!(
         "  endpoint distance tables: {} x {} words, reaching {} words each on average",
@@ -395,48 +710,179 @@ pub fn select(
         ball_total / balls.len().max(1)
     );
 
+    // Every pair of endpoints within par range, in one direction.
+    //
+    // A candidate's target only has to be somewhere in the source's reachable set, so
+    // this walks each `ball` rather than every endpoint against every other: the balls
+    // average a few thousand words against tens of thousands of endpoints. Sources are
+    // independent, so the enumeration runs per thread and the runs are concatenated in
+    // order — which is what leaves candidates grouped by source.
+    //
+    // Each word's rank is looked up once, not once per pair.
+    let ranks: Vec<usize> = endpoints
+        .iter()
+        .map(|&id| rank.get(common.word(id)).copied().unwrap_or(usize::MAX))
+        .collect();
     let mut candidates: Vec<(u32, u32, u32)> = Vec::new();
-    for (slot, &src) in endpoints.iter().enumerate() {
-        let row = &tables[slot];
-        for &tgt in &endpoints {
-            let d = row[tgt as usize];
-            if d == unreachable_u8 || (d as usize) < config.min_par || (d as usize) > config.max_par
-            {
-                continue;
-            }
-            // One direction only, ordered by familiarity so the pair is stable.
-            let src_rank = rank.get(common.word(src)).copied().unwrap_or(usize::MAX);
-            let tgt_rank = rank.get(common.word(tgt)).copied().unwrap_or(usize::MAX);
-            if (src_rank, common.word(src)) >= (tgt_rank, common.word(tgt)) {
-                continue;
-            }
-            candidates.push((src, tgt, d as u32));
+    let pair_chunk = endpoints.len().div_ceil(threads.max(1)).max(1);
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for (chunk, part) in endpoints.chunks(pair_chunk).enumerate() {
+            let base = chunk * pair_chunk;
+            let (tables, balls, slot_of, ranks) = (&tables, &balls, &slot_of, &ranks);
+            handles.push(scope.spawn(move || {
+                let mut found: Vec<(u32, u32, u32)> = Vec::new();
+                for (offset, &src) in part.iter().enumerate() {
+                    let slot = base + offset;
+                    let row = &tables[slot];
+                    for &tgt in &balls[slot] {
+                        let Some(&tgt_slot) = slot_of.get(&tgt) else {
+                            continue;
+                        };
+                        let d = row[tgt as usize];
+                        if d == unreachable_u8
+                            || (d as usize) < config.min_par
+                            || (d as usize) > config.max_par
+                        {
+                            continue;
+                        }
+                        // One direction only, ordered by familiarity so the pair is
+                        // stable across rebuilds.
+                        if (ranks[slot], common.word(src)) >= (ranks[tgt_slot], common.word(tgt)) {
+                            continue;
+                        }
+                        found.push((src, tgt, d as u32));
+                    }
+                }
+                found
+            }));
         }
-    }
+        for handle in handles {
+            candidates.extend(handle.join().expect("pairing worker panicked"));
+        }
+    });
     let candidate_count = candidates.len();
+    eprintln!("  candidates: {candidate_count} pairs at par {}-{}", config.min_par, config.max_par);
 
-    let mut puzzles = Vec::new();
+    // Judging every rule against every candidate, or stopping each candidate at its
+    // first failure. See Audit in config.rs. Nothing is sampled either way: the
+    // tallies a build reports are counts, not estimates.
+    let full = config.audit == Audit::On;
+
+    // Candidates are judged in parallel. Nothing a candidate reads is mutable — the
+    // graphs, the distance tables and the reachable sets are all shared immutably —
+    // so a worker needs only its own scratch buffers and its own tallies.
+    //
+    // Chunks are contiguous, which matters for more than cache: candidates are
+    // enumerated source by source, so a contiguous run shares a source and the
+    // legal-graph search that `secret` needs is done once for the run rather than
+    // once per candidate.
+    // Judged in stripes rather than contiguous blocks, so the threads finish together.
+    //
+    // Candidates are enumerated source by source and a hub source carries thousands
+    // where a leaf source carries one, so contiguous blocks hand one thread a run of
+    // hubs and another a run of leaves: the same total work, finishing minutes apart.
+    // Striping interleaves them, which costs the locality of judging one source's
+    // candidates together and is worth it — the searches that cared about that
+    // locality now only run for a puzzle being kept.
+    let mut puzzles: Vec<Puzzle> = Vec::new();
+    let judging = Progress::new("judging  ", candidate_count);
+    std::thread::scope(|scope| {
+        scope.spawn(|| judging.watch());
+        let mut handles = Vec::new();
+        for offset in 0..threads.max(1) {
+            // Sorted by source within the stripe, so the legal-graph search a kept
+            // puzzle needs is still done once per source rather than once per puzzle.
+            let mut stripe: Vec<(u32, u32, u32)> = candidates
+                .iter()
+                .skip(offset)
+                .step_by(threads.max(1))
+                .copied()
+                .collect();
+            stripe.sort_unstable();
+            let (tables, slot_of, judging) = (&tables, &slot_of, &judging);
+            handles.push(scope.spawn(move || {
+                judge_candidates(
+                    &stripe, common, common_subs, legal, config, rank, tables, slot_of,
+                    unreachable_u8, full, judging,
+                )
+            }));
+        }
+        for handle in handles {
+            let (found, chunk_alone, chunk_only) = handle.join().expect("judge worker panicked");
+            puzzles.extend(found);
+            for slot in 0..Rule::ALL.len() {
+                alone[slot] += chunk_alone[slot];
+                only[slot] += chunk_only[slot];
+            }
+        }
+        judging.finish();
+    });
+
+    // The calendar is applied separately, by `schedule`, because its knobs are not
+    // part of what the search depends on — see bank.rs.
+    Selection {
+        passed: puzzles.len(),
+        puzzles,
+        rejections: Rejections::from_tallies(&alone, &only),
+        candidates: candidate_count,
+        aligned_days: 0,
+    }
+}
+
+/// Put a bank in calendar order and hand back how much of it is date-addressable.
+///
+/// Separate from `select` so that reordering the calendar does not mean repeating the
+/// search: `RECURSE_SEED` and `RECURSE_MIN_GAP` reach only this function.
+pub fn schedule(mut selection: Selection, config: &Config) -> Selection {
+    let before = selection.puzzles.len();
+    let (ordered, aligned) = spread(selection.puzzles, config);
+    debug_assert_eq!(ordered.len(), before, "spread must not lose a puzzle");
+    selection.puzzles = ordered;
+    selection.passed = before;
+    selection.aligned_days = aligned;
+    selection
+}
+
+/// Judge one contiguous run of candidates, returning the puzzles that survived and
+/// this run's share of each rule's tally.
+///
+/// Every argument but `part` is shared read-only across workers. The scratch buffers
+/// and the tallies are local, which is the whole of what makes this parallel.
+#[allow(clippy::too_many_arguments)]
+fn judge_candidates(
+    part: &[(u32, u32, u32)],
+    common: &Graph,
+    common_subs: &FxSet<&str>,
+    legal: &Graph,
+    config: &Config,
+    rank: &FxMap<String, usize>,
+    tables: &[Vec<u8>],
+    slot_of: &FxMap<u32, usize>,
+    unreachable_u8: u8,
+    full: bool,
+    progress: &Progress,
+) -> (Vec<Puzzle>, Tally, Tally) {
+    let mut alone: Tally = [0; Rule::ALL.len()];
+    let mut only: Tally = [0; Rule::ALL.len()];
+    let mut puzzles: Vec<Puzzle> = Vec::new();
+    let mut counted = 0usize;
+
+    let mut counter = Bfs::new(common.words.len());
+    let mut branch_bfs = Bfs::new(common.words.len());
+    let mut board_bfs = Bfs::new(common.words.len());
     let mut legal_src_bfs = Bfs::new(legal.words.len());
     // Distances from the source, reused across every candidate that starts on the
-    // same word — candidates are grouped by source, and there are 4,000 sources to
-    // 190,000 candidates. Run to max_par, which covers every par such a candidate
-    // can have, so one search serves them all. Doing it per candidate instead was
-    // most of the build.
+    // same word. Candidates are grouped by source, so one search to max_par covers
+    // every par a candidate from that source can have.
     let mut searched_from: Option<u32> = None;
 
-    // Judge one candidate in `stride`, or none at all. See Audit in config.rs.
-    const AUDIT_SAMPLE: usize = 12_000;
-    let stride = match config.audit {
-        Audit::Off => 0,
-        Audit::Sampled => (candidate_count / AUDIT_SAMPLE).max(1),
-        Audit::Every(n) => n,
-    };
-    let mut audited = 0usize;
-
-    for (index, (src, tgt, par)) in candidates.into_iter().enumerate() {
-        let full = stride > 0 && index % stride == 0;
-        if full {
-            audited += 1;
+    for &(src, tgt, par) in part {
+        // Counted before anything can `continue` out of the candidate.
+        counted += 1;
+        if counted == BATCH {
+            progress.advance(counted);
+            counted = 0;
         }
         let from_src_row = &tables[slot_of[&src]];
         let from_tgt_row = &tables[slot_of[&tgt]];
@@ -449,43 +895,48 @@ pub fn select(
             }
         };
 
-        let limit = par + config.slack as u32;
-        let src_ball = &balls[slot_of[&src]];
-        let tgt_ball = &balls[slot_of[&tgt]];
-        let scan = if src_ball.len() <= tgt_ball.len() { src_ball } else { tgt_ball };
-        let mut corridor: Vec<u32> = Vec::with_capacity(scan.len() / 4);
-        for &word in scan {
-            let ds = at(from_src_row, word);
-            if ds == UNREACHED || ds > limit {
-                continue;
-            }
-            let dt = at(from_tgt_row, word);
-            if dt != UNREACHED && ds + dt <= limit {
-                corridor.push(word);
-            }
-        }
-        // Every rule this candidate breaks, not just the first. The rules are
-        // still ordered cheapest-first and a plain build stops at the first
-        // failure; auditing keeps going so each rule's cost can be attributed to
-        // it rather than to whichever rule happens to run earliest.
+        // Every rule this candidate breaks, not just the first. A plain build stops
+        // at the first failure; auditing keeps going so each rule's cost is attributed
+        // to it rather than to whichever rule happens to run earliest.
         let mut broken: Vec<Rule> = Vec::new();
-        let mut routes_shown: Vec<String> = Vec::new();
-        let drawn: Vec<u32>;
+        let routes_shown: Vec<String>;
+        let mut drawn: Vec<u32> = Vec::new();
         let mut alt = 0usize;
-        let mut routes = 0u64;
-        let mut best = par;
 
         'judge: {
-            // Pruning is the only costly step here and it now serves a floor and a
-            // statistic, never a ceiling. A neighbourhood past this size obviously
-            // clears the floor, so the statistic is taken unpruned rather than
-            // paying to prune it. A cost guard, not a rule.
-            const PRUNE_LIMIT: usize = 8_000;
-            drawn = if corridor.len() > PRUNE_LIMIT {
-                corridor.clone()
-            } else {
-                routes_only(common, &corridor, &[src, tgt])
-            };
+            // Chain rules first, and this order is the difference between a build of
+            // minutes and a build of half an hour. They read only the words on the
+            // answers, over distances already tabulated, so they cost no search and
+            // no scan — and between them they refuse the overwhelming majority of
+            // candidates. Everything after this point is a neighbourhood scan or a
+            // graph search, and none of it is worth paying for a candidate that a
+            // string test over seven words will reject.
+            routes_shown = judge_solutions(
+                common,
+                common_subs,
+                src,
+                tgt,
+                &|word| at(from_tgt_row, word),
+                config,
+                !full,
+                &mut broken,
+            );
+            if !full && !broken.is_empty() {
+                break 'judge;
+            }
+
+            // The board this puzzle draws, which is also what the two rules below judge.
+            // There is no wider neighbourhood measured first: a puzzle's recorded size has to
+            // describe the set a player is actually shown.
+            drawn = board_words(
+                common,
+                src,
+                tgt,
+                par,
+                &|word| at(from_tgt_row, word),
+                config,
+                &mut board_bfs,
+            );
             if drawn.len() < MIN_BOARD {
                 broken.push(Rule::BoardTooSmall);
                 if !full {
@@ -504,27 +955,25 @@ pub fn select(
                 }
             }
 
-            // How many ways through, on the common graph. A statistic now, not a
-            // rule: several ways through is a strength, and the count is worth
-            // showing in the survey and in dev mode.
-            routes = count_shortest_paths(common, src, tgt, par, &mut counter);
-
-            // The first move has to be a choice.
+            // The first move has to be a choice: `RECURSE_MIN_SOURCE_MOVES` of the
+            // source's moves have to lead to the target without coming back through
+            // the source.
             //
-            // A branch is an ordinary move from the source that begins a route to the
-            // target no more than two moves off the best — the same width the board
-            // is drawn at its tightest. Measuring it against the full slack-6
-            // neighbourhood instead promised branches the client then trimmed away;
-            // measuring the source's raw degree, as this first did, promised nothing
-            // at all, and let `speaking → sing → ...` through with one real option.
-            const BRANCH_SLACK: u32 = 2;
+            // That is reachability in the common graph with the source deleted, so
+            // a move onto a spur does not count — `passing → bypassing` is a move,
+            // but the only way on from `bypassing` is back through `passing`, which
+            // is not a choice. Deleting the source also rules out a route that
+            // returns to it, so what survives is a simple path onward.
+            //
+            // The route a branch takes may be any length; the depth limit only stops
+            // the search wandering the whole component looking for a way round that
+            // no answer would use.
+            let reach_limit = par.saturating_mul(BRANCH_REACH);
+            branch_bfs.run_without(common, tgt, reach_limit, src);
             let branches = common
                 .neighbors(src)
                 .iter()
-                .filter(|&&n| {
-                    let onward = at(from_tgt_row, n);
-                    onward != UNREACHED && 1 + onward <= par + BRANCH_SLACK
-                })
+                .filter(|&&n| n != src && branch_bfs.get(n) != UNREACHED)
                 .count();
             if branches < config.min_source_moves {
                 broken.push(Rule::OpeningForced);
@@ -533,55 +982,53 @@ pub fn select(
                 }
             }
 
-            let legal_src = legal.id(common.word(src));
-            let legal_tgt = legal.id(common.word(tgt));
-
-            let (Some(a), Some(b)) = (legal_src, legal_tgt) else {
+            // An id lookup, not a search. What the legal graph can *do* is a
+            // statistic and waits until this candidate is being kept.
+            if legal.id(common.word(src)).is_none() || legal.id(common.word(tgt)).is_none() {
                 broken.push(Rule::NotInLegalGraph);
                 break 'judge;
-            };
-
-            // The best the legal graph can do. Never worse than par — every common
-            // word and every common move is also legal — and when it is better, some
-            // rarer word cuts a corner. That is the secret, recorded and not judged.
-            if searched_from != Some(a) {
-                legal_src_bfs.run(legal, a, config.max_par as u32);
-                searched_from = Some(a);
             }
-            best = legal_src_bfs.get(b).min(par);
-
-            // The intended answers, on the common graph, at exactly par. No search
-            // needed: the distances from this endpoint are already tabulated.
-            routes_shown = judge_solutions(
-                common,
-                common_subs,
-                src,
-                tgt,
-                &|word| at(from_src_row, word),
-                config,
-                !full,
-                &mut broken,
-            );
         }
 
-        // Only a fully judged candidate can be attributed honestly. One that
-        // stopped at its first failure knows nothing about the rules after it, so
-        // counting it would put the whole cost on whichever rule happens to run
-        // first — the very thing the audit exists to avoid.
-        if stride == 0 || full {
-            for rule in &broken {
-                let slot = Rule::ALL.iter().position(|r| r == rule).expect("known rule");
-                alone[slot] += 1;
-                if broken.len() == 1 {
-                    only[slot] += 1;
-                }
+        for rule in &broken {
+            alone[rule.slot()] += 1;
+            if broken.len() == 1 {
+                only[rule.slot()] += 1;
             }
         }
         if !broken.is_empty() {
             continue;
         }
 
+        // Statistics, for a puzzle that is being kept. There are hundreds of
+        // candidates refused for every one accepted, so a search down here is a
+        // search that happens thousands of times rather than millions.
+        let routes = count_shortest_paths(common, src, tgt, par, &mut counter);
+
+        // The best the legal graph can do. Never worse than par — every common word
+        // and every common move is also legal — and when it is better, some rarer
+        // word cuts a corner. That is the secret, recorded and not judged.
+        let legal_src = legal.id(common.word(src)).expect("checked by NotInLegalGraph");
+        let legal_tgt = legal.id(common.word(tgt)).expect("checked by NotInLegalGraph");
+        if searched_from != Some(legal_src) {
+            legal_src_bfs.run(legal, legal_src, config.max_par as u32);
+            searched_from = Some(legal_src);
+        }
+        let best = legal_src_bfs.get(legal_tgt).min(par);
+
+        let answer = canonical_answer(
+            common,
+            src,
+            tgt,
+            par,
+            &|word| at(from_src_row, word),
+            &|word| at(from_tgt_row, word),
+        );
+
         puzzles.push(Puzzle {
+            id: puzzle_id(&answer, config.id_chars),
+            // Set by `spread`, which is what decides the calendar.
+            day: 0,
             source: common.word(src).to_string(),
             target: common.word(tgt).to_string(),
             par,
@@ -596,30 +1043,12 @@ pub fn select(
                 .unwrap_or(0),
             secret: if best < par { best } else { 0 },
             routes: routes_shown,
+            board: drawn.iter().map(|&w| common.word(w)).collect::<Vec<_>>().join(" "),
         });
     }
 
-    // Scale the sample back up to the whole candidate set.
-    if stride > 1 {
-        for slot in 0..alone.len() {
-            alone[slot] *= stride;
-            only[slot] *= stride;
-        }
-    }
-    if stride > 0 {
-        eprintln!(
-            "  audited {audited} of {candidate_count} candidates (1 in {stride}){}",
-            if stride > 1 { ", counts below are estimates" } else { "" }
-        );
-    }
-
-    let (puzzles, unplaceable) = spread(puzzles, config);
-    Selection {
-        puzzles,
-        rejections: Rejections::from_tallies(&alone, &only),
-        candidates: candidate_count,
-        unplaceable,
-    }
+    progress.advance(counted);
+    (puzzles, alone, only)
 }
 
 /// A tiny deterministic PRNG, so a rebuild always produces the same calendar.
@@ -638,10 +1067,15 @@ impl Rng {
 
 /// Order the bank so a word does not reappear as an endpoint too soon.
 ///
-/// Hub words are endpoints of thousands of candidates, so capping reuse outright
-/// throws most of the bank away. What actually matters for a daily game is that a
-/// repeat does not arrive while players still remember it, so a word is simply
-/// barred until `min_gap` puzzles have passed. Nearly everything survives.
+/// Purely an ordering. Every puzzle handed in comes back out: repeating a word is a
+/// reason to hold a puzzle for later, never a reason to refuse it. `min_gap` is how
+/// many puzzles a word waits before it may be an endpoint again, honoured whenever
+/// some puzzle can be placed without breaking it.
+///
+/// A word is only freed when another puzzle is placed, so the window can reach a
+/// state where every puzzle left wants a word still inside it. That deadlock is
+/// broken by placing the next pending puzzle regardless — the gap is a preference,
+/// and the alternative is losing puzzles to it.
 fn spread(mut puzzles: Vec<Puzzle>, config: &Config) -> (Vec<Puzzle>, usize) {
     // Canonical order before shuffling: selection order depends on hash iteration
     // and thread scheduling, and without this a rebuild would silently reassign
@@ -654,42 +1088,72 @@ fn spread(mut puzzles: Vec<Puzzle>, config: &Config) -> (Vec<Puzzle>, usize) {
         puzzles.swap(i, j);
     }
 
-    let mut ordered: Vec<Puzzle> = Vec::with_capacity(puzzles.len());
-    let mut pending = puzzles;
+    // One queue per shard, so a day can be served from the shard its number names.
+    //
+    // The client finds today's board by fetching shard `day % SHARDS` and looking for
+    // the day inside it, which is what saves it an index over the whole bank. That
+    // holds while every shard still has a puzzle left; shard sizes differ by a few
+    // percent, so the round robin eventually asks an empty one. From there the days
+    // keep being handed out from whatever shards remain — those puzzles ship and play
+    // like any other, and are reached by their id rather than by a date. `aligned`
+    // reports where that changeover falls, and it is the calendar the client may look
+    // up by day.
+    let mut queues: Vec<std::collections::VecDeque<Puzzle>> =
+        (0..SHARDS).map(|_| Default::default()).collect();
+    for puzzle in puzzles {
+        queues[shard_of(&puzzle.id)].push_back(puzzle);
+    }
+
+    let mut ordered: Vec<Puzzle> = Vec::with_capacity(queues.iter().map(VecDeque::len).sum());
     let mut blocked: FxMap<String, usize> = FxMap::default();
     let mut recent: std::collections::VecDeque<(String, String)> = Default::default();
+    let mut aligned: Option<usize> = None;
 
-    loop {
-        let mut deferred = Vec::new();
-        let mut placed = 0;
-        for puzzle in pending {
-            let busy = blocked.get(&puzzle.source).copied().unwrap_or(0) > 0
-                || blocked.get(&puzzle.target).copied().unwrap_or(0) > 0;
-            if busy {
-                deferred.push(puzzle);
-                continue;
+    let mut day = 0usize;
+    while queues.iter().any(|q| !q.is_empty()) {
+        // The shard this day belongs to, while the alignment holds. Once it has
+        // broken, take from the fullest shard so the tail stays balanced.
+        let wanted = day % SHARDS;
+        let from = if !queues[wanted].is_empty() {
+            wanted
+        } else {
+            if aligned.is_none() {
+                aligned = Some(day);
             }
-            *blocked.entry(puzzle.source.clone()).or_insert(0) += 1;
-            *blocked.entry(puzzle.target.clone()).or_insert(0) += 1;
-            recent.push_back((puzzle.source.clone(), puzzle.target.clone()));
-            while recent.len() > config.min_gap {
-                if let Some((source, target)) = recent.pop_front() {
-                    for word in [source, target] {
-                        if let Some(count) = blocked.get_mut(&word) {
-                            *count -= 1;
-                        }
+            queues
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, q)| q.len())
+                .map(|(i, _)| i)
+                .expect("some queue is not empty")
+        };
+
+        // The first puzzle in that shard whose endpoints are both free, or — when the
+        // window has deadlocked — the one at the front.
+        let next = queues[from]
+            .iter()
+            .position(|puzzle| {
+                blocked.get(&puzzle.source).copied().unwrap_or(0) == 0
+                    && blocked.get(&puzzle.target).copied().unwrap_or(0) == 0
+            })
+            .unwrap_or(0);
+        let mut puzzle = queues[from].remove(next).expect("index came from this deque");
+
+        *blocked.entry(puzzle.source.clone()).or_insert(0) += 1;
+        *blocked.entry(puzzle.target.clone()).or_insert(0) += 1;
+        recent.push_back((puzzle.source.clone(), puzzle.target.clone()));
+        while recent.len() > config.min_gap {
+            if let Some((source, target)) = recent.pop_front() {
+                for word in [source, target] {
+                    if let Some(count) = blocked.get_mut(&word) {
+                        *count -= 1;
                     }
                 }
             }
-            ordered.push(puzzle);
-            placed += 1;
         }
-        if placed == 0 {
-            return (ordered, deferred.len());
-        }
-        pending = deferred;
-        if pending.is_empty() {
-            return (ordered, 0);
-        }
+        puzzle.day = day;
+        ordered.push(puzzle);
+        day += 1;
     }
+    (ordered, aligned.unwrap_or(day))
 }

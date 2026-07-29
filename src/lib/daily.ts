@@ -1,15 +1,19 @@
 /**
- * Which puzzle belongs to which day.
+ * Which puzzle belongs to which day, and which puzzle a URL is asking for.
  *
  * Deliberately kept trivial and offline: puzzle N is entry `N mod bank.length`,
  * where N counts days since the epoch in the player's *local* time. Local time
  * means everyone gets a new puzzle at their own midnight, which is what people
  * expect from a daily game.
  *
- * Stage 3 (streaks, share strings) will build on `dayNumber`, so it lives here
- * rather than inline in a component.
+ * The calendar and the address are separate things now. A puzzle is *reached* by
+ * its id (see route.ts), which is what a shared link carries; the day number is
+ * what the game calls it, and belongs to the share text and the streak rather than
+ * to the URL. Nothing enumerable addresses a board, or a link to today would also
+ * be a link to every puzzle after it.
  */
 
+import { idFromPath } from './route';
 import type { Puzzle } from './types';
 
 /**
@@ -38,52 +42,78 @@ export function dayNumber(at: Date = new Date(), epoch: string = EPOCH): number 
   return Math.round((localMidnight(at) - start) / MS_PER_DAY);
 }
 
+/**
+ * The date a day number falls on, as `YYYY-MM-DD`.
+ *
+ * ISO rather than anything friendlier because this goes into the share text, where
+ * it is read by people in every locale — `07/03` is two different days depending on
+ * who is holding it. Built by walking the local calendar, so it agrees with
+ * `dayNumber`, which counts local midnights.
+ */
+export function dateForDay(day: number, epoch: string = EPOCH): string {
+  const [y, m, d] = epoch.split('-').map(Number);
+  const at = new Date(y!, (m ?? 1) - 1, (d ?? 1) + day);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
 export interface DailyPuzzle {
   puzzle: Puzzle;
-  /** Index into the bank. */
-  index: number;
   /** Days since epoch; the number shown to players and used for streaks. */
   day: number;
 }
 
-/** Wrap a number into the bank. Works for negatives too, unlike a bare `%`. */
-function wrap(bank: readonly Puzzle[], n: number): number {
-  if (bank.length === 0) throw new Error('puzzle bank is empty');
-  return ((n % bank.length) + bank.length) % bank.length;
-}
-
-export function puzzleForDay(bank: readonly Puzzle[], day: number): DailyPuzzle {
-  const index = wrap(bank, day);
-  return { puzzle: bank[index]!, index, day };
+/**
+ * Wrap a day number into the calendar. Works for negatives too, unlike a bare `%`.
+ *
+ * `days` is the manifest's calendar length rather than the number of puzzles loaded:
+ * only one shard is in memory, so the bank's own size says nothing about the calendar.
+ * This is the definition the builder's shard alignment is stated in, so it is also what
+ * data.ts uses to decide which shard to fetch.
+ */
+export function dayIndex(day: number, days: number): number {
+  if (days <= 0) throw new Error('the calendar is empty');
+  return ((day % days) + days) % days;
 }
 
 /**
- * Which puzzle to show, honouring `?day=N` and `?puzzle=N` overrides.
+ * The puzzle for a day, from the shard that day's number names.
  *
- * `day` is the player-facing number, and is what the archive will eventually
- * link to. `puzzle` addresses the bank directly and exists so tests can pin a
- * known board without depending on today's date — so its number *is* the index,
- * which is what the survey's `№N` quotes.
+ * A puzzle carries its own day, assigned by the builder, so this is a lookup rather
+ * than arithmetic over an array — `bank` holds the ~680 puzzles of one shard, in no
+ * particular order, and 174,000 others are not in memory. Null when the day is not in
+ * this shard, which means the wrong shard was fetched.
+ */
+export function puzzleForDay(
+  bank: readonly Puzzle[],
+  day: number,
+  days: number,
+): DailyPuzzle | null {
+  const wanted = dayIndex(day, days);
+  const puzzle = bank.find((candidate) => candidate.day === wanted);
+  return puzzle ? { puzzle, day: wanted } : null;
+}
+
+/** The puzzle with this id, or null when the loaded shard has no such puzzle. */
+export function puzzleById(bank: readonly Puzzle[], id: string): DailyPuzzle | null {
+  const puzzle = bank.find((candidate) => candidate.id === id);
+  return puzzle ? { puzzle, day: puzzle.day } : null;
+}
+
+/**
+ * Which puzzle a URL is asking for: `path` is `window.location.pathname`.
+ *
+ * Today's, unless the path names a puzzle in the loaded shard. An id that names nothing
+ * — a link shared before a rebuild changed that answer — gets today rather than an
+ * error, and the caller rewrites the URL to say so.
  */
 export function resolvePuzzle(
   bank: readonly Puzzle[],
-  search: string,
+  path: string,
+  days: number,
   now: Date = new Date(),
-): DailyPuzzle {
-  const params = new URLSearchParams(search);
-  const asked = (name: string): number | null => {
-    const raw = params.get(name);
-    return raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : null;
-  };
-
-  const day = asked('day');
-  if (day !== null) return puzzleForDay(bank, day);
-
-  const index = asked('puzzle');
-  if (index !== null) {
-    const at = wrap(bank, index);
-    return { puzzle: bank[at]!, index: at, day: at };
-  }
-
-  return puzzleForDay(bank, dayNumber(now));
+): DailyPuzzle | null {
+  const id = idFromPath(path);
+  const asked = id === null ? null : puzzleById(bank, id);
+  return asked ?? puzzleForDay(bank, dayNumber(now), days);
 }

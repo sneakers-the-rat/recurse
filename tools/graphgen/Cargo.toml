@@ -3,10 +3,19 @@ name = "graphgen"
 version = "0.2.0"
 edition = "2021"
 
-# No dependencies on purpose: this is a build utility that should work from a
-# cold checkout without a crates.io fetch. Everything it needs — threads, a fast
-# hasher, JSON writing — is a few dozen lines of std.
+# Two dependencies, both for things that must agree with an external definition
+# rather than with this crate's opinion:
+#
+#   blake2         puzzle ids are digests, and have to be the same digest every
+#                  other blake2s in the world computes.
+#   rust-stemmers  Snowball English (Porter2), which decides whether two words are
+#                  forms of the same word.
+#
+# Threads, the fast hasher used for lookups, and JSON writing are a few dozen lines
+# of std each and stay that way.
 [dependencies]
+blake2 = "0.10"
+rust-stemmers = "1.2.0"
 
 [profile.release]
 opt-level = 3

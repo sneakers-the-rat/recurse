@@ -8,10 +8,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { GameSnapshot } from './game';
-import { gameKey, loadGame, saveGame } from './storage';
+import { KEY, gameKey, loadGame, saveGame } from './storage';
 import type { Puzzle } from './types';
 
 const puzzle: Puzzle = {
+  id: 'aaaa1111',
+  day: 0,
   source: 'base',
   target: 'cannon',
   par: 4,
@@ -20,13 +22,14 @@ const puzzle: Puzzle = {
   altNodes: 0,
   shortestPaths: 1,
   maxRank: 0,
+  board: [],
 };
 
 const game = (word: string): GameSnapshot => ({
   log: [{ from: 'base', to: word, move: { to: word, sub: 'ball', pos: 4, kind: 'add' }, order: 1 }],
   selected: word,
   misses: 0,
-  hinted: [],
+  hints: [],
 });
 
 /** The smallest thing that behaves like localStorage. */
@@ -58,7 +61,8 @@ afterEach(() => install(undefined));
 
 describe('gameKey', () => {
   it('names the puzzle by its words, not its place in the bank', () => {
-    // The bank is rebuilt and reshuffled; `?puzzle=40` is not stable, the pair is.
+    // The bank is rebuilt and reshuffled; a puzzle's place in it is not stable and
+    // neither is its id, which is a digest of its answer. The pair is.
     expect(gameKey(puzzle)).toBe('base>cannon');
   });
 });
@@ -117,7 +121,7 @@ describe('saveGame', () => {
   });
 
   it('ignores a stored value that is not a game at all', () => {
-    localStorage.setItem('recurse.games.v1', '{ this is not json');
+    localStorage.setItem(KEY, '{ this is not json');
     expect(loadGame('a')).toBeNull();
     // And it recovers: the next save overwrites the rubbish.
     saveGame('a', game('baseball'));
@@ -125,7 +129,7 @@ describe('saveGame', () => {
   });
 
   it('ignores entries of the wrong shape inside a valid array', () => {
-    localStorage.setItem('recurse.games.v1', JSON.stringify([null, 7, { key: 'a' }, 'x']));
+    localStorage.setItem(KEY, JSON.stringify([null, 7, { key: 'a' }, 'x']));
     expect(loadGame('a')).toBeNull();
   });
 });

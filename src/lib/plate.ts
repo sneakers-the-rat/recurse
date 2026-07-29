@@ -56,10 +56,11 @@ export interface Plate {
 }
 
 export interface PlateOptions {
-  /** How many moves worse than optimal a drawn route may be. */
-  slack: number;
-  /** Back off slack until the drawn set fits under this. */
-  maxDrawn?: number;
+  /**
+   * The words the puzzle declares it draws. Empty means the answer and whatever the player
+   * has found, which is what a puzzle built before boards existed comes to.
+   */
+  board?: readonly string[];
   /**
    * Which found words to expand routes from. A word the player just named is
    * always drawn, but working out where it leads is deferred by a beat so the
@@ -154,24 +155,63 @@ function secondWayOut(
     .commonNeighbors(source)
     .filter((word) => distToTarget.has(word))
     .sort((a, b) => distToTarget.get(a)! - distToTarget.get(b)! || a.localeCompare(b));
-  // The first is the shortest route, which is drawn anyway; the second is the one
-  // at risk. Fewer than two and the puzzle should not have been offered.
-  const branch = options[1];
-  if (branch === undefined) return [];
 
-  const path = [branch];
-  let at = branch;
-  let remaining = distToTarget.get(branch)!;
-  while (remaining > 0) {
-    const next = graph
-      .commonNeighbors(at)
-      .find((word) => (distToTarget.get(word) ?? Infinity) === remaining - 1);
-    if (next === undefined) return [];
-    path.push(next);
-    at = next;
-    remaining -= 1;
+  // The first is the shortest route, which is drawn anyway. Every one after it is a
+  // candidate for the branch, and the first that leads *somewhere* wins — asking only
+  // about `options[1]` meant that when its route doubled back, the board got a spur
+  // instead of a second way and nothing else was tried.
+  for (const branch of options.slice(1)) {
+    const path = descend(
+      branch,
+      (word) => graph.commonNeighbors(word),
+      distToTarget,
+      new Set([source]),
+    );
+    if (path) return path;
   }
-  return path;
+  return [];
+}
+
+/**
+ * A walk from `word` to whatever `distance` measures zero at, never revisiting.
+ *
+ * Each step goes to a neighbour one move closer, which is what makes the result a
+ * shortest route — but "one move closer" is not enough on its own, because the *source*
+ * is one move closer to the target than a word hanging off it. Walking blind produced
+ * `form → conform → form → …`: a path on paper, a dead-end spur on the board, and the
+ * word protected from pruning for the privilege. `avoid` is what the walk may not
+ * revisit; it adds itself as it goes.
+ */
+function descend(
+  word: string,
+  near: (from: string) => readonly string[],
+  distance: ReadonlyMap<string, number>,
+  avoid: ReadonlySet<string>,
+): string[] | null {
+  const remaining = distance.get(word);
+  if (remaining === undefined) return null;
+
+  const path: string[] = [];
+  const onPath = new Set(avoid);
+  let budget = 4000;
+
+  const walk = (at: string, left: number): boolean => {
+    if (budget-- <= 0) return false;
+    path.push(at);
+    onPath.add(at);
+    if (left === 0) return true;
+    for (const next of near(at)
+      .filter((candidate) => !onPath.has(candidate) && distance.get(candidate) === left - 1)
+      .sort()) {
+      if (walk(next, left - 1)) return true;
+    }
+    // Nothing onward from here, so this word is not on a route after all.
+    path.pop();
+    onPath.delete(at);
+    return false;
+  };
+
+  return walk(word, remaining) ? path : null;
 }
 
 export function buildPlate(
@@ -181,7 +221,7 @@ export function buildPlate(
   revealed: Iterable<Revealed>,
   options: PlateOptions,
 ): Plate {
-  const maxDrawn = options.maxDrawn ?? 90;
+  const puzzleBoard = options.board ?? [];
   const found = [...revealed];
   const named = found.map((r) => r.word);
 
@@ -207,141 +247,38 @@ export function buildPlate(
     .filter((w) => w === source || !options.anchors || options.anchors.has(w));
 
   /**
-   * Nodes on a route from any anchor to the target no worse than `slack`, or
-   * null if there are already more than `cap` of them.
+   * The words to draw: what the puzzle declares, plus wherever the player has got to.
    *
-   * Deliberately a fresh bounded search rather than a scan of the cached
-   * distance map. With two-letter subwords the graph is dense enough that ~100k
-   * words sit within the widest slack, so anything proportional to that is far
-   * too slow to run after every guess. Expanding outward and abandoning the
-   * moment the board cannot fit keeps the work proportional to what is actually
-   * drawn, which is at most a hundred nodes.
+   * The board is not worked out here. A puzzle *is* a set of words — its ways through and
+   * enough of the graph joining them that they read as one neighbourhood — and the builder
+   * chose that set with the whole graph in hand. This module used to derive its own: a ball
+   * around the answer at some slack, pruned of dead ends, trimmed to a budget by bisection.
+   * That was a second filter reaching for the same thing as the builder's, disagreeing with it
+   * about which words counted, and rerun on every guess.
+   *
+   * What is left is the one thing the client genuinely knows and the builder cannot: where the
+   * player has been. Guessing off the map still extends the map — a word named outside the
+   * declared board arrives with a route onward, so it is joined to something and leads
+   * somewhere rather than sitting in a corner as a dot.
    */
-  const gather = (slack: number, cap: number): Map<string, number> | null => {
-    const candidates = new Map<string, number>();
-    for (const word of protectedNodes) candidates.set(word, 0);
-    for (const anchor of anchors) {
-      const anchorToTarget = distToTarget.get(anchor);
-      if (anchorToTarget === undefined) continue;
-      const limit = anchorToTarget + slack;
+  const live = new Set<string>(protectedNodes);
+  for (const word of puzzleBoard) {
+    if (graph.has(word)) live.add(word);
+  }
+  for (const word of anchors) {
+    if (live.has(word) && puzzleBoard.includes(word)) continue;
+    const onward = descend(word, (w) => graph.commonNeighbors(w), distToTarget, new Set());
+    if (onward) for (const step of onward) live.add(step);
+  }
 
-      // Expansion is confined to nodes that are themselves on an admissible
-      // route. That is exact, not an approximation: if `d(w) + dt(w) > limit`
-      // then no route through w fits, and every node along a shortest path to an
-      // admissible node is admissible too — so nothing reachable is missed. It
-      // is what keeps the search proportional to the board instead of to the
-      // ball around it, which at this density is most of the language.
-      const admissible = (word: string, depth: number) => {
-        const dt = distToTarget.get(word);
-        return dt !== undefined && depth + dt <= limit;
-      };
-
-      if (!admissible(anchor, 0)) continue;
-      const visited = new Set<string>([anchor]);
-      let frontier = [anchor];
-      for (let d = 0; frontier.length > 0 && d <= limit; d++) {
-        for (const word of frontier) {
-          const dt = distToTarget.get(word) ?? 0;
-          const over = d + dt - anchorToTarget;
-          const seen = candidates.get(word);
-          if (seen === undefined || over < seen) candidates.set(word, over);
-          if (candidates.size > cap) return null;
-        }
-        if (d === limit) break;
-        const next: string[] = [];
-        for (const word of frontier) {
-          for (const neighbor of graph.commonNeighbors(word)) {
-            if (visited.has(neighbor) || !admissible(neighbor, d + 1)) continue;
-            visited.add(neighbor);
-            next.push(neighbor);
-          }
-        }
-        frontier = next;
-      }
-    }
-    return candidates;
-  };
-
-  // Widen from the floor until the board is as generous as it can be while
-  // staying readable.
-  //
-  // Starting at zero — the best routes and nothing else — is what makes the
-  // upper bound a guarantee rather than a hope. It also has to be adaptive at
-  // all because the puzzle bank measures neighbourhood size on the *common*
-  // graph, while this draws the *legal* one, which is five times larger; a board
-  // recorded as 40 nodes there can be 700 here.
-  //
-  // Ascending rather than descending because on a graph this size the ball at a
-  // large slack is enormous, so descending paid for the biggest set first and
-  // then discarded it. Odd values are skipped: parity means they add nothing.
-  //
-  // The cap only bounds the work; it is not a proxy for what will fit. Deriving
-  // it from maxDrawn was wrong once the drawing budget shrank: a wide
-  // neighbourhood then blew the cap, the widening gave up, and the board fell
-  // back to the shortest paths alone — no alternatives at all on exactly the
-  // puzzles that have the most of them. Trimming decides what fits; this only
-  // decides when a neighbourhood is too big to be worth gathering.
-  const cap = Math.max(maxDrawn * 20, 1500);
-
-  /**
-   * Trim an oversized board down, dropping the *worst* detours first.
-   *
-   * Backing off to a narrower slack instead was a real bug: with two-letter
-   * subwords, slack 2 routinely blows past maxDrawn, so the board collapsed all
-   * the way to slack 0 — the shortest path and nothing else, drawn as a bare line
-   * with no alternatives to weigh. Keeping the nearest detours and cutting the
-   * far ones always leaves something to choose between.
-   *
-   * How many to keep is found by bisection, because it has to land *close* to the
-   * limit and not merely under it. Backing off geometrically undershot badly — a
-   * board with room for thirty words was drawn with twenty-three — and, worse, it
-   * undershot by a different amount each time, so naming one word could leave the
-   * board with fewer words on it than before. Pruning is monotone (adding a
-   * candidate can only raise degrees, so the survivors can only grow), which is
-   * what makes bisection valid here.
-   */
-  const trim = (excess: Map<string, number>, limit: number): Set<string> => {
-    const order = [...excess.entries()]
-      .filter(([word]) => !protectedNodes.has(word))
-      .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-      .map(([word]) => word);
-
-    const survivorsOf = (keepCount: number) =>
-      pruneDeadEnds(graph, new Set([...protectedNodes, ...order.slice(0, keepCount)]), protectedNodes);
-
-    let best = survivorsOf(0);
-    let low = 0;
-    let high = order.length;
-    while (low < high) {
-      const mid = Math.ceil((low + high) / 2);
-      const result = survivorsOf(mid);
-      if (result.size <= limit) {
-        best = result;
-        low = mid;
-      } else {
-        high = mid - 1;
-      }
-    }
-    return best;
-  };
-
-  // Slack 0 — the best routes and nothing else — is the floor, and it is drawn
-  // whatever happens. Each widening either fits, and is kept, or overflows, in
-  // which case it is trimmed back to the budget and the widening stops there.
-  const floor = gather(0, cap);
+  // What the widest route on the board strays from optimal. A statistic now rather than an
+  // input: nothing here chooses words by it.
   let slack = 0;
-  let live = pruneDeadEnds(graph, floor ? new Set(floor.keys()) : protectedNodes, protectedNodes);
-  for (let wider = 2; wider <= options.slack; wider += 2) {
-    const candidates = gather(wider, cap);
-    if (!candidates) break;
-    const pruned = pruneDeadEnds(graph, new Set(candidates.keys()), protectedNodes);
-    slack = wider;
-    if (pruned.size <= maxDrawn) {
-      live = pruned;
-      continue;
-    }
-    live = trim(candidates, maxDrawn);
-    break;
+  for (const word of live) {
+    const ds = distFromSource.get(word);
+    const dt = distToTarget.get(word);
+    if (ds === undefined || dt === undefined) continue;
+    slack = Math.max(slack, ds + dt - (distToTarget.get(source) ?? 0));
   }
 
   const nodes = [...live].sort();

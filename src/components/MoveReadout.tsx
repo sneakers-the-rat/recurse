@@ -11,6 +11,8 @@
  * readout says so plainly instead of inventing a highlight.
  */
 
+import { memo } from 'react';
+
 import { analyzeEdit, bestReading } from '../lib/moves';
 import type { Graph } from '../lib/types';
 
@@ -58,7 +60,13 @@ function Arrow() {
   );
 }
 
-export function MoveReadout({ from, typed, graph, isWord = null, muted = false }: Props) {
+export const MoveReadout = memo(function MoveReadout({
+  from,
+  typed,
+  graph,
+  isWord = null,
+  muted = false,
+}: Props) {
   const word = typed.trim().toLowerCase();
 
   if (!word || word === from) {
@@ -129,4 +137,4 @@ export function MoveReadout({ from, typed, graph, isWord = null, muted = false }
       <span className="label text-blood-lit ml-3">not one run</span>
     </p>
   );
-}
+});

@@ -27,8 +27,18 @@
 import type { GameSnapshot } from './game';
 import type { Puzzle } from './types';
 
-/** Bumped when the stored shape changes, which retires every old entry at once. */
-const KEY = 'recurse.games.v1';
+/**
+ * Bumped when the stored shape changes, which retires every old entry at once.
+ *
+ * v2: hints stopped being a set of words and became a level per word, so a v1
+ * entry's `hinted` array would restore as no hints at all — silently losing the
+ * help someone had already paid for.
+ *
+ * Exported so the tests can reach the store the code actually uses: they used to
+ * write `recurse.games.v1` by hand, and the bump left them poking at a key nothing
+ * reads, still passing.
+ */
+export const KEY = 'recurse.games.v2';
 
 /**
  * How many finished-or-abandoned games to keep. Enough that a week of play and a

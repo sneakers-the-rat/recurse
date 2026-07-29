@@ -33,39 +33,85 @@ import type { Graph, GraphParams, Move } from './types';
  * a handful of string slices, only the few moves actually displayed ever need
  * them, and not shipping them cut the edge list from 1,278KB to 352KB gzipped.
  */
+export interface Rows {
+  /** Neighbour count per dictionary word. */
+  degrees: Int32Array;
+  /** Every neighbour list, concatenated in word order. */
+  targets: Int32Array;
+  /** Where each word's row starts in `targets`. */
+  offsets: Int32Array;
+}
+
+/**
+ * Build the graph from neighbour lists the builder already worked out.
+ *
+ * Both graphs arrive as rows over dictionary ids, and nothing is assembled here: the
+ * browser used to turn an edge list into 151,000 adjacency arrays on every page load —
+ * 517,000 pushes, a fifth of a second before a board could be drawn — and to derive the
+ * *common* graph edge by edge on top of that, by asking whether some reading of each
+ * move named an ordinary word. Both are now the builder's job, which is where the
+ * definitions live anyway. See tools/graphgen/src/main.rs.
+ *
+ * Words are turned into strings lazily, per row, and cached. A session touches a few
+ * thousand words of the 189,000 in the dictionary, so materialising all of them up
+ * front was work thrown away.
+ *
+ * Adjacency still stores only the neighbouring words. The subword and its position are
+ * *derived* from a word pair on demand rather than shipped: recovering them costs a
+ * handful of string slices, only the few moves actually displayed ever need them, and
+ * not shipping them keeps the file a third of the size.
+ */
 export function buildGraph(
   params: GraphParams,
   dictionary: readonly string[],
-  edges: Iterable<readonly [number, number]>,
-  common?: ReadonlySet<string>,
+  legal: Rows,
+  common: Rows,
+  commonWords: ReadonlySet<string>,
 ): Graph {
-  const words = new Set<string>(dictionary);
-  const adjacency = new Map<string, string[]>();
-
-  const link = (from: string, to: string) => {
-    const list = adjacency.get(from);
-    if (list) list.push(to);
-    else adjacency.set(from, [to]);
-  };
-
-  for (const [bigIdx, smallIdx] of edges) {
-    const big = dictionary[bigIdx];
-    const small = dictionary[smallIdx];
-    if (big === undefined || small === undefined) {
-      throw new Error(`graph.json edge references a missing index: ${bigIdx},${smallIdx}`);
-    }
-    link(big, small);
-    link(small, big);
-  }
-
-  // Stable order so layout and rendering never depend on edge-file ordering.
-  for (const list of adjacency.values()) list.sort();
+  const ids = new Map<string, number>();
+  for (let i = 0; i < dictionary.length; i++) ids.set(dictionary[i]!, i);
 
   const empty: readonly string[] = Object.freeze([]);
-  const isWord = (word: string) => words.has(word);
+  const materialise = (rows: Rows, cache: Map<number, readonly string[]>, id: number) => {
+    const cached = cache.get(id);
+    if (cached) return cached;
+    const from = rows.offsets[id]!;
+    const count = rows.degrees[id]!;
+    if (count === 0) return empty;
+    const list: string[] = new Array(count);
+    for (let i = 0; i < count; i++) list[i] = dictionary[rows.targets[from + i]!]!;
+    cache.set(id, list);
+    return list;
+  };
+
+  const legalCache = new Map<number, readonly string[]>();
+  const commonCache = new Map<number, readonly string[]>();
+
+  const isWord = (word: string) => ids.has(word);
   // Absent a common list, every word counts as ordinary — which is what the toy
   // fixtures in the tests want.
-  const isCommon = (word: string) => (common ? common.has(word) : words.has(word));
+  const isCommon = (word: string) =>
+    commonWords.size === 0 ? ids.has(word) : commonWords.has(word);
+
+  const neighbors = (word: string): readonly string[] => {
+    const id = ids.get(word);
+    return id === undefined ? empty : materialise(legal, legalCache, id);
+  };
+
+  /**
+   * Neighbours reachable by a move an ordinary player would recognise: both words
+   * ordinary, and the word added or removed ordinary too.
+   *
+   * This is the graph the board is drawn from. Drawing the legal one instead put
+   * words nobody knows on the plate and, worse, made the gilt "best route" a line
+   * through them that was shorter than the par the puzzle advertised — so the
+   * board contradicted the header and gave away the secret in the same stroke.
+   * Legality is untouched: every real word is still a legal guess.
+   */
+  const commonNeighbors = (word: string): readonly string[] => {
+    const id = ids.get(word);
+    return id === undefined ? empty : materialise(common, commonCache, id);
+  };
 
   const describe = (from: string, to: string): Move => {
     const adding = to.length > from.length;
@@ -83,45 +129,9 @@ export function buildGraph(
     };
   };
 
-  /**
-   * Neighbours reachable by a move an ordinary player would recognise: both words
-   * ordinary, and the word added or removed ordinary too.
-   *
-   * This is the graph the board is drawn from. Drawing the legal one instead put
-   * words nobody knows on the plate and, worse, made the gilt "best route" a line
-   * through them that was shorter than the par the puzzle advertised — so the
-   * board contradicted the header and gave away the secret in the same stroke.
-   * Legality is untouched: every real word is still a legal guess.
-   */
-  const commonAdjacency = new Map<string, string[]>();
-
-  /**
-   * Is there *any* reading of this move that uses an ordinary word?
-   *
-   * Any, not the one `describe` happens to display: the game already accepts a move
-   * if any reading is legal, so the drawn graph has to be generous in the same way.
-   * Asking only about the displayed reading made the board disagree with the
-   * builder about which edges exist, and boards lost the alternatives that puzzle
-   * selection had guaranteed were there.
-   */
-  const commonMove = (from: string, to: string) => {
-    const adding = to.length > from.length;
-    const shorter = adding ? from : to;
-    const longer = adding ? to : from;
-    return insertionSpots(shorter, longer).some(
-      (spot) => spot.sub.length >= params.minSub && isCommon(spot.sub),
-    );
-  };
-
-  const commonNeighbors = (word: string): readonly string[] => {
-    const cached = commonAdjacency.get(word);
-    if (cached) return cached;
-    if (!isCommon(word)) return empty;
-    const list = (adjacency.get(word) ?? empty).filter(
-      (other) => isCommon(other) && commonMove(word, other),
-    );
-    commonAdjacency.set(word, list);
-    return list;
+  const degree = (word: string) => {
+    const id = ids.get(word);
+    return id === undefined ? 0 : legal.degrees[id]!;
   };
 
   return {
@@ -130,11 +140,10 @@ export function buildGraph(
     isWord,
     isCommon,
     commonNeighbors,
-    has: (word) => adjacency.has(word),
-    neighbors: (word) => adjacency.get(word) ?? empty,
-    findMove: (from, to) =>
-      (adjacency.get(from) ?? empty).includes(to) ? describe(from, to) : null,
-    degree: (word) => (adjacency.get(word) ?? empty).length,
+    has: (word) => degree(word) > 0,
+    neighbors,
+    findMove: (from, to) => (neighbors(from).includes(to) ? describe(from, to) : null),
+    degree,
   };
 }
 

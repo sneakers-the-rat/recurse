@@ -12,6 +12,14 @@
 //! implementations is the price of the builder needing this over 190k words while
 //! the client needs it per keystroke; keeping them to the same *definition* is
 //! what stops the two sides from disagreeing about what a move is.
+//!
+//! Word families come from Snowball English (Porter2) via `rust-stemmers`. Two
+//! words are one word when they stem alike.
+
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock};
+
+use rust_stemmers::{Algorithm, Stemmer};
 
 /// One way a pair can be read: the run at `pos` in the longer word, `len` long.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,51 +65,66 @@ pub fn by_length<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
     }
 }
 
-/// Endings that make one word another form of the same word.
-const INFLECTIONS: &[&str] = &[
-    "s", "es", "ies", "ed", "d", "ing", "ings", "er", "ers", "est", "ly", "y", "like", "ness",
-    "less", "ful", "fully", "able", "ible", "ment", "ments", "ion", "ions", "tion", "tions",
-    "ish", "ist", "ists", "ive", "ity", "ities", "ance", "ence", "ize", "ized", "izes", "eth",
-];
+/// Snowball English (Porter2), shared by every caller.
+///
+/// Stemming is stateless, so one instance serves the whole build and every thread.
+fn stemmer() -> &'static Stemmer {
+    static STEMMER: OnceLock<Stemmer> = OnceLock::new();
+    STEMMER.get_or_init(|| Stemmer::create(Algorithm::English))
+}
+
+/// The stem two words have to share to be forms of the same word.
+///
+/// Cached, because the questions below are asked tens of millions of times per build
+/// over a few tens of thousands of distinct words. The cache is shared across threads
+/// behind a set of shards, so a lookup contends with 1/CACHE_SHARDS of the other threads
+/// rather than all of them; stemming is pure, so a word computed twice during a race
+/// is a wasted stemming and never a wrong answer.
+pub fn stem(word: &str) -> Arc<str> {
+    let shard = &cache()[cache_shard_of(word)];
+    if let Some(hit) = shard.read().expect("stem cache is never poisoned").get(word) {
+        return Arc::clone(hit);
+    }
+    let stemmed: Arc<str> = Arc::from(stemmer().stem(word).as_ref());
+    shard
+        .write()
+        .expect("stem cache is never poisoned")
+        .insert(word.to_string(), Arc::clone(&stemmed));
+    stemmed
+}
+
+/// Enough shards that threads rarely want the same lock, few enough to stay cheap.
+const CACHE_SHARDS: usize = 64;
+
+type Shard = RwLock<HashMap<String, Arc<str>>>;
+
+fn cache() -> &'static [Shard; CACHE_SHARDS] {
+    static CACHE: OnceLock<[Shard; CACHE_SHARDS]> = OnceLock::new();
+    CACHE.get_or_init(|| std::array::from_fn(|_| RwLock::new(HashMap::new())))
+}
+
+/// Which shard a word belongs to. Its length and first two bytes spread words evenly
+/// enough for this, and cost nothing to compute.
+fn cache_shard_of(word: &str) -> usize {
+    let bytes = word.as_bytes();
+    let a = bytes.first().copied().unwrap_or(0) as usize;
+    let b = bytes.get(1).copied().unwrap_or(0) as usize;
+    (a.wrapping_mul(31).wrapping_add(b).wrapping_add(word.len())) % CACHE_SHARDS
+}
 
 /// Are these the same word in different clothes?
 ///
-/// `car`/`cars`, `carry`/`carries`, `bake`/`baking`, `stop`/`stopping`. A puzzle
-/// that contains both members of a family somewhere on its route has a move that
-/// is bookkeeping rather than discovery, and — the case that mattered — a compound
-/// swap can hide behind an inflection: `carnations` is `car` glued to `nations`,
-/// so reaching `cars` from `nations` through it discovers nothing, even though no
-/// two of those three words are literally concatenated.
+/// `car`/`cars`, `carry`/`carries`, `bake`/`baking`, `stop`/`stopping` — one word
+/// each, by Snowball's account. A puzzle that contains both members of a family
+/// somewhere on its route has a move that is bookkeeping rather than discovery, and
+/// a compound swap can hide behind an inflection: `carnations` is `car` glued to
+/// `nations`, so reaching `cars` from `nations` through it discovers nothing even
+/// though no two of those three words are literally concatenated.
+///
+/// The one place this question is answered. Every caller goes through here, and the
+/// cost of doing so is a cache lookup rather than a stemming.
 pub fn same_family(a: &str, b: &str) -> bool {
-    let (short, long) = by_length(a, b);
-    if short == long {
-        return true;
-    }
-    for ending in INFLECTIONS {
-        if long.len() <= short.len() || !long.ends_with(ending) {
-            continue;
-        }
-        let stem = &long[..long.len() - ending.len()];
-        if stem == short {
-            return true;
-        }
-        // carry -> carries: stem "carr" against short "carry"
-        if short.ends_with('y') && stem == &short[..short.len() - 1] {
-            return true;
-        }
-        // stop -> stopping: stem "stopp" against short "stop"
-        if stem.len() == short.len() + 1
-            && stem.starts_with(short)
-            && stem.as_bytes().last() == short.as_bytes().last()
-        {
-            return true;
-        }
-        // bake -> baking: stem "bak" against short "bake"
-        if short.ends_with('e') && stem == &short[..short.len() - 1] {
-            return true;
-        }
-    }
-    false
+    a == b || stem(a) == stem(b)
 }
 
 /// Shortest part a glued word can be split into. Below this the halves are
@@ -110,6 +133,7 @@ const MIN_PART: usize = 2;
 
 /// Is `whole` these two words glued together, in either order, allowing either to
 /// appear as another form of itself?
+///
 fn is_glued_from(whole: &str, x: &str, y: &str) -> bool {
     if whole.len() < MIN_PART * 2 {
         return false;
@@ -132,6 +156,12 @@ fn is_glued_from(whole: &str, x: &str, y: &str) -> bool {
 /// Family-aware, which is the whole point: `coast → coastlands → lands` was always
 /// caught, but `nations → carnations → cars` was not, and it is the same move.
 pub fn is_compound_swap(a: &str, b: &str, c: &str) -> bool {
+    // A run is only worth splitting up if something could glue back together, and the
+    // shortest compound is two parts of MIN_PART. Checked first because this rejects
+    // most triples for the price of two integer comparisons.
+    if b.len() < MIN_PART * 2 && a.len() < MIN_PART * 2 {
+        return false;
+    }
     is_glued_from(b, a, c) || is_glued_from(a, b, c)
 }
 

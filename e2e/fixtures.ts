@@ -6,14 +6,78 @@
  * real puzzle without hard-coding words that a data rebuild would invalidate.
  */
 
+import type { Locator, Page } from '@playwright/test';
 import { shortestPath, shortestPathNodes } from '../src/lib/graph';
 import { shippedData } from '../src/test/shipped';
+import { pathFor } from '../src/lib/route';
 import type { Puzzle } from '../src/lib/types';
 
 export const gameData = shippedData;
 
+/**
+ * The finished round's verdict and score.
+ *
+ * Asked for by name, because the finished round is in two places now — the result above
+ * the board and the move list below it — and it used to be found with
+ * `locator('section').last()`, which quietly started pointing at the move list the day
+ * that happened. A test that means "the result" should say so.
+ */
+export function result(page: Page) {
+  return page.getByRole('region', { name: 'Result' });
+}
+
+/**
+ * The first thing matching `selector` that is actually in shot.
+ *
+ * The board is deliberately larger than the plate — the words are drawn at a readable size
+ * and the surplus runs off the edges to be dragged into view (see camera.ts) — so "the
+ * first word on the board" and "a word you can click" are different questions. Playwright
+ * will not click something outside the viewport, and it cannot scroll to it either, because
+ * the plate is not a scroller: the way to reach that word is to pan the camera.
+ *
+ * So a test that wants to tap a word has to ask for one that is there to be tapped. Taking
+ * `.first()` and hoping is what these did, and it depended on where in the alphabet the
+ * outermost word happened to fall — one spec had been failing that lottery for a while
+ * before the words were made bigger and most of the others started losing it too.
+ */
+export async function inShot(page: Page, selector: string): Promise<Locator> {
+  const all = page.locator(selector);
+  await all.first().waitFor();
+  const plate = await page.locator('main').boundingBox();
+  if (!plate) throw new Error('the plate has no box');
+
+  const count = await all.count();
+  for (let i = 0; i < count; i++) {
+    const one = all.nth(i);
+    const box = await one.boundingBox();
+    if (!box) continue;
+    if (
+      box.x >= plate.x &&
+      box.y >= plate.y &&
+      box.x + box.width <= plate.x + plate.width &&
+      box.y + box.height <= plate.y + plate.height
+    ) {
+      return one;
+    }
+  }
+  throw new Error(`nothing matching ${selector} is in shot on this board`);
+}
+
+/**
+ * The URL a board is played at.
+ *
+ * A puzzle is addressed by its id and nothing else — there is no `?puzzle=N`, so a
+ * test opens the same URL a player would be sent. `search` is for the flags that
+ * are not about *which* puzzle: `?dev`, `?dev=0`.
+ *
+ * Built with the app's own `pathFor`, at the dev server's base, so a test cannot
+ * navigate somewhere the app would not.
+ */
+export function board(puzzle: Puzzle, search: string = ''): string {
+  return pathFor(puzzle.id, search, '/');
+}
+
 export interface SolvedPuzzle {
-  index: number;
   puzzle: Puzzle;
   /** Source first, target last. Length is par + 1. */
   path: string[];
@@ -36,26 +100,24 @@ export interface SolvedPuzzle {
  */
 export function puzzleWithPar(par: number): SolvedPuzzle {
   const { graph, puzzles } = gameData();
-  for (let index = 0; index < puzzles.length; index++) {
-    const puzzle = puzzles[index]!;
+  for (const puzzle of puzzles) {
     if (puzzle.par !== par || puzzle.secret !== 0) continue;
     const path = shortestPath(graph, puzzle.source, puzzle.target);
     if (!path || path.length !== par + 1) continue;
     const onRoute = shortestPathNodes(graph, puzzle.source, puzzle.target, par);
     const wrongTurn = graph.neighbors(puzzle.source).find((w) => !onRoute.has(w));
-    if (wrongTurn) return { index, puzzle, path, wrongTurn };
+    if (wrongTurn) return { puzzle, path, wrongTurn };
   }
   throw new Error(`no puzzle with par ${par} and a wrong turn available`);
 }
 
 /** A puzzle par can be beaten on, with the route that beats it. */
-export function puzzleWithSecret(): { index: number; puzzle: Puzzle; path: string[] } {
+export function puzzleWithSecret(): { puzzle: Puzzle; path: string[] } {
   const { graph, puzzles } = gameData();
-  for (let index = 0; index < puzzles.length; index++) {
-    const puzzle = puzzles[index]!;
+  for (const puzzle of puzzles) {
     if (puzzle.secret === 0) continue;
     const path = shortestPath(graph, puzzle.source, puzzle.target);
-    if (path && path.length - 1 === puzzle.secret) return { index, puzzle, path };
+    if (path && path.length - 1 === puzzle.secret) return { puzzle, path };
   }
   throw new Error('no puzzle with a secret available');
 }

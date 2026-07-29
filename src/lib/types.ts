@@ -24,8 +24,31 @@ export interface GraphParams {
 }
 
 export interface Puzzle {
+  /**
+   * The puzzle's address: hex digits of a digest of its answer, and the whole of
+   * its URL. Not enumerable on purpose — see route.ts and graphgen's id.rs.
+   */
+  id: string;
+  /**
+   * Which day of the calendar this is: what the header calls the puzzle and what the
+   * share text quotes. Metadata, never an address — no URL carries it.
+   *
+   * Assigned by the builder so that day `N` lives in shard `N % 256`, which is how the
+   * client finds today's board with one fetch and no index. See data.ts.
+   */
+  day: number;
   source: string;
   target: string;
+  /**
+   * Every word the board draws, decided by the builder.
+   *
+   * A puzzle *is* this set: the ways through it and enough of the graph joining them that
+   * they read as one neighbourhood. The client draws it verbatim rather than working out a
+   * neighbourhood of its own — see `board_words` in graphgen's select.rs. Which of them are
+   * gold is not stored, because a word is on a shortest route exactly when its distances from
+   * the two endpoints add to par, and the client has the graph and both endpoints.
+   */
+  board: string[];
   /** Fewest moves using ordinary words — the score to beat. */
   par: number;
   /**

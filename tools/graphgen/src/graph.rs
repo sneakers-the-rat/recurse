@@ -157,6 +157,8 @@ pub fn build(
 /// allocated once and cleared by generation stamp rather than being rebuilt.
 pub struct Bfs {
     dist: Vec<u32>,
+    /// Which word each was first reached from, so a route can be read back.
+    from: Vec<u32>,
     stamp: Vec<u32>,
     generation: u32,
     queue: std::collections::VecDeque<u32>,
@@ -169,6 +171,7 @@ impl Bfs {
     pub fn new(size: usize) -> Bfs {
         Bfs {
             dist: vec![UNREACHED; size],
+            from: vec![UNREACHED; size],
             stamp: vec![0; size],
             generation: 0,
             queue: std::collections::VecDeque::new(),
@@ -185,8 +188,67 @@ impl Bfs {
         }
     }
 
+    /// The shortest route from `src` to `tgt` stepping on none of `blocked`, or None when
+    /// there is none within `max_depth` moves.
+    ///
+    /// Blocking a word and asking again is how an *alternative* route is found: the answer has
+    /// to go round whatever was blocked, so what comes back is a different way through rather
+    /// than the same one rediscovered.
+    pub fn route_avoiding(
+        &mut self,
+        graph: &Graph,
+        src: u32,
+        tgt: u32,
+        blocked: &FxSet<u32>,
+        max_depth: u32,
+    ) -> Option<Vec<u32>> {
+        self.generation += 1;
+        self.queue.clear();
+        self.touched.clear();
+        self.dist[src as usize] = 0;
+        self.from[src as usize] = UNREACHED;
+        self.stamp[src as usize] = self.generation;
+        self.queue.push_back(src);
+
+        while let Some(word) = self.queue.pop_front() {
+            if word == tgt {
+                let mut route = vec![tgt];
+                let mut at = tgt;
+                while self.from[at as usize] != UNREACHED {
+                    at = self.from[at as usize];
+                    route.push(at);
+                }
+                route.reverse();
+                return Some(route);
+            }
+            let d = self.dist[word as usize];
+            if d >= max_depth {
+                continue;
+            }
+            for &next in graph.neighbors(word) {
+                if self.stamp[next as usize] == self.generation || blocked.contains(&next) {
+                    continue;
+                }
+                self.stamp[next as usize] = self.generation;
+                self.dist[next as usize] = d + 1;
+                self.from[next as usize] = word;
+                self.queue.push_back(next);
+            }
+        }
+        None
+    }
+
     /// Distances from `src`, out to `max_depth`. Visited ids land in `touched`.
     pub fn run(&mut self, graph: &Graph, src: u32, max_depth: u32) {
+        self.run_without(graph, src, max_depth, UNREACHED);
+    }
+
+    /// Distances from `src`, out to `max_depth`, as if `blocked` were not in the
+    /// graph. Pass `UNREACHED` to block nothing.
+    ///
+    /// Deleting one word is how a route is asked whether it can get somewhere
+    /// *without* going through a particular word.
+    pub fn run_without(&mut self, graph: &Graph, src: u32, max_depth: u32, blocked: u32) {
         self.generation += 1;
         self.queue.clear();
         self.touched.clear();
@@ -202,7 +264,7 @@ impl Bfs {
                 continue;
             }
             for &next in graph.neighbors(word) {
-                if self.stamp[next as usize] != self.generation {
+                if next != blocked && self.stamp[next as usize] != self.generation {
                     self.stamp[next as usize] = self.generation;
                     self.dist[next as usize] = d + 1;
                     self.touched.push(next);

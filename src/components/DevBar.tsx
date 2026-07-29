@@ -5,11 +5,15 @@
  * build can be inspected the same way, and so the end-to-end tests exercise the
  * normal chrome unless they ask for this.
  *
+ * Stepping is by index, because that is the order the survey lists and the
+ * calendar plays; the URL it lands on is the puzzle's id, like any other visit.
+ * Nothing here addresses a board by number.
+ *
  * Styled as an instrument rather than part of the game: flat mono, no ornament,
  * so a screenshot never gets mistaken for the real thing.
  */
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { Puzzle } from '../lib/types';
 
 interface Props {
@@ -26,6 +30,8 @@ interface Props {
   /** Label every word on the board, for judging whether the puzzle is any good. */
   onNameAll: () => void;
   onReset: () => void;
+  /** Put the instruments away and look at the game as a player sees it. */
+  onHide: () => void;
 }
 
 /** Every control here is the same flat outlined thing. */
@@ -59,7 +65,9 @@ function Stat({ name, children }: { name: string; children: React.ReactNode }) {
   );
 }
 
-export function DevBar({
+// Memoised for the same reason as the rest: the plate's own motion re-renders App on
+// every frame, and the instruments have nothing to say about any of them.
+export const DevBar = memo(function DevBar({
   index,
   total,
   puzzle,
@@ -70,6 +78,7 @@ export function DevBar({
   onSolve,
   onNameAll,
   onReset,
+  onHide,
 }: Props) {
   const [jump, setJump] = useState('');
 
@@ -110,6 +119,8 @@ export function DevBar({
           />
         </form>
 
+        {/* The address of the board on screen, which is what the survey quotes. */}
+        <Stat name="id">{puzzle.id}</Stat>
         <Stat name="par">{puzzle.par}</Stat>
         <Stat name="routes">{puzzle.shortestPaths}</Stat>
         <span>
@@ -124,6 +135,10 @@ export function DevBar({
           <Key onClick={onNameAll}>name all</Key>
           <Key onClick={onSolve}>solve</Key>
           <Key onClick={onReset}>reset</Key>
+          {/* Says the key as well, because with the bar gone it is the only way back. */}
+          <Key onClick={onHide} label="Hide dev mode">
+            hide ⌃D
+          </Key>
         </span>
 
         <p className="w-full break-words text-neutral-500">
@@ -132,4 +147,4 @@ export function DevBar({
       </div>
     </div>
   );
-}
+});

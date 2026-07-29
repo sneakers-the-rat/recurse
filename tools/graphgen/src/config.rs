@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use crate::id;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub min_word: usize,
@@ -15,47 +17,50 @@ pub struct Config {
     pub legal_scowl: u32,
     pub common_scowl: u32,
     pub slack: usize,
-    /// Passed through to the client, not used here: what the board draws.
-    pub draw_slack: usize,
-    pub draw_max: usize,
     pub min_par: usize,
+    /// Longest answer the builder looks for. A ceiling on the search, not a filter
+    /// on taste: par is recorded and reported, and every par in range ships.
     pub max_par: usize,
-    pub endpoint_pool: usize,
     pub min_source_moves: usize,
+    /// How many longer ways through a puzzle declares, beyond the shortest ones. See board.rs.
+    pub max_alt_ways: usize,
+    /// How many moves past par one of those may take.
+    pub alt_slack: usize,
+    /// Consecutive words an alternative must spend away from everything already declared
+    /// before it counts as another way round rather than a bulge. See board.rs.
+    pub min_divergence: usize,
+    /// How much surrounding graph is declared, as a percentage of the words on a way through.
+    pub around_percent: usize,
+    /// How long a chain running between two of the ways through may be. See board_words.
+    pub link_reach: usize,
     pub min_internal: usize,
     pub max_swaps: usize,
     pub min_alt_nodes: usize,
     pub min_gap: usize,
     pub seed: u64,
+    /// Hex digits of a puzzle's digest that make up its public id. See id.rs.
+    pub id_chars: usize,
     pub audit: Audit,
 }
 
-/// How thoroughly to attribute each refusal.
-///
-/// Ordinarily the rules run as a cascade and each candidate stops at its first
-/// failure, so every cost lands on whichever rule runs earliest. Auditing judges
-/// every rule against a candidate instead, which costs a legal-graph search each.
+/// How each refusal is attributed. Both settings report exact counts over every
+/// candidate; nothing is ever sampled or estimated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Audit {
-    /// Cascade. What a plain build does.
+    /// Cascade: each candidate stops at its first failure, so a rule's tally is the
+    /// candidates that reached it and failed. Cheap, and what a plain build does.
     Off,
-    /// Judge an evenly spread sample and scale the counts up. Seconds, and it
-    /// answers the same question. `RECURSE_AUDIT=1`.
-    Sampled,
-    /// Judge one candidate in `n`; `Every(1)` is exact and takes minutes.
-    /// `RECURSE_AUDIT=full`, or `RECURSE_AUDIT=<n>`.
-    Every(usize),
+    /// Judge every rule against every candidate, so a rule's tally is exactly the
+    /// candidates that break it. Costs a legal-graph search and a full walk of the
+    /// answers per candidate. `RECURSE_AUDIT=1`.
+    On,
 }
 
 impl Audit {
     fn parse(raw: Option<&str>) -> Audit {
         match raw {
             None | Some("0") | Some("false") | Some("") => Audit::Off,
-            // `full` used to map to 1, which is the *sampled* mode — so the one
-            // setting documented as exact was the one that could not be had.
-            Some("full") => Audit::Every(1),
-            Some("1") => Audit::Sampled,
-            Some(n) => Audit::Every(n.parse::<usize>().unwrap_or(1).max(1)),
+            _ => Audit::On,
         }
     }
 }
@@ -104,17 +109,20 @@ impl Config {
             legal_scowl: num("RECURSE_LEGAL_SCOWL")? as u32,
             common_scowl: num("RECURSE_COMMON_SCOWL")? as u32,
             slack: num("RECURSE_SLACK")?,
-            draw_slack: num("RECURSE_DRAW_SLACK")?,
-            draw_max: num("RECURSE_DRAW_MAX")?,
             min_par: num("RECURSE_MIN_PAR")?,
             max_par: num("RECURSE_MAX_PAR")?,
-            endpoint_pool: num("RECURSE_ENDPOINT_POOL")?,
             min_source_moves: num("RECURSE_MIN_SOURCE_MOVES")?,
+            max_alt_ways: num("RECURSE_ALT_WAYS")?,
+            alt_slack: num("RECURSE_ALT_SLACK")?,
+            min_divergence: num("RECURSE_MIN_DIVERGENCE")?,
+            around_percent: num("RECURSE_AROUND_PERCENT")?,
+            link_reach: num("RECURSE_LINK_REACH")?,
             min_internal: num("RECURSE_MIN_INTERNAL")?,
             max_swaps: num("RECURSE_MAX_SWAPS")?,
             min_alt_nodes: num("RECURSE_MIN_ALT_NODES")?,
             min_gap: num("RECURSE_MIN_GAP")?,
             seed: num("RECURSE_SEED")? as u64,
+            id_chars: num("RECURSE_ID_CHARS")?,
             // Not in .env: a way of looking at the bank, not a property of it.
             audit: Audit::parse(std::env::var("RECURSE_AUDIT").ok().as_deref()),
         };
@@ -132,16 +140,24 @@ impl Config {
         if config.min_par > config.max_par {
             return Err("RECURSE_MIN_PAR must not exceed RECURSE_MAX_PAR".into());
         }
-        for (key, value) in [
-            ("RECURSE_SLACK", config.slack),
-            ("RECURSE_DRAW_SLACK", config.draw_slack),
-        ] {
-            if value % 2 != 0 {
-                return Err(format!(
-                    "{key} ({value}) should be even: parity means an odd value covers \
-                     exactly what the even value below it covers"
-                ));
-            }
+        // A hex digit is half a byte and a digest is a whole number of them, so the
+        // length comes in pairs. Four digits is 65,536 addresses, which a bank of a
+        // few thousand puzzles cannot fill without colliding; 64 is BLAKE2s' most.
+        if config.id_chars % 2 != 0 || !(4..=id::MAX_CHARS).contains(&config.id_chars) {
+            return Err(format!(
+                "RECURSE_ID_CHARS ({}) should be an even number between 4 and {} — a \
+                 puzzle's id is a digest of that many hex digits",
+                config.id_chars,
+                id::MAX_CHARS
+            ));
+        }
+        // Parity: an odd slack covers exactly what the even value below it covers.
+        if config.slack % 2 != 0 {
+            return Err(format!(
+                "RECURSE_SLACK ({}) should be even: parity means an odd value covers \
+                 exactly what the even value below it covers",
+                config.slack
+            ));
         }
         Ok(config)
     }
@@ -155,10 +171,12 @@ mod tests {
     fn reads_every_audit_setting() {
         assert_eq!(Audit::parse(None), Audit::Off);
         assert_eq!(Audit::parse(Some("0")), Audit::Off);
-        assert_eq!(Audit::parse(Some("1")), Audit::Sampled);
-        // The case that was broken: `full` has to mean every candidate.
-        assert_eq!(Audit::parse(Some("full")), Audit::Every(1));
-        assert_eq!(Audit::parse(Some("50")), Audit::Every(50));
-        assert_eq!(Audit::parse(Some("nonsense")), Audit::Every(1));
+        assert_eq!(Audit::parse(Some("false")), Audit::Off);
+        assert_eq!(Audit::parse(Some("")), Audit::Off);
+        // Anything else means judge every rule against every candidate. There is no
+        // sampled setting: a reported tally is always a count.
+        assert_eq!(Audit::parse(Some("1")), Audit::On);
+        assert_eq!(Audit::parse(Some("full")), Audit::On);
+        assert_eq!(Audit::parse(Some("nonsense")), Audit::On);
     }
 }

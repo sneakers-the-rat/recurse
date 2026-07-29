@@ -11,6 +11,9 @@
  *  - An illegal guess costs nothing but is counted as a miss, so the cost of
  *    flailing is visible without being punitive.
  *  - Score is the guess count; par is the shortest path.
+ *  - Hints are unlimited and counted. Asking is not cheating — this is not a
+ *    competitive game, and "10 guesses, 10,000 hints" is a fine thing to post —
+ *    but it is the other half of a score, so every click is tallied and shared.
  */
 
 import { judgeGuess } from './moves';
@@ -32,9 +35,102 @@ export interface GameState {
   guesses: number;
   misses: number;
   solved: boolean;
-  /** Words whose letter count the player has spent a hint on. */
-  hinted: Set<string>;
+  /**
+   * How far each unnamed word has been given away, by hint level. Absent means
+   * nothing has been asked about it. See `hintLabel` for what each level shows.
+   */
+  hints: Map<string, number>;
   log: LogEntry[];
+}
+
+/**
+ * The order in which a word gives its letters up.
+ *
+ * Scattered, not front to back. A prefix is the one part of a word this game must
+ * not hand over cheaply — words live inside other words, so `car·······` names the
+ * family and most of the answer with it. A letter from the middle is a clue; the
+ * first three letters are the solution.
+ *
+ * A function of the word, not a draw from `Math.random()`, because the order has to
+ * be the same every time it is asked for. Two places depend on that:
+ *
+ * - A reload has to redraw the board exactly. The snapshot stores a level per word
+ *   and nothing else, so the positions have to be recoverable from the word.
+ * - `hintLabel` is called while rendering each node, so it has to be pure. Drawing
+ *   at random per call would give the same word different letters from one render to
+ *   the next, and the board re-renders whenever the layout is moving.
+ *
+ * The alternative is to choose positions at click time and store them in the
+ * snapshot, which would make two players see a word differently. It costs a storage
+ * version and a longer snapshot, and buys nothing this needs.
+ */
+const orders = new Map<string, number[]>();
+
+function revealOrder(word: string): number[] {
+  const cached = orders.get(word);
+  if (cached) return cached;
+
+  // FNV-1a, then xorshift32: a couple of lines of arithmetic that scatter well
+  // enough for this. Nothing here is a secret — the point is an order that looks
+  // arbitrary and stays put, not one nobody can predict.
+  let seed = 0x811c9dc5;
+  for (let i = 0; i < word.length; i++) {
+    seed = ((seed ^ word.charCodeAt(i)) * 0x01000193) >>> 0;
+  }
+  const next = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 0x100000000;
+  };
+
+  const order = [...word].map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  orders.set(word, order);
+  return order;
+}
+
+/**
+ * What a hint level gives away, and so what a click buys.
+ *
+ * Level 1 is the letter count. Every level after that turns up one more letter, in
+ * the word's own scattered order, so level `1 + n` shows `n` letters and the last
+ * level shows the lot. Progressive on purpose: a letter count is often all anyone
+ * needs to place a word, and someone properly stuck can keep asking until the word
+ * is simply there.
+ */
+export function hintLabel(word: string, level: number): string | null {
+  if (level <= 0) return null;
+  if (level === 1) return String(word.length);
+  const shown = new Set(revealOrder(word).slice(0, Math.min(level - 1, word.length)));
+  return [...word].map((letter, i) => (shown.has(i) ? letter : '·')).join('');
+}
+
+/** Levels a word has to give: the count, then one per letter. */
+export function hintLevels(word: string): number {
+  return 1 + word.length;
+}
+
+/** Has this word been spelled out completely? */
+export function fullyHinted(word: string, level: number): boolean {
+  return level >= hintLevels(word);
+}
+
+/**
+ * Hints asked for, all told.
+ *
+ * The sum of the levels, because a level is exactly one click: nothing spends more
+ * than one at a time. Dev mode's "spell this word out" deliberately does not go
+ * through here at all — it is an inspection of the board, not help with it, and when
+ * it *was* a hint one tap on a ten-letter word put ten on the tally.
+ */
+export function hintCount(state: GameState): number {
+  let total = 0;
+  for (const level of state.hints.values()) total += level;
+  return total;
 }
 
 export function newGame(puzzle: Puzzle): GameState {
@@ -47,7 +143,7 @@ export function newGame(puzzle: Puzzle): GameState {
     guesses: 0,
     misses: 0,
     solved: false,
-    hinted: new Set(),
+    hints: new Map(),
     log: [],
   };
 }
@@ -113,10 +209,19 @@ export function select(state: GameState, word: string): GameState {
   return { ...state, selected: word };
 }
 
-/** Spend a hint to learn how many letters an unrevealed word has. */
+/**
+ * Ask for one more hint about an unnamed word.
+ *
+ * No limit, but no free clicks either: once the word is spelled out there is
+ * nothing left to give, so the level stops there rather than running the tally up
+ * for nothing. A word already named is not a question.
+ */
 export function useHint(state: GameState, word: string): GameState {
-  if (state.revealed.has(word) || state.hinted.has(word)) return state;
-  return { ...state, hinted: new Set(state.hinted).add(word) };
+  if (state.revealed.has(word)) return state;
+  const level = state.hints.get(word) ?? 0;
+  const wanted = Math.min(level + 1, hintLevels(word));
+  if (wanted === level) return state;
+  return { ...state, hints: new Map(state.hints).set(word, wanted) };
 }
 
 /**
@@ -133,7 +238,8 @@ export interface GameSnapshot {
   log: LogEntry[];
   selected: string;
   misses: number;
-  hinted: string[];
+  /** Word and level, as pairs. The tally is derived from the levels. */
+  hints: [string, number][];
 }
 
 export function snapshot(state: GameState): GameSnapshot {
@@ -141,7 +247,7 @@ export function snapshot(state: GameState): GameSnapshot {
     log: state.log,
     selected: state.selected,
     misses: state.misses,
-    hinted: [...state.hinted],
+    hints: [...state.hints],
   };
 }
 
@@ -183,7 +289,16 @@ export function restore(puzzle: Puzzle, saved: GameSnapshot | null | undefined):
     log.push({ from: entry.from, to: entry.to, move: entry.move, order });
   }
 
-  const hinted = Array.isArray(saved.hinted) ? saved.hinted : [];
+  // Levels are clamped to what the word can actually give: a stored 40 on a
+  // five-letter word would otherwise inflate the hint tally for ever.
+  const hints = new Map<string, number>();
+  for (const pair of Array.isArray(saved.hints) ? saved.hints : []) {
+    const [word, level] = Array.isArray(pair) ? pair : [];
+    if (typeof word !== 'string' || !Number.isFinite(level)) continue;
+    const wanted = Math.min(Math.max(1, Math.trunc(level as number)), hintLevels(word));
+    hints.set(word, wanted);
+  }
+
   return {
     puzzle,
     revealed,
@@ -192,11 +307,17 @@ export function restore(puzzle: Puzzle, saved: GameSnapshot | null | undefined):
     guesses: log.length,
     misses: Number.isFinite(saved.misses) ? Math.max(0, Math.trunc(saved.misses)) : 0,
     solved: revealed.has(puzzle.target),
-    hinted: new Set(hinted.filter((word) => typeof word === 'string')),
+    hints,
   };
 }
 
-/** Has anything happened here worth remembering? */
-export function inProgress(state: GameState): boolean {
-  return state.log.length > 0 || state.misses > 0 || state.hinted.size > 0;
+/**
+ * Has anything happened here worth remembering?
+ *
+ * True of a finished game as well as a half-played one, and that is the point: the
+ * completed view — the score, the trail, the thing to paste — has to be there when
+ * the player comes back to a board they already solved.
+ */
+export function worthKeeping(state: GameState): boolean {
+  return state.log.length > 0 || state.misses > 0 || state.hints.size > 0;
 }

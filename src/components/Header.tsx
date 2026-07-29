@@ -4,7 +4,14 @@
  * The day number is the only number here that is decoration-adjacent, and it
  * earns its place: it is the real puzzle index, the thing a share string will
  * quote, and how players talk about a daily game.
+ *
+ * Memoised, like every other component App renders beside the plate. The board's
+ * layout re-renders App on every frame it is moving, and the header has nothing to
+ * do with any of them: it was being rebuilt eighty-odd times per guess to arrive at
+ * the same two words and the same two numbers.
  */
+
+import { memo } from 'react';
 
 interface Props {
   source: string;
@@ -12,12 +19,49 @@ interface Props {
   par: number;
   day: number;
   guesses: number;
+  /** Hints asked for. Shown beside the guesses: it is the other half of a score. */
+  hints: number;
+  /**
+   * The opening card is showing the statement, so this one waits its turn — the card
+   * ends up here, and two copies of the same two words fading past each other reads as
+   * a glitch rather than a hand-off.
+   */
+  quiet?: boolean;
+  /**
+   * The round is over. Said in the chrome as well as in the result panel, so a board
+   * you come back to is visibly a board you have already played before you have read a
+   * word of it.
+   */
+  finished?: boolean;
+  /** And they beat par, which is the one outcome louder than finishing. */
+  beatPar?: boolean;
   onHelp: () => void;
 }
 
-export function Header({ source, target, par, day, guesses, onHelp }: Props) {
+export const Header = memo(function Header({
+  source,
+  target,
+  par,
+  day,
+  guesses,
+  hints,
+  quiet = false,
+  finished = false,
+  beatPar = false,
+  onHelp,
+}: Props) {
+  /**
+   * The bar's own colour, which is a statement about the round rather than decoration.
+   *
+   * Gilt, because gilt is what this game means by *arrived* — letters arriving, a word on
+   * the route, a secret found. Dim gilt for a round finished, full gilt for one that beat
+   * par, and the ordinary rule while there is still playing to do. Nothing else changes:
+   * the two words and the tally are the same two words and the same tally.
+   */
+  const rule = finished ? (beatPar ? 'border-gilt' : 'border-gilt-dim') : 'border-rule';
+
   return (
-    <header className="border-rule border-b">
+    <header className={`border-b ${rule} ${finished ? 'bg-noir-2' : ''}`}>
       <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-4 py-2.5">
         <h1 className="flex items-baseline gap-2">
           <span className="text-bone text-xl leading-none font-semibold tracking-tight">
@@ -31,7 +75,16 @@ export function Header({ source, target, par, day, guesses, onHelp }: Props) {
       </div>
 
       {/* The statement, set like a Deco title page: rule, line, rule. */}
-      <div className="border-rule border-t">
+      {/*
+        Out at once, back in slowly. The card is the same two words in the same place, so
+        a *fade* out means both are on screen together for a moment, which reads as a
+        glitch; coming back is the hand-off and wants the time.
+      */}
+      <div
+        className={`border-t ${rule} transition-opacity ${
+          quiet ? 'opacity-0 duration-0' : 'opacity-100 duration-700'
+        }`}
+      >
         <div className="mx-auto max-w-2xl px-4 py-4 text-center">
           <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
             <span className="word text-bone text-2xl sm:text-3xl">{source}</span>
@@ -44,9 +97,17 @@ export function Header({ source, target, par, day, guesses, onHelp }: Props) {
             {par} moves at best
             <span className="text-ash-lit mx-2">·</span>
             {guesses === 0 ? 'no guesses yet' : `${guesses} guessed`}
+            {/* Only once any have been asked for: a nought here would read as a
+                score to protect, and hints are not something to be stingy with. */}
+            {hints > 0 && (
+              <>
+                <span className="text-ash-lit mx-2">·</span>
+                {hints} {hints === 1 ? 'hint' : 'hints'}
+              </>
+            )}
           </p>
         </div>
       </div>
     </header>
   );
-}
+});

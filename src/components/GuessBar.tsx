@@ -7,7 +7,7 @@
  * readout — which is the small payoff of a correct guess.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { MoveReadout } from './MoveReadout';
 import type { Graph } from '../lib/types';
 
@@ -71,7 +71,14 @@ interface Props {
   onClearError: () => void;
 }
 
-export function GuessBar({ from, graph, isWord = null, error, onSubmit, onClearError }: Props) {
+export const GuessBar = memo(function GuessBar({
+  from,
+  graph,
+  isWord = null,
+  error,
+  onSubmit,
+  onClearError,
+}: Props) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -158,4 +165,4 @@ export function GuessBar({ from, graph, isWord = null, error, onSubmit, onClearE
       </div>
     </form>
   );
-}
+});

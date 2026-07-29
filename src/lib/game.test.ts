@@ -1,12 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { testGraph } from '../test/fixture';
-import { applyGuess, inProgress, newGame, restore, select, snapshot, useHint } from './game';
+import {
+  applyGuess,
+  fullyHinted,
+  hintCount,
+  hintLabel,
+  hintLevels,
+  newGame,
+  restore,
+  select,
+  snapshot,
+  useHint,
+  worthKeeping,
+} from './game';
 import type { Puzzle } from './types';
 
 const graph = testGraph();
 const dict = graph.isWord;
 
 const puzzle: Puzzle = {
+  id: 'aaaa1111',
+  day: 0,
   source: 'base',
   target: 'cannon',
   par: 4,
@@ -15,6 +29,7 @@ const puzzle: Puzzle = {
   altNodes: 0,
   shortestPaths: 1,
   maxRank: 0,
+  board: [],
 };
 
 describe('newGame', () => {
@@ -87,12 +102,80 @@ describe('select', () => {
   });
 });
 
-describe('useHint', () => {
-  it('records a hint once, and never for a word already found', () => {
+describe('hints', () => {
+  /** Which positions a label has turned up. */
+  const shown = (label: string) =>
+    new Set([...label].flatMap((letter, i) => (letter === '·' ? [] : [i])));
+
+  it('gives the letter count first, then a letter at a time', () => {
+    expect(hintLabel('cannonball', 0)).toBeNull();
+    expect(hintLabel('cannonball', 1)).toBe('10');
+    expect(shown(hintLabel('cannonball', 2)!).size).toBe(1);
+    expect(shown(hintLabel('cannonball', 4)!).size).toBe(3);
+    // The last level spells it out. There is no level past that.
+    expect(hintLabel('cannonball', hintLevels('cannonball'))).toBe('cannonball');
+    expect(fullyHinted('cannonball', hintLevels('cannonball'))).toBe(true);
+  });
+
+  it('turns the letters up in a scattered order, not front to back', () => {
+    // A prefix is the one thing a hint must not hand over: words live inside other
+    // words, so `car·······` names the family and most of the answer with it.
+    const early = ['cannonball', 'baseball', 'lifetime', 'stalling'].map(
+      (word) => shown(hintLabel(word, 3)!),
+    );
+    expect(early.some((positions) => !positions.has(0))).toBe(true);
+    expect(early.some((positions) => [...positions].some((at) => at > 2))).toBe(true);
+  });
+
+  it('gives the same word the same letters every time, so a reload agrees', () => {
+    // The stored game is a level per word and nothing else, so the order has to come
+    // back out of the word itself.
+    expect(hintLabel('cannonball', 5)).toBe(hintLabel('cannonball', 5));
+    // Pinned, because the order changing between releases would silently reshuffle
+    // the letters of a game already in progress.
+    expect(hintLabel('cannonball', 3)).toBe('·a·····a··');
+  });
+
+  it('keeps every letter it has already given, level after level', () => {
+    let before = new Set<number>();
+    for (let level = 2; level <= hintLevels('stalling'); level++) {
+      const now = shown(hintLabel('stalling', level)!);
+      expect(now.size).toBe(level - 1);
+      for (const at of before) expect(now.has(at)).toBe(true);
+      before = now;
+    }
+  });
+
+  it('steps a level per click, and never for a word already found', () => {
     let state = newGame(puzzle);
     state = useHint(state, 'cannonball');
-    expect(state.hinted.has('cannonball')).toBe(true);
-    expect(useHint(state, 'base').hinted.has('base')).toBe(false);
+    expect(state.hints.get('cannonball')).toBe(1);
+    state = useHint(state, 'cannonball');
+    expect(state.hints.get('cannonball')).toBe(2);
+    expect(useHint(state, 'base').hints.has('base')).toBe(false);
+  });
+
+  it('stops once the word is spelled out, rather than counting empty clicks', () => {
+    let state = newGame(puzzle);
+    for (let i = 0; i < 40; i++) state = useHint(state, 'cannonball');
+    expect(state.hints.get('cannonball')).toBe(hintLevels('cannonball'));
+    // A click that buys nothing must not run the tally up: the hint count is a
+    // number the player posts, and it has to mean something.
+    const spent = hintCount(state);
+    expect(hintCount(useHint(state, 'cannonball'))).toBe(spent);
+  });
+
+  it('counts one per click, across every word', () => {
+    // Nothing spends more than a level at a time, which is what makes the tally the
+    // number of times the player asked. Dev mode's "spell it out" is not a hint at
+    // all and never comes through here — when it did, one tap on a ten-letter word
+    // put ten on the tally.
+    let state = newGame(puzzle);
+    state = useHint(state, 'cannonball');
+    state = useHint(state, 'cannonball');
+    state = useHint(state, 'cannon');
+    expect(hintCount(state)).toBe(3);
+    expect(state.hints.get('cannonball')).toBe(2);
   });
 });
 
@@ -173,20 +256,42 @@ describe('snapshot and restore', () => {
     expect(restore(puzzle, { ...saved, misses: NaN }).misses).toBe(0);
   });
 
+  it('clamps a hint level to what the word can actually give', () => {
+    // A stored level past the end would inflate the hint count for ever, and the
+    // count is a number the player posts.
+    const saved = { ...snapshot(played()), hints: [['cannonball', 99] as [string, number]] };
+    expect(restore(puzzle, saved).hints.get('cannonball')).toBe(hintLevels('cannonball'));
+    expect(hintCount(restore(puzzle, saved))).toBe(hintLevels('cannonball'));
+  });
+
+  it('drops a hint that is not a word and a level, rather than counting it', () => {
+    const saved = { ...snapshot(played()), hints: [[7, 'lots'], null, ['ball']] as never };
+    expect(hintCount(restore(puzzle, saved))).toBe(0);
+  });
+
   it('tolerates missing fields entirely', () => {
     const empty = restore(puzzle, {} as never);
     expect(empty).toEqual(newGame(puzzle));
   });
 });
 
-describe('inProgress', () => {
+describe('worthKeeping', () => {
   it('is false for a board nobody has touched', () => {
-    expect(inProgress(newGame(puzzle))).toBe(false);
+    expect(worthKeeping(newGame(puzzle))).toBe(false);
   });
 
   it('counts a refused guess and a hint, not just a move', () => {
-    expect(inProgress(applyGuess(newGame(puzzle), graph, 'nonsense', dict).state)).toBe(true);
-    expect(inProgress(useHint(newGame(puzzle), 'cannonball'))).toBe(true);
+    expect(worthKeeping(applyGuess(newGame(puzzle), graph, 'nonsense', dict).state)).toBe(true);
+    expect(worthKeeping(useHint(newGame(puzzle), 'cannonball'))).toBe(true);
+  });
+
+  it('is true of a finished game, which is what brings the result back', () => {
+    let state = newGame(puzzle);
+    for (const word of ['baseball', 'ball', 'cannonball', 'cannon']) {
+      state = applyGuess(state, graph, word, dict).state;
+    }
+    expect(state.solved).toBe(true);
+    expect(worthKeeping(state)).toBe(true);
   });
 });
 

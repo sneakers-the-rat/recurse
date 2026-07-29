@@ -25,3 +25,12 @@ e2e/shots/
 *.tsbuildinfo
 .npm
 
+# The live progress line a long build publishes for the status line to read. Deleted
+# when the build finishes; present only while one is running.
+.claude-progress
+
+
+# The cached search result, keyed on everything the search depends on. See bank.rs.
+tools/cache/bank-*.tsv
+
+public/data/

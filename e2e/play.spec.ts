@@ -4,7 +4,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { gameData, puzzleWithPar, puzzleWithSecret } from './fixtures';
+import { board, gameData, inShot, puzzleWithPar, puzzleWithSecret, result } from './fixtures';
 
 async function guess(page: Page, word: string) {
   const input = page.getByLabel(/Your guess/);
@@ -13,8 +13,8 @@ async function guess(page: Page, word: string) {
 }
 
 test('solves a puzzle perfectly by walking a shortest path', async ({ page }) => {
-  const { index, puzzle, path } = puzzleWithPar(3);
-  await page.goto(`/?puzzle=${index}`);
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle));
 
   await expect(page.locator('header')).toContainText(puzzle.source);
   await expect(page.locator('header')).toContainText(puzzle.target);
@@ -32,18 +32,19 @@ test('solves a puzzle perfectly by walking a shortest path', async ({ page }) =>
     await expect(page.locator('main svg text', { hasText: new RegExp(`^${word}$`) }).first()).toBeVisible();
   }
 
-  // Par play is a perfect score, and the guess bar gives way to the summary.
-  const summary = page.getByRole('region').or(page.locator('section')).last();
+  // Par play is a perfect score, and the guess bar gives way to the completed view:
+  // the score as figures, the trail, and the text to paste. See share.spec.ts.
+  const summary = result(page);
   await expect(summary).toContainText('Perfect');
-  await expect(summary).toContainText(`${puzzle.par} guesses`);
+  await expect(summary).toContainText(`${puzzle.par} / par ${puzzle.par}`);
   await expect(page.getByLabel(/Your guess/)).toHaveCount(0);
 
   await page.screenshot({ path: 'e2e/shots/solved.png' });
 });
 
 test('revisiting a word already found is free', async ({ page }) => {
-  const { index, puzzle, path } = puzzleWithPar(3);
-  await page.goto(`/?puzzle=${index}`);
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle));
 
   // Step forward, step back to the source, then walk the whole path. Every word
   // revisited is already named, so nothing here should be charged and the score
@@ -52,14 +53,14 @@ test('revisiting a word already found is free', async ({ page }) => {
   await guess(page, path[0]!);
   for (const word of path.slice(1)) await guess(page, word);
 
-  const summary = page.locator('section').last();
+  const summary = result(page);
   await expect(summary).toContainText('Perfect');
-  await expect(summary).toContainText(`${puzzle.par} guesses`);
+  await expect(summary).toContainText(`${puzzle.par} / par ${puzzle.par}`);
 });
 
 test('a wrong turn costs a guess', async ({ page }) => {
-  const { index, puzzle, path, wrongTurn } = puzzleWithPar(3);
-  await page.goto(`/?puzzle=${index}`);
+  const { puzzle, path, wrongTurn } = puzzleWithPar(3);
+  await page.goto(board(puzzle));
 
   // A legal move to a word off every shortest path: real progress lost.
   await guess(page, wrongTurn);
@@ -67,16 +68,15 @@ test('a wrong turn costs a guess', async ({ page }) => {
   await guess(page, path[0]!);
   for (const word of path.slice(1)) await guess(page, word);
 
-  const summary = page.locator('section').last();
+  const summary = result(page);
   await expect(summary).toContainText('Found it');
   await expect(summary).not.toContainText('Perfect');
-  await expect(summary).toContainText(`${puzzle.par + 1} guesses`);
-  await expect(summary).toContainText(`${puzzle.par} at best`);
+  await expect(summary).toContainText(`${puzzle.par + 1} / par ${puzzle.par}`);
 });
 
 test('shows the move as it is typed', async ({ page }) => {
-  const { index, path } = puzzleWithPar(3);
-  await page.goto(`/?puzzle=${index}`);
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle));
 
   const source = path[0]!;
   const next = path[1]!;
@@ -91,8 +91,8 @@ test('shows the move as it is typed', async ({ page }) => {
 });
 
 test('guessing an off-target word keeps the board and adds to it', async ({ page }) => {
-  const { index, puzzle } = puzzleWithPar(3);
-  await page.goto(`/?dev=0&puzzle=${index}`);
+  const { puzzle } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev=0'));
 
   const nodes = () => page.locator('main svg circle[role="button"]');
   // Wait for the board before counting it: the page spends a beat loading 4MB of
@@ -122,14 +122,14 @@ test('guessing an off-target word keeps the board and adds to it', async ({ page
 });
 
 test('typing goes to the guess box wherever focus is', async ({ page }) => {
-  const { index, path } = puzzleWithPar(3);
-  await page.goto(`/?dev=0&puzzle=${index}`);
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev=0'));
 
   const input = page.getByLabel(/Your guess/);
   await expect(input).toBeVisible();
 
-  // Put focus somewhere else entirely: a word on the plate.
-  const node = page.locator('main svg circle[role="button"]').first();
+  // Put focus somewhere else entirely: a word on the plate, one that is in shot.
+  const node = await inShot(page, 'main svg circle[role="button"]');
   await node.click();
   await expect(input).not.toBeFocused();
 
@@ -145,7 +145,7 @@ test('typing goes to the guess box wherever focus is', async ({ page }) => {
 });
 
 test('typing does not hijack the other places text can go', async ({ page }) => {
-  await page.goto('/?dev&puzzle=0');
+  await page.goto(board(gameData().puzzles[0]!, '?dev'));
 
   // The dev bar has a field of its own, and it must keep what is typed into it.
   const jump = page.getByLabel('Jump to puzzle number');
@@ -164,8 +164,8 @@ test('typing does not hijack the other places text can go', async ({ page }) => 
 test('a reload picks the game up where it was left', async ({ page }) => {
   // The case this is for: a phone backgrounds the tab, the browser discards it,
   // and the player comes back expecting their board rather than a fresh one.
-  const { index, path } = puzzleWithPar(3);
-  await page.goto(`/?dev=0&puzzle=${index}`);
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev=0'));
 
   await guess(page, path[1]!);
   await expect(page.locator('header')).toContainText('1 guessed');
@@ -184,26 +184,26 @@ test('a reload picks the game up where it was left', async ({ page }) => {
 
   // And the restored game is a real game, not a picture of one: finish it.
   for (const word of path.slice(2)) await guess(page, word);
-  await expect(page.locator('section').last()).toContainText('Perfect');
+  await expect(result(page)).toContainText('Perfect');
 });
 
 test('two puzzles keep their progress separately', async ({ page }) => {
   const first = puzzleWithPar(3);
   const second = puzzleWithPar(4);
 
-  await page.goto(`/?dev=0&puzzle=${first.index}`);
+  await page.goto(board(first.puzzle, '?dev=0'));
   await guess(page, first.path[1]!);
   await expect(page.locator('header')).toContainText('1 guessed');
 
   // Wander off to another board...
-  await page.goto(`/?dev=0&puzzle=${second.index}`);
+  await page.goto(board(second.puzzle, '?dev=0'));
   await expect(page.locator('header')).toContainText('no guesses yet');
   await guess(page, second.path[1]!);
   await guess(page, second.path[2]!);
   await expect(page.locator('header')).toContainText('2 guessed');
 
   // ...and back. Each board remembers its own.
-  await page.goto(`/?dev=0&puzzle=${first.index}`);
+  await page.goto(board(first.puzzle, '?dev=0'));
   await expect(page.locator('header')).toContainText(first.puzzle.source);
   await expect(page.locator('header')).toContainText('1 guessed');
 });
@@ -211,14 +211,18 @@ test('two puzzles keep their progress separately', async ({ page }) => {
 test('beating par is a secret, not a mistake', async ({ page }) => {
   // Par is the best route through ordinary words. A rarer word can cut a corner,
   // and the game celebrates that rather than pretending it is impossible.
-  const { index, puzzle, path } = puzzleWithSecret();
+  const { puzzle, path } = puzzleWithSecret();
   expect(path.length - 1).toBeLessThan(puzzle.par);
 
-  await page.goto(`/?dev=0&puzzle=${index}`);
+  await page.goto(board(puzzle, '?dev=0'));
   for (const word of path.slice(1)) await guess(page, word);
 
-  const summary = page.locator('section').last();
+  const summary = result(page);
   await expect(summary).toContainText('secret');
-  await expect(summary).toContainText(`${puzzle.par - path.length + 1} under par`);
+  await expect(summary).toContainText('under par');
+  // The share text is where it is said in one line, unambiguously.
+  expect(await page.locator('pre').innerText()).toContain(
+    `${path.length - 1} guesses · par ${puzzle.par}, under par`,
+  );
   await page.screenshot({ path: 'e2e/shots/secret.png' });
 });

@@ -11,7 +11,8 @@
  * the board has never heard of.
  */
 
-import { buildGraph } from '../lib/graph';
+import { buildGraph, type Rows } from '../lib/graph';
+import { decodeRows } from '../lib/data';
 import type { Graph, GraphParams } from '../lib/types';
 
 /** The canonical index: sorted, exactly as the builder emits it. */
@@ -38,12 +39,32 @@ export const EDGES: [string, string][] = [
   ['cannonball', 'ball'], // − cannon @ 0
 ];
 
+/**
+ * Neighbour rows from word pairs, the way the builder emits them.
+ *
+ * The tests describe the toy graph as edges because that is how a person thinks about
+ * it; the client is handed rows because that is what it ships. This is the one place
+ * that translates, so a fixture cannot drift into building a graph of a different
+ * shape from the real one.
+ */
+export function rowsOf(words: readonly string[], edges: readonly [string, string][]): Rows {
+  const at = (word: string) => words.indexOf(word);
+  const halves = words.map(() => [] as number[]);
+  for (const [a, b] of edges) {
+    const [low, high] = at(a) < at(b) ? [at(a), at(b)] : [at(b), at(a)];
+    halves[low]!.push(high);
+  }
+  for (const half of halves) half.sort((x, y) => x - y);
+  return decodeRows({
+    counts: halves.map((half) => half.length),
+    above: halves.flatMap((half) => half.map((id, i) => (i === 0 ? id : id - half[i - 1]!))),
+  });
+}
+
 export function testGraph(extraWords: string[] = []): Graph {
   const words = [...DICTIONARY, ...extraWords].sort();
-  const at = (word: string) => words.indexOf(word);
-  return buildGraph(
-    PARAMS,
-    words,
-    EDGES.map(([big, small]) => [at(big), at(small)] as const),
-  );
+  const rows = rowsOf(words, EDGES);
+  // Every word ordinary, which is what these tests want: an empty common set means
+  // "the whole dictionary counts". See buildGraph.
+  return buildGraph(PARAMS, words, rows, rows, new Set());
 }

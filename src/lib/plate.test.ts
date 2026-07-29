@@ -12,30 +12,28 @@ import type { Revealed } from './types';
 
 function real() {
   const data = shippedData();
-  return { graph: data.graph, puzzles: data.puzzles, draw: drawOptions(data) };
+  return { graph: data.graph, puzzles: data.puzzles };
 }
 
 describe('buildPlate', () => {
   // Each puzzle needs two fresh full-graph sweeps, ~100ms, so this samples
   // rather than exhausts the bank.
   it('draws a readable number of nodes for every puzzle it is given', { timeout: 30_000 }, () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     for (const puzzle of puzzles.slice(0, 25)) {
-      const plate = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+      const plate = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
       expect(plate.nodes.length).toBeGreaterThan(2);
-      // maxDrawn is a budget for *detours*. The best routes are never trimmed, so
-      // a puzzle with many equally short answers may exceed it — but then every
-      // drawn word is on one of those answers, and nothing was drawn carelessly.
-      if (plate.nodes.length > draw.maxDrawn!) {
-        expect(plate.nodes.every((word) => plate.routeNodes.has(word))).toBe(true);
-      }
+      // The puzzle declares its own board, so the client draws what it was given: every
+      // drawn word is either one the builder chose or one the player found.
+      const declared = new Set([...puzzle.board, puzzle.source, puzzle.target]);
+      expect(plate.nodes.every((word) => declared.has(word))).toBe(true);
     }
   });
 
   it('always includes the two puzzle words and the best route', () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const puzzle = puzzles[0]!;
-    const plate = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+    const plate = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
     expect(plate.nodes).toContain(puzzle.source);
     expect(plate.nodes).toContain(puzzle.target);
     expect(plate.routeNodes.has(puzzle.source)).toBe(true);
@@ -49,9 +47,9 @@ describe('buildPlate', () => {
   });
 
   it('leaves no dead ends on the board', () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const puzzle = puzzles[1]!;
-    const plate = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+    const plate = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
     const drawn = new Set(plate.nodes);
     for (const word of plate.nodes) {
       if (word === puzzle.source || word === puzzle.target) continue;
@@ -62,9 +60,9 @@ describe('buildPlate', () => {
   });
 
   it('counts moves that lead off the board', () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const puzzle = puzzles[0]!;
-    const plate = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+    const plate = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
     const drawn = new Set(plate.nodes);
     for (const word of plate.nodes) {
       const offBoard = graph.neighbors(word).filter((n) => !drawn.has(n)).length;
@@ -76,9 +74,9 @@ describe('buildPlate', () => {
   });
 
   it('grows the board when a word off it is named', () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const puzzle = puzzles[0]!;
-    const base = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+    const base = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
 
     // Take a legal move from the source that the board does not show.
     const drawn = new Set(base.nodes);
@@ -93,7 +91,7 @@ describe('buildPlate', () => {
         { word: puzzle.source, via: null, move: null, order: 0 },
         { word: stray, via: puzzle.source, move: graph.findMove(puzzle.source, stray), order: 1 },
       ],
-      draw,
+      drawOptions(puzzle),
     );
     expect(grown.nodes).toContain(stray);
     // It is connected, not floating.
@@ -114,11 +112,11 @@ describe('buildPlate', () => {
    * these were ordinary words the graph knew perfectly well.
    */
   it('never draws a word without an edge, however far the player strayed', () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const stranded: string[] = [];
 
     for (const puzzle of puzzles.slice(0, 20)) {
-      const drawn = new Set(buildPlate(graph, puzzle.source, puzzle.target, [], draw).nodes);
+      const drawn = new Set(buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle)).nodes);
 
       // Walk several moves off the board, the way a restored game arrives: all at
       // once, rather than one word at a time with the board growing between.
@@ -138,7 +136,7 @@ describe('buildPlate', () => {
       // states the board is rendered in, a beat apart.
       for (const anchors of [new Set([puzzle.source]), undefined]) {
         const plate = buildPlate(graph, puzzle.source, puzzle.target, revealed, {
-          ...draw,
+          ...drawOptions(puzzle),
           ...(anchors ? { anchors } : {}),
         });
         const degree = new Map(plate.nodes.map((word) => [word, 0]));
@@ -156,9 +154,9 @@ describe('buildPlate', () => {
   });
 
   it('keeps a word the player found even if it is a dead end', () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const puzzle = puzzles[2]!;
-    const first = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+    const first = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
     const drawn = new Set(first.nodes);
     const spur = graph
       .neighbors(puzzle.source)
@@ -172,7 +170,7 @@ describe('buildPlate', () => {
         { word: puzzle.source, via: null, move: null, order: 0 },
         { word: spur, via: puzzle.source, move: graph.findMove(puzzle.source, spur), order: 1 },
       ],
-      draw,
+      drawOptions(puzzle),
     );
     // Pruning must not erase where the player is standing.
     expect(plate.nodes).toContain(spur);
@@ -182,10 +180,10 @@ describe('buildPlate', () => {
   // with nothing to choose between, because the neighbourhood overflowed and the
   // radius collapsed to zero instead of being trimmed.
   it('always shows alternatives, never just the shortest path', { timeout: 60_000 }, () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const bare: string[] = [];
     for (const puzzle of puzzles.slice(0, 25)) {
-      const plate = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+      const plate = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
       const offRoute = plate.nodes.filter((w) => !plate.routeNodes.has(w));
       if (offRoute.length === 0) bare.push(`${puzzle.source}->${puzzle.target}`);
     }
@@ -199,11 +197,11 @@ describe('buildPlate', () => {
    * this checks them where the player meets them.
    */
   it('gives every board a branch at the root and a way round', { timeout: 60_000 }, () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     const forced: string[] = [];
     const bare: string[] = [];
     for (const puzzle of puzzles.slice(0, 40)) {
-      const plate = buildPlate(graph, puzzle.source, puzzle.target, [], draw);
+      const plate = buildPlate(graph, puzzle.source, puzzle.target, [], drawOptions(puzzle));
       const drawn = new Set(plate.nodes);
       const fromSource = graph.commonNeighbors(puzzle.source).filter((w) => drawn.has(w));
       if (fromSource.length < 2) forced.push(`${puzzle.source}->${puzzle.target}`);
@@ -216,13 +214,13 @@ describe('buildPlate', () => {
   });
 
   it('builds fast enough to run on every guess', () => {
-    const { graph, puzzles, draw } = real();
+    const { graph, puzzles } = real();
     // Warm the distance cache the way a real session would.
-    buildPlate(graph, puzzles[0]!.source, puzzles[0]!.target, [], draw);
+    buildPlate(graph, puzzles[0]!.source, puzzles[0]!.target, [], drawOptions(puzzles[0]!));
 
     const started = performance.now();
     for (let i = 0; i < 20; i++) {
-      buildPlate(graph, puzzles[0]!.source, puzzles[0]!.target, [], draw);
+      buildPlate(graph, puzzles[0]!.source, puzzles[0]!.target, [], drawOptions(puzzles[0]!));
     }
     const each = (performance.now() - started) / 20;
     // Runs once per guess, not per frame, so ~100ms is tolerable but not good.

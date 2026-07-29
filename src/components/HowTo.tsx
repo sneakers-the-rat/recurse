@@ -55,8 +55,15 @@ export function HowTo({ minWord, minSub, onClose }: Props) {
 
           <p>
             The map shows the words around you. Empty rings are words that exist but that you
-            have not named yet — tap one to learn how many letters it has. Rings marked in{' '}
+            have not named yet — tap one to learn how many letters it has, and tap again to be
+            given a letter, and again, until the word is simply there. Rings marked in{' '}
             <span className="text-gilt">gilt</span> lie on the shortest route.
+          </p>
+
+          <p>
+            Hints are unlimited, and counted alongside your guesses. Asking is not cheating:
+            this is not a race, and “ten guesses, ten thousand hints” is a perfectly good thing
+            to post.
           </p>
 
           <p>

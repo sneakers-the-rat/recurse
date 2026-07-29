@@ -4,15 +4,15 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { gameData } from './fixtures';
+import { board, gameData } from './fixtures';
 
 /** Start a game positioned on a chosen word, whatever today's puzzle is. */
 async function startOn(page: Page, word: string) {
   const { puzzles } = gameData();
-  const index = puzzles.findIndex((p) => p.source === word);
-  expect(index, `no puzzle starts on "${word}"`).toBeGreaterThanOrEqual(0);
-  await page.goto(`/?puzzle=${index}`);
-  return puzzles[index]!;
+  const puzzle = puzzles.find((p) => p.source === word);
+  expect(puzzle, `no puzzle starts on "${word}"`).toBeDefined();
+  await page.goto(board(puzzle!));
+  return puzzle!;
 }
 
 async function guess(page: Page, word: string) {
@@ -66,7 +66,7 @@ test('a bare ending is a legal move, not a special case', async ({ page }) => {
 
 test('explains letters arriving in two places', async ({ page }) => {
   const { puzzles } = gameData();
-  await page.goto(`/?puzzle=0`);
+  await page.goto(board(puzzles[0]!));
   const source = puzzles[0]!.source;
   // Letters at both ends: no single word was inserted anywhere.
   await guess(page, `x${source}y`);
@@ -82,13 +82,13 @@ test('explains a same-length swap as a different kind of move', async ({ page })
   );
   test.skip(!swap, 'no same-length word available');
 
-  await page.goto('/?puzzle=0');
+  await page.goto(board(gameData().puzzles[0]!));
   await guess(page, swap!);
   await expect(error(page)).toContainText('same length');
 });
 
 test('refuses something that is not a word at all', async ({ page }) => {
-  await page.goto('/?puzzle=0');
+  await page.goto(board(gameData().puzzles[0]!));
   await guess(page, 'qwertzxcv');
   await expect(error(page)).not.toHaveText('');
 });
