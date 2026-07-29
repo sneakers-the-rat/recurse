@@ -61,24 +61,29 @@ export function shippedShard(index: number): Puzzle[] {
 }
 
 /**
- * The shipped graph, with one shard's puzzles: **the shard the app has in memory today**.
+ * The shipped graph, with one shard's puzzles: **the shard the app has in memory today**,
+ * for the length a fresh visit opens.
  *
  * One shard rather than the bank, because that is what the app has and a test that quietly
- * had all 167,860 would not be testing the same thing. Use `shippedBank` where the whole
- * calendar is genuinely the subject.
+ * had all 115,145 would not be testing the same thing. Use `shippedBank` where the whole
+ * calendar is genuinely the subject, and `shippedShard` for a particular one.
  *
  * Which shard is not a constant, and taking it for one is what made every fixture that
- * mentions today wrong. This said shard 0, on the grounds that shard 0 holds day 0 — true,
- * and irrelevant, because shards are named by *id prefix* and `spread` put day N in shard
- * `N % 256`. So the shard holding today's board changes daily, a test asking this for
- * today's puzzle got a shard that does not contain it, and `puzzleForDay` correctly
- * answered null.
+ * mentions today wrong. Shards are named by *id prefix*, and the builder put band `B` on day
+ * `N` in shard `(N * 3 + B) % 256` — so the shard holding a board changes daily *and* with
+ * the length, and a fixture that guesses gets a shard the puzzle it wants is not in.
  */
+export const DEFAULT_BAND = 0;
+
 export function shippedData(): GameData {
   if (!cached) {
     const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
     const shard = readFileSync(
-      join(dataDir, 'puzzles', shardName(shardForDay(dayNumber(), manifest), manifest.version)),
+      join(
+        dataDir,
+        'puzzles',
+        shardName(shardForDay(DEFAULT_BAND, dayNumber(), manifest), manifest.version),
+      ),
       'utf8',
     );
     cached = decodeGameData({

@@ -37,6 +37,8 @@ import {
   type GameState,
 } from './lib/game';
 import {
+  BANDS,
+  bandOf,
   loadGameData,
   loadPairs,
   loadShard,
@@ -56,7 +58,7 @@ import {
 } from './lib/daily';
 import { idFromPath, pathFor, shareUrl } from './lib/route';
 import { markGuesses, shareText } from './lib/share';
-import { gameKey, loadGame, saveGame } from './lib/storage';
+import { gameKey, loadBand, loadGame, saveBand, saveGame } from './lib/storage';
 import { buildPlate } from './lib/plate';
 import { useBoardLayout, type BoardSpec } from './lib/useBoardLayout';
 import { openingCamera, playCamera, viewOf, type Camera, type Plate } from './lib/camera';
@@ -264,6 +266,16 @@ export default function App() {
 
   const [devMode, toggleDev] = useDevMode();
 
+  /**
+   * Which of the three lengths is being played.
+   *
+   * A day offers one short, one medium and one long board, and this says which of them "today"
+   * means. It is not in the URL — a puzzle is addressed by its id and nothing else — so it
+   * comes from the board on screen once there is one, and from what the player last chose
+   * before that. Short on a first visit.
+   */
+  const [band, setBand] = useState(() => loadBand(BANDS));
+
   // Legality lives on the graph now: it carries the whole dictionary.
   const isWord = data ? data.graph.isWord : null;
 
@@ -280,6 +292,11 @@ export default function App() {
    */
   const show = useCallback((chosen: DailyPuzzle, how: 'push' | 'replace') => {
     setAt({ day: chosen.day });
+    // The length on screen is the one the player is on, and the one a bare visit will open
+    // next time. Read off the puzzle rather than tracked separately: a board knows which of
+    // the three it is, including a board arrived at by link.
+    setBand(chosen.puzzle.band);
+    saveBand(chosen.puzzle.band);
     // Pick up wherever this puzzle was left, which for a reload is normally
     // mid-game. See storage.ts.
     setState(restore(chosen.puzzle, loadGame(gameKey(chosen.puzzle))));
@@ -307,38 +324,47 @@ export default function App() {
    * `loadShard` remembers what it has fetched, so going back over ground already walked costs
    * nothing.
    */
-  const bankForPath = useCallback(async (loaded: GameData, path: string): Promise<Puzzle[]> => {
-    const { manifest } = loaded;
-    const asked = idFromPath(path);
-    if (asked !== null) {
-      const bank = puzzleById(loaded.puzzles, asked)
+  const bankForPath = useCallback(
+    async (loaded: GameData, path: string, band: number): Promise<Puzzle[]> => {
+      const { manifest } = loaded;
+      const asked = idFromPath(path);
+      if (asked !== null) {
+        const bank = puzzleById(loaded.puzzles, asked)
+          ? loaded.puzzles
+          : await loadShard(shardOf(asked), manifest.version);
+        // Only if it is really there. An id that names nothing is a link from before a rebuild,
+        // and the answer to that is today's board, from today's own shard.
+        if (puzzleById(bank, asked)) return bank;
+      }
+      const day = dayNumber();
+      return puzzleForDay(loaded.puzzles, band, day, bandOf(band, manifest).days)
         ? loaded.puzzles
-        : await loadShard(shardOf(asked), manifest.version);
-      // Only if it is really there. An id that names nothing is a link from before a rebuild,
-      // and the answer to that is today's board, from today's own shard.
-      if (puzzleById(bank, asked)) return bank;
-    }
-    const day = dayNumber();
-    return puzzleForDay(loaded.puzzles, day, manifest.days)
-      ? loaded.puzzles
-      : loadShard(shardForDay(day, manifest), manifest.version);
-  }, []);
+        : loadShard(shardForDay(band, day, manifest), manifest.version);
+    },
+    [],
+  );
 
   /** Which board a path names, once the shard that can say is in hand. */
   const boardForPath = useCallback(
-    async (loaded: GameData, path: string) =>
-      resolvePuzzle(await bankForPath(loaded, path), path, loaded.manifest.days),
+    async (loaded: GameData, path: string, band: number) =>
+      resolvePuzzle(
+        await bankForPath(loaded, path, band),
+        path,
+        band,
+        bandOf(band, loaded.manifest).days,
+      ),
     [bankForPath],
   );
 
   useEffect(() => {
     // The path decides which shard is fetched, so the loader is told the id up front
-    // rather than being asked for a board it did not bring.
+    // rather than being asked for a board it did not bring. Failing an id, the band the
+    // player last chose decides which of the day's three boards is fetched.
     const asked = idFromPath(window.location.pathname);
-    loadGameData(asked === null ? undefined : { id: asked })
+    loadGameData(asked === null ? { band: loadBand(BANDS) } : { id: asked })
       .then(async (loaded) => {
         setData(loaded);
-        const chosen = await boardForPath(loaded, window.location.pathname);
+        const chosen = await boardForPath(loaded, window.location.pathname, loadBand(BANDS));
         if (!chosen) {
           // Today's own shard does not hold today, which means the client and the builder
           // disagree about the shard arithmetic — see `shardForDay`.
@@ -360,13 +386,13 @@ export default function App() {
   useEffect(() => {
     if (!data) return;
     const onPop = () => {
-      void boardForPath(data, window.location.pathname).then((chosen) => {
+      void boardForPath(data, window.location.pathname, band).then((chosen) => {
         if (chosen) show(chosen, 'replace');
       });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [data, show, boardForPath]);
+  }, [data, show, boardForPath, band]);
 
   /**
    * Found words whose onward routes have been worked out.
@@ -761,26 +787,40 @@ export default function App() {
   }, [state]);
 
   /**
-   * Dev only: step the calendar, the order the survey lists and the game plays. The
-   * URL that results is still the puzzle's id — the day is how dev mode moves, never
-   * how a board is addressed.
+   * One day of one length, whichever shard it is in.
    *
-   * Asynchronous because consecutive days are deliberately in different shards: day
-   * `N` lives in shard `N % 256`, which is what lets any day be found with one fetch
-   * and no index, and means every step of the arrows asks for another 42KB file. Cheap
-   * on a dev machine, and paid once per shard for the session.
+   * The whole of how a board other than the one on screen is reached: the header's three-way
+   * switch keeps the day and changes the length, dev mode's arrows keep the length and change
+   * the day. Neither can come up empty — `dayIndex` wraps a day into that band's own calendar,
+   * so a band that has run out loops. Pushed, so the back button undoes it.
    */
-  const goToPuzzle = useCallback(
-    (next: number) => {
+  const openDay = useCallback(
+    (day: number, wanted: number) => {
       if (!data) return;
-      const day = dayIndex(next, data.manifest.days);
-      void loadShard(shardForDay(day, data.manifest), data.manifest.version).then((bank) => {
-        const chosen = puzzleForDay(bank, day, data.manifest.days);
+      const { manifest } = data;
+      const days = bandOf(wanted, manifest).days;
+      const on = dayIndex(day, days);
+      void loadShard(shardForDay(wanted, on, manifest), manifest.version).then((bank) => {
+        const chosen = puzzleForDay(bank, wanted, on, days);
         if (chosen) show(chosen, 'push');
       });
     },
     [data, show],
   );
+
+  /**
+   * Dev only: step the calendar, the order the survey lists and the game plays. The
+   * URL that results is still the puzzle's id — the day is how dev mode moves, never
+   * how a board is addressed.
+   *
+   * Asynchronous because consecutive days are deliberately in different shards: band `B` on
+   * day `N` lives in shard `(N * 3 + B) % 256`, which is what lets any day be found with one
+   * fetch and no index, and means every step of the arrows asks for another 140KB file. Cheap
+   * on a dev machine, and paid once per shard for the session.
+   *
+   * Stepping stays in the length being played. Moving between lengths is the header's job.
+   */
+  const goToPuzzle = useCallback((next: number) => openDay(next, band), [openDay, band]);
 
   /** Dev only: throw this board's saved progress away and start it again. */
   const resetPuzzle = useCallback(() => {
@@ -867,6 +907,48 @@ export default function App() {
   );
 
   /**
+   * What is left of the day: the other two lengths, unless they are finished.
+   *
+   * Worked out only once a round is over, because that is the only time it is shown and it
+   * costs two shard fetches — the day's three boards are in three different shards by
+   * construction (see `shardForDay`). Their progress comes from storage, keyed by word pair
+   * like every other saved game, so "3 in" is the real count and a solved one drops off the
+   * list rather than being offered again.
+   */
+  const [others, setOthers] = useState<{ band: number; name: string; guesses: number }[]>([]);
+  useEffect(() => {
+    if (!data || !state?.solved || !at) {
+      setOthers([]);
+      return;
+    }
+    let live = true;
+    const { manifest } = data;
+    const wanted = manifest.bands.map((_, index) => index).filter((index) => index !== band);
+    void Promise.all(
+      wanted.map(async (index) => {
+        const days = bandOf(index, manifest).days;
+        const on = dayIndex(at.day, days);
+        const bank = await loadShard(shardForDay(index, on, manifest), manifest.version);
+        const found = puzzleForDay(bank, index, on, days);
+        if (!found) return null;
+        const saved = restore(found.puzzle, loadGame(gameKey(found.puzzle)));
+        if (saved.solved) return null;
+        return { band: index, name: bandOf(index, manifest).name, guesses: saved.guesses };
+      }),
+    )
+      .then((found) => {
+        if (live) setOthers(found.filter((one) => one !== null));
+      })
+      .catch(() => {
+        // A fetch that fails costs the prompt and nothing else: the round is over either way.
+        if (live) setOthers([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [data, state?.solved, at, band]);
+
+  /**
    * Dev helper: name every word on the board at once.
    *
    * Judging whether a puzzle is worth offering means reading the words around the
@@ -916,6 +998,7 @@ export default function App() {
       marks,
       text: shareText({
         day: at.day,
+        band: bandOf(state.puzzle.band, data.manifest).name,
         date,
         guesses: state.guesses,
         par: state.puzzle.par,
@@ -987,7 +1070,7 @@ export default function App() {
         {devMode && (
           <DevBar
             index={at.day}
-            total={data.manifest.days}
+            total={bandOf(band, data.manifest).days}
             puzzle={state.puzzle}
             drawn={plate.nodes.length}
             path={bestRoute}
@@ -1009,6 +1092,11 @@ export default function App() {
           target={state.puzzle.target}
           par={state.puzzle.par}
           shortcuts={shortcut?.count ?? 0}
+          bands={data.manifest.bands}
+          band={band}
+          // The day is kept and the length changes: a link to Tuesday's short board leads to
+          // Tuesday's long one, not to today's.
+          onBand={(next) => openDay(at.day, next)}
           day={at.day}
           guesses={state.guesses}
           hints={hintCount(state)}
@@ -1021,7 +1109,13 @@ export default function App() {
 
         {/* Above the board, so finishing is unmissable and the figure is untouched. */}
         {finished && result && (
-          <Result state={state} marks={result.marks} text={result.text} />
+          <Result
+            state={state}
+            marks={result.marks}
+            text={result.text}
+            others={others}
+            onBand={(next) => openDay(at.day, next)}
+          />
         )}
 
         {/*

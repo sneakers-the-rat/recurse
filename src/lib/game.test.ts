@@ -23,6 +23,8 @@ const dict = graph.isWord;
 const puzzle: Puzzle = {
   id: 'aaaa1111',
   day: 0,
+  // Short, which is what a par-4 board is. See `band_of`.
+  band: 0,
   source: 'base',
   target: 'cannon',
   par: 4,

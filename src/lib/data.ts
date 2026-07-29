@@ -70,8 +70,20 @@ export interface RawManifest {
   /** Digest of the whole bank, and part of every shard's filename. */
   version: string;
   shards: number;
-  /** Days whose number names their own shard — the range `puzzleForDay` may ask for. */
-  days: number;
+  /**
+   * The three lengths, in order: short, medium, long.
+   *
+   * Each has its own calendar, so each has its own length — `days` is how far it can be
+   * reached by date before it wraps, and they differ by decades. The pars are what the band
+   * holds, which the header shows and which is `RECURSE_BAND_CUTS` rather than anything the
+   * client decides.
+   */
+  bands: {
+    name: string;
+    days: number;
+    minPar: number;
+    maxPar: number;
+  }[];
   puzzles: number;
   params: {
     /** Selection's neighbourhood measure on the common graph. Not a draw budget. */
@@ -107,17 +119,38 @@ export function shardOf(id: string): number {
 }
 
 /**
- * Which shard holds the board for a day.
+ * The three lengths a day offers, mirrored from the builder's `BANDS`.
  *
- * Two steps, and leaving either out is a bug that waits: the day is wrapped into the
- * calendar's length, and *then* taken modulo the number of shards, because `spread` placed
- * day N in shard `N % SHARDS` (see write_puzzle_shards). Without the second step the
- * calendar's own day number was being used as a shard index, which is the same number for
- * the first 256 days and then asks for `puzzles/12c-<version>.tsv` — a file that has never
- * existed. The game would have kept working until day 256 and then stopped loading at all.
+ * Needed before the manifest arrives — the band a bare visit opens is read from storage on
+ * the first render — and checked against `manifest.bands.length` everywhere after that.
  */
-export function shardForDay(day: number, manifest: RawManifest): number {
-  return dayIndex(day, manifest.days) % manifest.shards;
+export const BANDS = 3;
+
+/** How long a band's calendar is, and what it holds. */
+export function bandOf(band: number, manifest: RawManifest): RawManifest['bands'][number] {
+  return (
+    manifest.bands[band] ??
+    manifest.bands[0] ?? { name: 'short', days: 1, minPar: 0, maxPar: 0 }
+  );
+}
+
+/**
+ * Which shard holds a band's board for a day.
+ *
+ * Three steps, and leaving any of them out is a bug that waits:
+ *
+ * 1. The day is wrapped into *that band's* calendar, because each band has its own length
+ *    and its own wrap — the short one runs out first.
+ * 2. Then the band is folded in, because `spread` placed band `B` on day `N` in shard
+ *    `(N * 3 + B) % 256`. Three bands share 256 shards, so a day's three boards are in
+ *    three different shards and playing one costs one fetch.
+ * 3. Then modulo the shard count. Without this the calendar's own day number was being used
+ *    as a shard index — the same number for the first 256 days, and then a request for
+ *    `puzzles/12c-<version>.tsv`, a file that has never existed.
+ */
+export function shardForDay(band: number, day: number, manifest: RawManifest): number {
+  const wrapped = dayIndex(day, bandOf(band, manifest).days);
+  return (wrapped * manifest.bands.length + band) % manifest.shards;
 }
 
 /**
@@ -141,20 +174,21 @@ export function decodeShard(text: string): Puzzle[] {
   for (const line of text.split('\n')) {
     if (!line) continue;
     const f = line.split('\t');
-    if (f.length < 11) continue;
+    if (f.length < 12) continue;
     puzzles.push({
       id: f[0]!,
       day: Number(f[1]),
-      source: f[2]!,
-      target: f[3]!,
-      par: Number(f[4]),
-      secret: Number(f[5]),
-      corridorSize: Number(f[6]),
-      altNodes: Number(f[7]),
-      shortestPaths: Number(f[8]),
-      maxRank: Number(f[9]),
+      band: Number(f[2]),
+      source: f[3]!,
+      target: f[4]!,
+      par: Number(f[5]),
+      secret: Number(f[6]),
+      corridorSize: Number(f[7]),
+      altNodes: Number(f[8]),
+      shortestPaths: Number(f[9]),
+      maxRank: Number(f[10]),
       // The words this puzzle draws, chosen by the builder. See board_words in select.rs.
-      board: f[10] ? f[10].split(' ') : [],
+      board: f[11] ? f[11].split(' ') : [],
     });
   }
   return puzzles;
@@ -301,7 +335,9 @@ let loading: Promise<GameData> | null = null;
  * shard today's board is in. The first call decides which shard arrives with the graph;
  * `loadShard` fetches any others later, which is what dev mode's stepping needs.
  */
-export function loadGameData(want?: { id?: string; day?: number }): Promise<GameData> {
+export function loadGameData(
+  want?: { id?: string; day?: number; band?: number },
+): Promise<GameData> {
   loading ??= fetchGameData(want).catch((error: unknown) => {
     loading = null;
     throw error;
@@ -361,15 +397,18 @@ export function loadPairs(version: string): Promise<Pair[]> {
   return pairs;
 }
 
-async function fetchGameData(want?: { id?: string; day?: number }): Promise<GameData> {
+async function fetchGameData(
+  want?: { id?: string; day?: number; band?: number },
+): Promise<GameData> {
   // The manifest first and alone: it names the shard, and nothing else can be asked for
   // until its version is known.
   const manifest = await getJson<RawManifest>('puzzles/manifest.json', false);
-  // Which shard holds the board being opened: an id names its own, a day names one through
-  // the calendar. Both answers live above, in one place each, because this arithmetic has to
-  // agree with the builder's and with everywhere else that asks.
+  // Which shard holds the board being opened: an id names its own, a day and a band name one
+  // through the calendar. Both answers live above, in one place each, because this arithmetic
+  // has to agree with the builder's and with everywhere else that asks.
   const day = want?.day ?? dayNumber();
-  const index = want?.id !== undefined ? shardOf(want.id) : shardForDay(day, manifest);
+  const index =
+    want?.id !== undefined ? shardOf(want.id) : shardForDay(want?.band ?? 0, day, manifest);
 
   const [dictionary, graph, common, puzzles] = await Promise.all([
     getJson<RawDictionary>('dictionary.json'),

@@ -113,3 +113,32 @@ export function saveGame(key: string, game: GameSnapshot | null): void {
   }
   write([{ key, game }, ...rest]);
 }
+
+/**
+ * Which of the three lengths the player last chose.
+ *
+ * Its own key, not part of a game: it is a preference about the game rather than progress in
+ * one, and it has to survive the game store being trimmed to `KEEP` entries. Short by
+ * default, and anything unreadable is short too — a preference is never a reason a board
+ * fails to open.
+ */
+const BAND_KEY = 'recurse.band.v1';
+
+export function loadBand(bands: number): number {
+  try {
+    const raw = store()?.getItem(BAND_KEY);
+    const band = Number(raw);
+    return Number.isInteger(band) && band >= 0 && band < bands ? band : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function saveBand(band: number): void {
+  try {
+    store()?.setItem(BAND_KEY, String(band));
+  } catch {
+    // Blocked or full storage means a preference that is not remembered, never a
+    // preference that throws. See the note on `write`.
+  }
+}

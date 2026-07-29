@@ -215,7 +215,8 @@ fn run(command: Command) -> Result<(), String> {
                 puzzles: cached.puzzles,
                 rejections: cached.rejections,
                 candidates: cached.candidates,
-                aligned_days: 0,
+                // Set by `schedule`, which runs on every build: the calendar is not cached.
+                aligned_days: [0; select::BANDS],
             }
         }
         _ => {
@@ -247,6 +248,7 @@ fn run(command: Command) -> Result<(), String> {
             .collect::<Vec<_>>()
             .join(" ")
     );
+    report_bands(&selection, &config);
     report_boards(&selection);
     for puzzle in selection.puzzles.iter().take(5) {
         eprintln!(
@@ -547,6 +549,40 @@ fn report_boards(selection: &select::Selection) {
     );
 }
 
+/// How even the three lengths are, which is a property of the *rules* and not of the cuts.
+///
+/// Every day offers one short, one medium and one long board, so the bands have to be within
+/// hailing distance of each other or the game runs out of one length while another still has
+/// centuries left. The cuts are `RECURSE_BAND_CUTS`, but what each cut holds is decided by
+/// which puzzles the rules let through — so a rule change moves these shares, and this report
+/// is how that shows up. Printed on every build, beside the rule table, for that reason.
+///
+/// `days` is the calendar each band can be reached by date over; `by link` is the tail past
+/// its shard alignment. The short band running out first is expected and is what the wrap in
+/// `dayIndex` is for.
+fn report_bands(selection: &select::Selection, config: &Config) {
+    let total = selection.puzzles.len().max(1);
+    eprintln!("  bands ({} puzzles, one of each per day):", selection.puzzles.len());
+    eprintln!(
+        "    {:<8} {:>6}  {:>9}  {:>7}  {:>8}  {}",
+        "band", "pars", "puzzles", "share", "days", "years by date"
+    );
+    for band in 0..select::BANDS {
+        let held = selection.puzzles.iter().filter(|p| p.band == band).count();
+        let (low, high) = band_pars(config, band);
+        let days = selection.aligned_days[band];
+        eprintln!(
+            "    {:<8} {:>6}  {:>9}  {:>6.1}%  {:>8}  {:>13.0}",
+            select::band_name(band),
+            format!("{low}-{high}"),
+            held,
+            100.0 * held as f64 / total as f64,
+            days,
+            days as f64 / 365.25,
+        );
+    }
+}
+
 /// How many puzzles at each par, which is what difficulty tiers get cut from.
 fn par_histogram(selection: &select::Selection) -> Vec<(u32, usize)> {
     let mut by_par: FxMap<u32, usize> = FxMap::default();
@@ -592,6 +628,20 @@ fn write_survey(
             .collect::<Vec<_>>()
             .join(" ")
     ));
+    // How even the three lengths came out, which is a property of the rules — see
+    // `report_bands`. In the survey as well as the build output, because this is the file a
+    // rule change gets diffed in.
+    let total = selection.puzzles.len().max(1);
+    for band in 0..select::BANDS {
+        let held = selection.puzzles.iter().filter(|p| p.band == band).count();
+        let (low, high) = band_pars(config, band);
+        out.push_str(&format!(
+            "band {:<6} par {low}-{high}: {held} puzzles ({:.1}%), {} days by date\n",
+            select::band_name(band),
+            100.0 * held as f64 / total as f64,
+            selection.aligned_days[band],
+        ));
+    }
     // The whole rule table, so a survey read weeks later still says which settings
     // produced it. `only` is what relaxing that one rule would let back in.
     out.push_str(&format!("refused by each rule, {}:\n", how_counted(config)));
@@ -638,7 +688,9 @@ fn write_survey(
 /// an index:
 ///
 /// * A shared link carries the id, whose first two digits *are* the shard.
-/// * The daily board is day `N`, which `spread` has placed in shard `N % SHARDS`.
+/// * A daily board is band `B` on day `N`, which `spread` has placed in shard
+///   `(N * BANDS + B) % SHARDS` — so the three lengths a day offers are in three different
+///   shards, and playing one costs one fetch.
 ///
 /// So one fetch reaches any board, and a player accumulates shards as they play rather
 /// than paying for the whole bank up front.
@@ -655,7 +707,7 @@ fn write_puzzle_shards(
     data: &Path,
     config: &Config,
     puzzles: &[select::Puzzle],
-    aligned_days: usize,
+    aligned_days: [usize; select::BANDS],
 ) -> Result<(), String> {
     let dir = data.join("puzzles");
     let mut shards: Vec<Vec<&select::Puzzle>> = vec![Vec::new(); id::SHARDS];
@@ -671,9 +723,10 @@ fn write_puzzle_shards(
             let mut out = String::with_capacity(shard.len() * 64);
             for puzzle in shard {
                 out.push_str(&format!(
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                     puzzle.id,
                     puzzle.day,
+                    puzzle.band,
                     puzzle.source,
                     puzzle.target,
                     puzzle.par,
@@ -700,13 +753,28 @@ fn write_puzzle_shards(
     let name_of = |index: usize| format!("{index:02x}-{version}.tsv");
 
     // What the client reads before anything else: the version its shard names are built
-    // from, the shard arithmetic, and how long the calendar is. Without the length a day
-    // past the end of the bank would fetch a shard and find nothing in it.
+    // from, the shard arithmetic, and how long each band's calendar is. Without the lengths a
+    // day past the end of a band would fetch a shard and find nothing in it; with them the
+    // band wraps instead, which is what "the short one loops first" means.
+    //
+    // `bands` carries what each length holds as well as how long it runs, because the header
+    // says "short (par 3-4)" and those numbers are `RECURSE_BAND_CUTS`, not the client's to
+    // know.
+    let bands = (0..select::BANDS)
+        .map(|band| {
+            let (low, high) = band_pars(config, band);
+            format!(
+                "{{\"name\":\"{}\",\"days\":{},\"minPar\":{low},\"maxPar\":{high}}}",
+                select::band_name(band),
+                aligned_days[band],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     let manifest = format!(
-        "{{\"version\":\"{version}\",\"shards\":{},\"days\":{},\"puzzles\":{},\
+        "{{\"version\":\"{version}\",\"shards\":{},\"bands\":[{bands}],\"puzzles\":{},\
          \"params\":{{\"slack\":{},\"minPar\":{},\"maxPar\":{}}}}}",
         id::SHARDS,
-        aligned_days,
         puzzles.len(),
         config.slack,
         config.min_par,
@@ -757,11 +825,29 @@ fn write_puzzle_shards(
         largest / 1024,
         if stale > 0 { format!(", removed {stale} from an older version") } else { String::new() },
     );
-    eprintln!(
-        "  calendar: {aligned_days} days reachable by date, {} more playable by link only",
-        puzzles.len().saturating_sub(aligned_days),
-    );
+    // Per band, because each has its own calendar and the shortest is the one that decides
+    // when the game starts repeating itself.
+    for band in 0..select::BANDS {
+        let held = puzzles.iter().filter(|p| p.band == band).count();
+        let (low, high) = band_pars(config, band);
+        eprintln!(
+            "  {:<6} par {low}-{high}: {held} puzzles, {} days by date, {} by link only",
+            select::band_name(band),
+            aligned_days[band],
+            held.saturating_sub(aligned_days[band]),
+        );
+    }
     Ok(())
+}
+
+/// The pars a band holds, from the cuts. Inclusive at both ends.
+fn band_pars(config: &Config, band: usize) -> (usize, usize) {
+    let (short, medium) = config.band_cuts;
+    match band {
+        0 => (config.min_par, short as usize),
+        1 => (short as usize + 1, medium as usize),
+        _ => (medium as usize + 1, config.max_par),
+    }
 }
 
 /// Delete shards, and the pair index, left over from an earlier version.

@@ -37,6 +37,9 @@ pub struct Config {
     pub max_swaps: usize,
     pub min_alt_nodes: usize,
     pub min_gap: usize,
+    /// Where the three lengths divide: the last par of the short band, then of the medium
+    /// one. Long is everything above. See `band_of`.
+    pub band_cuts: (u32, u32),
     pub seed: u64,
     /// Hex digits of a puzzle's digest that make up its public id. See id.rs.
     pub id_chars: usize,
@@ -102,6 +105,19 @@ impl Config {
             raw.parse::<usize>()
                 .map_err(|_| format!("{key} should be a number, got {raw:?}"))
         };
+        /// Two numbers separated by a comma, which is how a pair of cuts reads in a file
+        /// of single values.
+        let pair = |key: &str| -> Result<(u32, u32), String> {
+            let raw = get(key)?;
+            let mut parts = raw.split(',').map(str::trim);
+            let bad = || format!("{key} should be two numbers separated by a comma, got {raw:?}");
+            let first: u32 = parts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
+            let second: u32 = parts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
+            if parts.next().is_some() {
+                return Err(bad());
+            }
+            Ok((first, second))
+        };
 
         let config = Config {
             min_word: num("RECURSE_MIN_WORD")?,
@@ -121,6 +137,7 @@ impl Config {
             max_swaps: num("RECURSE_MAX_SWAPS")?,
             min_alt_nodes: num("RECURSE_MIN_ALT_NODES")?,
             min_gap: num("RECURSE_MIN_GAP")?,
+            band_cuts: pair("RECURSE_BAND_CUTS")?,
             seed: num("RECURSE_SEED")? as u64,
             id_chars: num("RECURSE_ID_CHARS")?,
             // Not in .env: a way of looking at the bank, not a property of it.
@@ -139,6 +156,21 @@ impl Config {
         }
         if config.min_par > config.max_par {
             return Err("RECURSE_MIN_PAR must not exceed RECURSE_MAX_PAR".into());
+        }
+        // Three bands means two cuts, and each one has to have something in it: a cut at or
+        // below the shortest par, or at or above the longest, leaves a band the game offers
+        // and the bank cannot fill.
+        let (short, medium) = config.band_cuts;
+        if (short as usize) < config.min_par
+            || short >= medium
+            || (medium as usize) >= config.max_par
+        {
+            return Err(format!(
+                "RECURSE_BAND_CUTS ({short},{medium}) has to leave three non-empty bands \
+                 inside par {}-{}: the first cut at or above MIN_PAR, the second above it, \
+                 and MAX_PAR above that",
+                config.min_par, config.max_par
+            ));
         }
         // A hex digit is half a byte and a digest is a whole number of them, so the
         // length comes in pairs. Four digits is 65,536 addresses, which a bank of a

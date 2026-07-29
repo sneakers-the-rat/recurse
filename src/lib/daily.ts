@@ -77,20 +77,26 @@ export function dayIndex(day: number, days: number): number {
 }
 
 /**
- * The puzzle for a day, from the shard that day's number names.
+ * The puzzle for a band on a day, from the shard that band and day name.
  *
- * A puzzle carries its own day, assigned by the builder, so this is a lookup rather
- * than arithmetic over an array — `bank` holds the ~680 puzzles of one shard, in no
- * particular order, and 174,000 others are not in memory. Null when the day is not in
+ * A puzzle carries its own day *and* its own band, assigned by the builder, so this is a
+ * lookup rather than arithmetic over an array — `bank` holds the ~450 puzzles of one shard,
+ * in no particular order, and 114,000 others are not in memory. Null when that day is not in
  * this shard, which means the wrong shard was fetched.
+ *
+ * `days` is the length of *that band's* calendar, not the bank's: every day offers one board
+ * of each length and the three bands run out at different points, so each wraps on its own.
  */
 export function puzzleForDay(
   bank: readonly Puzzle[],
+  band: number,
   day: number,
   days: number,
 ): DailyPuzzle | null {
   const wanted = dayIndex(day, days);
-  const puzzle = bank.find((candidate) => candidate.day === wanted);
+  const puzzle = bank.find(
+    (candidate) => candidate.day === wanted && candidate.band === band,
+  );
   return puzzle ? { puzzle, day: wanted } : null;
 }
 
@@ -106,14 +112,18 @@ export function puzzleById(bank: readonly Puzzle[], id: string): DailyPuzzle | n
  * Today's, unless the path names a puzzle in the loaded shard. An id that names nothing
  * — a link shared before a rebuild changed that answer — gets today rather than an
  * error, and the caller rewrites the URL to say so.
+ *
+ * `band` is which length "today" means, since a day offers three. It is the band the player
+ * last chose; the fallback only reaches for it when the path names nothing.
  */
 export function resolvePuzzle(
   bank: readonly Puzzle[],
   path: string,
+  band: number,
   days: number,
   now: Date = new Date(),
 ): DailyPuzzle | null {
   const id = idFromPath(path);
   const asked = id === null ? null : puzzleById(bank, id);
-  return asked ?? puzzleForDay(bank, dayNumber(now), days);
+  return asked ?? puzzleForDay(bank, band, dayNumber(now), days);
 }

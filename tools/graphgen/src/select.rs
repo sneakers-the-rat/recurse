@@ -44,6 +44,33 @@ pub struct Puzzle {
     /// The board this puzzle declares: its ways through and a little of what joins them,
     /// encoded for the shard files. See board.rs — the client draws exactly this.
     pub board: String,
+    /// Which of the three lengths this is: 0 short, 1 medium, 2 long. Derived from par by
+    /// `band_of` and set by `schedule`, like `day` — so changing where the bands divide is
+    /// a calendar change and costs no search.
+    pub band: usize,
+}
+
+/// The three lengths a day offers. Not a knob: the game shows three, and a fourth would be
+/// a different game rather than a different number.
+pub const BANDS: usize = 3;
+
+/// Which length a par belongs to.
+///
+/// The cuts are the last par of the short band and of the medium one; long is everything
+/// above. Two cuts, three bands, and `Config::load` refuses cuts that would leave one empty.
+pub fn band_of(par: u32, cuts: (u32, u32)) -> usize {
+    if par <= cuts.0 {
+        0
+    } else if par <= cuts.1 {
+        1
+    } else {
+        2
+    }
+}
+
+/// What each band is called, and what it holds. The client shows both.
+pub fn band_name(band: usize) -> &'static str {
+    ["short", "medium", "long"][band.min(BANDS - 1)]
 }
 
 /// Fewest words a board may have and still be worth drawing.
@@ -683,9 +710,10 @@ pub struct Selection {
     pub candidates: usize,
     /// Candidates that broke no rule, which is the size of the bank.
     pub passed: usize,
-    /// Days whose number names their own shard, so the client can reach them with one
-    /// fetch and no index. See `spread`.
-    pub aligned_days: usize,
+    /// Per band: days whose number names their own shard, so the client can reach them with
+    /// one fetch and no index. Each band has its own calendar and its own length, and wraps
+    /// at it — see `spread`.
+    pub aligned_days: [usize; BANDS],
 }
 
 pub fn select(
@@ -897,17 +925,38 @@ pub fn select(
         puzzles,
         rejections: Rejections::from_tallies(&alone, &only),
         candidates: candidate_count,
-        aligned_days: 0,
+        aligned_days: [0; BANDS],
     }
 }
 
-/// Put a bank in calendar order and hand back how much of it is date-addressable.
+/// Put a bank in calendar order and hand back how much of each band is date-addressable.
 ///
-/// Separate from `select` so that reordering the calendar does not mean repeating the
-/// search: `RECURSE_SEED` and `RECURSE_MIN_GAP` reach only this function.
+/// **Three calendars, not one.** Every day offers one puzzle of each length, so each band is
+/// spread over its own days and runs out at its own point — the shortest first, which is what
+/// the wrap in `dayIndex` is for. A day number therefore names three boards, one per band.
+///
+/// Separate from `select` so that reordering the calendar does not mean repeating the search:
+/// `RECURSE_SEED`, `RECURSE_MIN_GAP` and `RECURSE_BAND_CUTS` reach only this function.
 pub fn schedule(mut selection: Selection, config: &Config) -> Selection {
     let before = selection.puzzles.len();
-    let (ordered, aligned) = spread(selection.puzzles, config);
+
+    // Bands in order, short first, because each one avoids the endpoints the earlier ones
+    // have already put on a day and the first to choose has the freest choice.
+    let mut by_band: Vec<Vec<Puzzle>> = vec![Vec::new(); BANDS];
+    for mut puzzle in selection.puzzles.drain(..) {
+        puzzle.band = band_of(puzzle.par, config.band_cuts);
+        by_band[puzzle.band].push(puzzle);
+    }
+
+    let mut ordered: Vec<Puzzle> = Vec::with_capacity(before);
+    let mut aligned = [0usize; BANDS];
+    let mut endpoints_on: FxMap<usize, Vec<String>> = FxMap::default();
+    for (band, puzzles) in by_band.into_iter().enumerate() {
+        let (placed, days) = spread(puzzles, band, config, &mut endpoints_on);
+        aligned[band] = days;
+        ordered.extend(placed);
+    }
+
     debug_assert_eq!(ordered.len(), before, "spread must not lose a puzzle");
     selection.puzzles = ordered;
     selection.passed = before;
@@ -1167,6 +1216,8 @@ pub fn judge_candidates(
             secret: if best < par { best } else { 0 },
             routes: routes_shown,
             board: drawn.iter().map(|&w| common.word(w)).collect::<Vec<_>>().join(" "),
+            // Both set by `schedule`: which day this is, and which of the three lengths.
+            band: 0,
         });
     }
 
@@ -1199,7 +1250,12 @@ impl Rng {
 /// state where every puzzle left wants a word still inside it. That deadlock is
 /// broken by placing the next pending puzzle regardless — the gap is a preference,
 /// and the alternative is losing puzzles to it.
-fn spread(mut puzzles: Vec<Puzzle>, config: &Config) -> (Vec<Puzzle>, usize) {
+fn spread(
+    mut puzzles: Vec<Puzzle>,
+    band: usize,
+    config: &Config,
+    endpoints_on: &mut FxMap<usize, Vec<String>>,
+) -> (Vec<Puzzle>, usize) {
     // Canonical order before shuffling: selection order depends on hash iteration
     // and thread scheduling, and without this a rebuild would silently reassign
     // every calendar date.
@@ -1213,14 +1269,17 @@ fn spread(mut puzzles: Vec<Puzzle>, config: &Config) -> (Vec<Puzzle>, usize) {
 
     // One queue per shard, so a day can be served from the shard its number names.
     //
-    // The client finds today's board by fetching shard `day % SHARDS` and looking for
-    // the day inside it, which is what saves it an index over the whole bank. That
-    // holds while every shard still has a puzzle left; shard sizes differ by a few
-    // percent, so the round robin eventually asks an empty one. From there the days
-    // keep being handed out from whatever shards remain — those puzzles ship and play
-    // like any other, and are reached by their id rather than by a date. `aligned`
-    // reports where that changeover falls, and it is the calendar the client may look
-    // up by day.
+    // The client finds a board by fetching the shard that band and day name — `(day * BANDS
+    // + band) % SHARDS` — and looking for the day inside it, which is what saves it an index
+    // over the whole bank. Three bands share the 256 shards, so each band's days step through
+    // them three at a time and no two bands ever want the same shard on the same day: one
+    // fetch reaches the length being played, and switching lengths costs one more.
+    //
+    // The alignment holds while every shard still has a puzzle left; shard sizes differ by a
+    // few percent, so the round robin eventually asks an empty one. From there the days keep
+    // being handed out from whatever shards remain — those puzzles ship and play like any
+    // other, and are reached by their id rather than by a date. `aligned` reports where that
+    // changeover falls, and it is the calendar the client may look up by day.
     let mut queues: Vec<std::collections::VecDeque<Puzzle>> =
         (0..SHARDS).map(|_| Default::default()).collect();
     for puzzle in puzzles {
@@ -1236,7 +1295,7 @@ fn spread(mut puzzles: Vec<Puzzle>, config: &Config) -> (Vec<Puzzle>, usize) {
     while queues.iter().any(|q| !q.is_empty()) {
         // The shard this day belongs to, while the alignment holds. Once it has
         // broken, take from the fullest shard so the tail stays balanced.
-        let wanted = day % SHARDS;
+        let wanted = (day * BANDS + band) % SHARDS;
         let from = if !queues[wanted].is_empty() {
             wanted
         } else {
@@ -1251,16 +1310,33 @@ fn spread(mut puzzles: Vec<Puzzle>, config: &Config) -> (Vec<Puzzle>, usize) {
                 .expect("some queue is not empty")
         };
 
-        // The first puzzle in that shard whose endpoints are both free, or — when the
-        // window has deadlocked — the one at the front.
+        // The first puzzle in that shard whose endpoints are both free — of this band's own
+        // recent window, and of the words the other bands have already put on this day.
+        //
+        // Both are soft. A puzzle is never dropped for repeating a word: when nothing in the
+        // shard qualifies, the front of the queue is taken anyway. Sharing a word with
+        // another length on the same day is the weaker complaint of the two, so it is given
+        // up first — a day where all three lengths hinge on `sing` is worth avoiding, and not
+        // worth a hole in the calendar.
+        let free_of_band = |puzzle: &Puzzle| {
+            blocked.get(&puzzle.source).copied().unwrap_or(0) == 0
+                && blocked.get(&puzzle.target).copied().unwrap_or(0) == 0
+        };
+        let elsewhere = endpoints_on.get(&day);
+        let free_of_day = |puzzle: &Puzzle| match elsewhere {
+            None => true,
+            Some(words) => !words.contains(&puzzle.source) && !words.contains(&puzzle.target),
+        };
         let next = queues[from]
             .iter()
-            .position(|puzzle| {
-                blocked.get(&puzzle.source).copied().unwrap_or(0) == 0
-                    && blocked.get(&puzzle.target).copied().unwrap_or(0) == 0
-            })
+            .position(|puzzle| free_of_band(puzzle) && free_of_day(puzzle))
+            .or_else(|| queues[from].iter().position(free_of_band))
             .unwrap_or(0);
         let mut puzzle = queues[from].remove(next).expect("index came from this deque");
+        endpoints_on
+            .entry(day)
+            .or_default()
+            .extend([puzzle.source.clone(), puzzle.target.clone()]);
 
         *blocked.entry(puzzle.source.clone()).or_insert(0) += 1;
         *blocked.entry(puzzle.target.clone()).or_insert(0) += 1;

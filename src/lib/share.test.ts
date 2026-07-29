@@ -46,6 +46,7 @@ describe('markGuesses', () => {
 describe('shareText', () => {
   const result: Result = {
     day: 3,
+    band: 'short',
     date: '2026-07-29',
     guesses: 5,
     par: 4,
@@ -57,7 +58,8 @@ describe('shareText', () => {
   it('says which puzzle, how it went, what it looked like, and where to play it', () => {
     expect(shareText(result)).toBe(
       [
-        'ReCurse Words · Day 3 · 2026-07-29',
+        // The length is named: a day offers three, so a score without it cannot be placed.
+        'ReCurse Words · Day 3 · short · 2026-07-29',
         '5 guesses · par 4 · 2 hints',
         '🟨🟨🟩🟥🟨',
         'https://example.test/recurse/2ed94464',

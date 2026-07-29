@@ -15,8 +15,8 @@ import {
   resolvePuzzle,
 } from './daily';
 import { pathFor } from './route';
-import { shardForDay, shardOf } from './data';
-import { shippedData } from '../test/shipped';
+import { bandOf, shardForDay, shardOf } from './data';
+import { DEFAULT_BAND, shippedData } from '../test/shipped';
 import type { Puzzle } from './types';
 
 /**
@@ -25,11 +25,22 @@ import type { Puzzle } from './types';
  * Days are not the array positions and the ids are not in order, so nothing here can
  * pass by treating either as the other — which is the whole point of the puzzles
  * carrying their own day now that only a slice of the bank is ever in memory.
+ *
+ * Two bands' worth, on the same days, because that is the shape a real day has: three
+ * lengths, one board each. A lookup that ignores the band finds the wrong one.
  */
-const bank: Puzzle[] = ['a', 'b', 'c'].map((source, i) => ({
-  id: ['c0ffee11', 'ba5eba11', 'decafbad'][i]!,
-  day: [0, 1, 2][i]!,
-  source,
+const bank: Puzzle[] = [
+  ['a', 0, 0, 'c0ffee11'],
+  ['b', 1, 0, 'ba5eba11'],
+  ['c', 2, 0, 'decafbad'],
+  ['aa', 0, 1, 'facef00d'],
+  ['bb', 1, 1, 'cafed00d'],
+  ['cc', 2, 1, 'badc0ffe'],
+].map(([source, day, band, id]) => ({
+  id: id as string,
+  day: day as number,
+  band: band as number,
+  source: source as string,
   target: 'z',
   par: 3,
   secret: 0,
@@ -128,17 +139,29 @@ describe('dayIndex', () => {
 
 describe('puzzleForDay', () => {
   it('finds the puzzle whose own day matches, wrapping the calendar', () => {
-    expect(puzzleForDay(bank, 4, DAYS)).toMatchObject({ day: 1 });
-    expect(puzzleForDay(bank, 4, DAYS)?.puzzle.id).toBe('ba5eba11');
+    expect(puzzleForDay(bank, 0, 4, DAYS)).toMatchObject({ day: 1 });
+    expect(puzzleForDay(bank, 0, 4, DAYS)?.puzzle.id).toBe('ba5eba11');
   });
 
   it('wraps negatives forward rather than off the end', () => {
-    expect(puzzleForDay(bank, -1, DAYS)).toMatchObject({ day: 2 });
+    expect(puzzleForDay(bank, 0, -1, DAYS)).toMatchObject({ day: 2 });
+  });
+
+  it('finds the length asked for, not whichever board that day has first', () => {
+    // A day offers one board of each length, so the day alone does not name a puzzle.
+    expect(puzzleForDay(bank, 0, 1, DAYS)?.puzzle.id).toBe('ba5eba11');
+    expect(puzzleForDay(bank, 1, 1, DAYS)?.puzzle.id).toBe('cafed00d');
   });
 
   it('knows nothing of a day this shard does not hold', () => {
     // Which is what fetching the wrong shard looks like, rather than a bad day number.
-    expect(puzzleForDay([bank[0]!], 1, DAYS)).toBeNull();
+    expect(puzzleForDay([bank[0]!], 0, 1, DAYS)).toBeNull();
+  });
+
+  it('knows nothing of a length this shard does not hold', () => {
+    // The same thing from the other side: the day's three boards are in three shards, so a
+    // shard that holds day 1 need not hold day 1 of the band being asked about.
+    expect(puzzleForDay(bank, 2, 1, DAYS)).toBeNull();
   });
 });
 
@@ -156,32 +179,42 @@ describe('puzzleById', () => {
 describe('resolvePuzzle', () => {
   // Whatever the epoch is, an unqualified visit gets that date's puzzle.
   const someday = local('2027-03-05');
+  const short = 0;
 
   it('serves today at the root', () => {
-    expect(resolvePuzzle(bank, '/', DAYS, someday)).toEqual(
-      puzzleForDay(bank, dayNumber(someday), DAYS),
+    expect(resolvePuzzle(bank, '/', short, DAYS, someday)).toEqual(
+      puzzleForDay(bank, short, dayNumber(someday), DAYS),
     );
   });
 
   it('starts the game on day 0 of its epoch', () => {
-    expect(resolvePuzzle(bank, '/', DAYS, local(EPOCH))).toMatchObject({ day: 0 });
+    expect(resolvePuzzle(bank, '/', short, DAYS, local(EPOCH))).toMatchObject({ day: 0 });
   });
 
   it('serves the puzzle a path names, whether or not it is today', () => {
-    expect(resolvePuzzle(bank, '/ba5eba11', DAYS, someday)).toMatchObject({ day: 1 });
+    expect(resolvePuzzle(bank, '/ba5eba11', short, DAYS, someday)).toMatchObject({ day: 1 });
   });
 
-  it('falls back to today for an id the shard no longer has', () => {
-    // A link from before a rebuild. Today's board beats an error page.
-    expect(resolvePuzzle(bank, '/deadbeef', DAYS, someday)).toEqual(
-      puzzleForDay(bank, dayNumber(someday), DAYS),
-    );
+  it('serves the length the path names, not the one asked for as a fallback', () => {
+    // An id is the whole address, so it decides the length too — a link to a long board opens
+    // a long board however the player last left the switch.
+    expect(resolvePuzzle(bank, '/cafed00d', short, DAYS, someday)?.puzzle.band).toBe(1);
+  });
+
+  it('falls back to today in the length asked for', () => {
+    // A link from before a rebuild. Today's board beats an error page, and which of the day's
+    // three it is comes from the switch rather than from the dead id.
+    for (const band of [0, 1]) {
+      expect(resolvePuzzle(bank, '/deadbeef', band, DAYS, someday)).toEqual(
+        puzzleForDay(bank, band, dayNumber(someday), DAYS),
+      );
+    }
   });
 
   it('falls back to today for a path that names no puzzle at all', () => {
     for (const path of ['/about', '/zzz', '/12', '']) {
-      expect(resolvePuzzle(bank, path, DAYS, someday)).toEqual(
-        puzzleForDay(bank, dayNumber(someday), DAYS),
+      expect(resolvePuzzle(bank, path, short, DAYS, someday)).toEqual(
+        puzzleForDay(bank, short, dayNumber(someday), DAYS),
       );
     }
   });
@@ -196,11 +229,11 @@ describe('resolvePuzzle', () => {
 describe('the shipped bank', () => {
   const { puzzles, manifest } = shippedData();
   /**
-   * Which shard this is: the one holding today's board, because that is the one the app has
-   * in memory. Not a constant — `shippedData` used to take it for shard 00 and everything
-   * about today was wrong on any day but the first.
+   * Which shard this is: the one holding today's *short* board, because that is the one the
+   * app has in memory on a fresh visit. Not a constant — `shippedData` used to take it for
+   * shard 00 and everything about today was wrong on any day but the first.
    */
-  const index = shardForDay(dayNumber(), manifest);
+  const index = shardForDay(DEFAULT_BAND, dayNumber(), manifest);
 
   it('gives every puzzle an id, all of one form', () => {
     expect(puzzles.length).toBeGreaterThan(100);
@@ -222,12 +255,13 @@ describe('the shipped bank', () => {
     }
   });
 
-  it('puts every day in the shard its number names', () => {
-    // What lets today's board be found without an index, checked on real data: day N is in
-    // shard N % shards, so every day in this file is congruent to its own number.
+  it('puts every board in the shard its band and day name', () => {
+    // What lets a board be found without an index, checked on real data: band B on day N is
+    // in shard `(N * 3 + B) % shards`, so every dated board in this file agrees with the
+    // arithmetic the client uses to have asked for it.
     for (const puzzle of puzzles) {
-      if (puzzle.day < manifest.days) {
-        expect(puzzle.day % manifest.shards).toBe(index);
+      if (puzzle.day < bandOf(puzzle.band, manifest).days) {
+        expect(shardForDay(puzzle.band, puzzle.day, manifest)).toBe(index);
       }
     }
   });
@@ -237,9 +271,11 @@ describe('the shipped bank', () => {
   });
 
   it('resolves every id back to the puzzle it names', () => {
-    // The round trip a shared link makes: id -> path -> the board on screen.
+    // The round trip a shared link makes: id -> path -> the board on screen. The band asked
+    // for is the fallback's business only, so an id resolves the same whatever it is.
     for (const puzzle of puzzles) {
-      const found = resolvePuzzle(puzzles, pathFor(puzzle.id, '', '/'), manifest.days);
+      const path = pathFor(puzzle.id, '', '/');
+      const found = resolvePuzzle(puzzles, path, DEFAULT_BAND, bandOf(DEFAULT_BAND, manifest).days);
       expect(found?.puzzle).toBe(puzzle);
     }
   });

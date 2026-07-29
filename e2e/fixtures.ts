@@ -8,8 +8,8 @@
 
 import type { Locator, Page } from '@playwright/test';
 import { shortestPath, shortestPathNodes } from '../src/lib/graph';
-import { shippedData, shippedShard } from '../src/test/shipped';
-import { shardForDay } from '../src/lib/data';
+import { DEFAULT_BAND, shippedData, shippedShard } from '../src/test/shipped';
+import { bandOf, shardForDay } from '../src/lib/data';
 import { dayIndex, dayNumber, puzzleForDay, type DailyPuzzle } from '../src/lib/daily';
 import { pathFor } from '../src/lib/route';
 import type { Puzzle } from '../src/lib/types';
@@ -17,25 +17,34 @@ import type { Puzzle } from '../src/lib/types';
 export const gameData = shippedData;
 
 /**
- * The board a day falls on, from the shard that day names.
+ * The board a day falls on in one of the three lengths, from the shard that band and day name.
  *
- * Consecutive days are deliberately in different shards — day N is in shard `N % 256`, which
- * is what lets any board be reached with one fetch and no index — so "the next puzzle" is not
- * the next entry of anything in memory. A test that steps the calendar has to read the shard
- * the app will read, which is what this is for: taking one shard's array order for calendar
- * order is how the stepping test came to expect an id from the wrong shard entirely.
+ * Consecutive days are deliberately in different shards — band `B` on day `N` is in shard
+ * `(N * 3 + B) % 256`, which is what lets any board be reached with one fetch and no index —
+ * so "the next puzzle" is not the next entry of anything in memory. A test that steps the
+ * calendar has to read the shard the app will read, which is what this is for: taking one
+ * shard's array order for calendar order is how the stepping test came to expect an id from
+ * the wrong shard entirely.
+ *
+ * Each band wraps into its own calendar, so any day names a board in every band.
  */
-export function boardOnDay(day: number): DailyPuzzle {
+export function boardOnDay(day: number, band: number = DEFAULT_BAND): DailyPuzzle {
   const { manifest } = gameData();
-  const wanted = dayIndex(day, manifest.days);
-  const found = puzzleForDay(shippedShard(shardForDay(wanted, manifest)), wanted, manifest.days);
-  if (!found) throw new Error(`no puzzle on day ${wanted}: the shard arithmetic disagrees`);
+  const days = bandOf(band, manifest).days;
+  const wanted = dayIndex(day, days);
+  const found = puzzleForDay(
+    shippedShard(shardForDay(band, wanted, manifest)),
+    band,
+    wanted,
+    days,
+  );
+  if (!found) throw new Error(`no puzzle on day ${wanted} in band ${band}: the shards disagree`);
   return found;
 }
 
-/** Today's board, the one a bare visit opens. */
-export function today(): DailyPuzzle {
-  return boardOnDay(dayNumber());
+/** Today's board, in the length a bare visit opens: short. */
+export function today(band: number = DEFAULT_BAND): DailyPuzzle {
+  return boardOnDay(dayNumber(), band);
 }
 
 /**

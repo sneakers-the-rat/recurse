@@ -178,6 +178,8 @@ pub fn load(path: &Path) -> Option<Bank> {
                     },
                     // Filled by the `b` line that follows.
                     board: String::new(),
+                    // Derived from par by `schedule`, along with the day.
+                    band: 0,
                 });
             }
             // The board of the puzzle just read. Its own line because it holds spaces and

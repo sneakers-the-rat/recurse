@@ -70,12 +70,24 @@ export const Result = memo(function Result({
   state,
   marks,
   text,
+  others = [],
+  onBand,
 }: {
   state: GameState;
   /** One per guess, in order. See share.ts. */
   marks: readonly Mark[];
   /** The finished share text, exactly as it would be pasted. */
   text: string;
+  /**
+   * The day's *other* lengths that are still going: which band, what it is called, and how
+   * far in the player already is.
+   *
+   * Only the unfinished ones — a length already solved is not an invitation, and listing it
+   * would make the row a menu rather than a nudge. Empty when there is nothing left to
+   * offer, and then nothing is drawn.
+   */
+  others?: readonly { band: number; name: string; guesses: number }[];
+  onBand?: (band: number) => void;
 }) {
   const { guesses, misses, puzzle } = state;
   const hints = hintCount(state);
@@ -162,6 +174,33 @@ export const Result = memo(function Result({
             </button>
           </div>
         </div>
+
+        {/*
+          What is left of the day. Each day offers three lengths and finishing one is exactly
+          when the other two are worth mentioning — before that it would be a distraction from
+          the board, and afterwards it is the obvious next thing.
+
+          Only the ones still going, and a started one says how far in it is, because "carry
+          on" and "start" are different invitations.
+        */}
+        {others.length > 0 && (
+          <p className="label text-ash-lit mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span>Also today</span>
+            {others.map((other) => (
+              <button
+                key={other.band}
+                type="button"
+                onClick={() => onBand?.(other.band)}
+                className="label text-bone-dim hover:text-gilt underline decoration-dotted underline-offset-4 transition-colors"
+              >
+                {other.name}
+                {other.guesses > 0 && (
+                  <span className="text-ash-lit"> · {other.guesses} in</span>
+                )}
+              </button>
+            ))}
+          </p>
+        )}
 
         {/* The text itself, selectable. Also what the button copies, character for
             character, so there is only ever one answer to "what does it say". */}

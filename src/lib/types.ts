@@ -33,10 +33,20 @@ export interface Puzzle {
    * Which day of the calendar this is: what the header calls the puzzle and what the
    * share text quotes. Metadata, never an address — no URL carries it.
    *
-   * Assigned by the builder so that day `N` lives in shard `N % 256`, which is how the
-   * client finds today's board with one fetch and no index. See data.ts.
+   * Assigned by the builder so that band `B` on day `N` lives in shard
+   * `(N * 3 + B) % 256`, which is how the client finds a board with one fetch and no
+   * index. See `shardForDay` in data.ts.
    */
   day: number;
+  /**
+   * Which of the three lengths this is: 0 short, 1 medium, 2 long.
+   *
+   * Every day offers one of each, and each band has its own calendar — so a day number names
+   * three boards, and the bands run out at different points. Derived from par by the builder
+   * (`band_of`), shipped rather than re-derived here, so where the lengths divide stays one
+   * definition in `.env`.
+   */
+  band: number;
   source: string;
   target: string;
   /**

@@ -23,6 +23,16 @@ interface Props {
    * which words it runs through is the puzzle. Zero on most boards, and then not shown.
    */
   shortcuts?: number;
+  /**
+   * The three lengths a day offers, and which one is on screen.
+   *
+   * From the manifest, so what each holds is the builder's `RECURSE_BAND_CUTS` rather than
+   * anything decided here. The switch is the only way between them on a phone: the band is
+   * deliberately not in the URL — a board is addressed by its id and nothing else.
+   */
+  bands: readonly { name: string; minPar: number; maxPar: number }[];
+  band: number;
+  onBand: (band: number) => void;
   day: number;
   guesses: number;
   /** Hints asked for. Shown beside the guesses: it is the other half of a score. */
@@ -49,6 +59,9 @@ export const Header = memo(function Header({
   target,
   par,
   shortcuts = 0,
+  bands,
+  band,
+  onBand,
   day,
   guesses,
   hints,
@@ -80,6 +93,41 @@ export const Header = memo(function Header({
           How to play
         </button>
       </div>
+
+      {/*
+        The three lengths, which is the other thing a day offers besides the board itself.
+        Between the masthead and the statement because that is the order of the questions:
+        which game, which length, which words.
+
+        Each says what it holds — "short (par 3-4)" — because a name alone is a promise the
+        player has no way to check, and the pars are what the length actually is.
+      */}
+      <nav
+        className={`border-t ${rule} flex justify-center`}
+        aria-label="Choose a length"
+      >
+        {bands.map((it, index) => {
+          const here = index === band;
+          return (
+            <button
+              key={it.name}
+              type="button"
+              onClick={() => onBand(index)}
+              aria-current={here ? 'page' : undefined}
+              className={`label flex-1 border-b-2 px-3 py-2 text-center transition-colors sm:flex-none sm:px-8 ${
+                here
+                  ? 'border-gilt text-gilt'
+                  : 'text-ash-lit hover:text-bone-dim border-transparent'
+              }`}
+            >
+              {it.name}
+              <span className="mt-0.5 block text-[0.5625rem] tracking-[0.18em] normal-case opacity-70">
+                par {it.minPar}–{it.maxPar}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
 
       {/* The statement, set like a Deco title page: rule, line, rule. */}
       {/*

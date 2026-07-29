@@ -10,6 +10,9 @@ inside it.
 Each move deletes or inserts one unbroken run of letters that is itself a word. The result
 must also be a word.
 
+Every day offers three boards — **short**, **medium** and **long** — chosen by how many moves
+the answer takes. Each is addressed by its own URL and keeps its own progress.
+
 ## Requirements
 
 - Node 22 or later
@@ -48,8 +51,11 @@ Every parameter is in `.env`. Any of them can be overridden for one run:
 
     RECURSE_MAX_SWAPS=1 npm run data
 
-`RECURSE_AUDIT=1` additionally reports how many candidates each selection rule refused, and
-how many it was the only objection to.
+Every build reports how many candidates each selection rule refused — in total, and as a grid
+by par — and how the three lengths came out. `RECURSE_AUDIT=1` changes how those refusals are
+attributed: by default each candidate stops at the first rule that turned it down, and with the
+audit every rule is judged against every candidate. The audit is exact and slow: hours on the
+current bank, against about six minutes for a plain build.
 
 The first build takes several minutes. The result of the search is cached in `tools/cache/`,
 keyed on everything that determines it, so a run that changes only the calendar takes

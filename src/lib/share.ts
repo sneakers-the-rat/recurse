@@ -4,7 +4,7 @@
  * Four lines, and every one of them is answering a question somebody asked about a
  * score they were sent:
  *
- *     ReCurse Words · Day 3 · 2026-07-29     which puzzle, and when
+ *     ReCurse Words · Day 3 · short · 2026-07-29   which puzzle, and when
  *     5 guesses · par 4 · 2 hints            how it went
  *     🟨🟨🟩🟥🟨                              the shape of the route taken
  *     https://…/recurse/2ed94464             where to go and try it
@@ -76,6 +76,13 @@ export function emojiTrail(marks: readonly Mark[]): string {
 export interface Result {
   /** Days since the epoch: what the game calls this puzzle. */
   day: number;
+  /**
+   * Which of the day's three lengths this was — "short", "medium", "long".
+   *
+   * Named, because a day offers three and a score without it cannot be placed: two people
+   * posting "Day 42 · 6 guesses" may not have played the same board at all.
+   */
+  band: string;
   /** That day's date, `YYYY-MM-DD`. See `dateForDay`. */
   date: string;
   guesses: number;
@@ -102,7 +109,7 @@ function scoreLine({ guesses, par, hints }: Result): string {
 /** The whole thing, ready for a clipboard. */
 export function shareText(result: Result): string {
   const lines = [
-    `ReCurse Words · Day ${result.day} · ${result.date}`,
+    `ReCurse Words · Day ${result.day} · ${result.band} · ${result.date}`,
     scoreLine(result),
     emojiTrail(result.marks),
     result.url,
