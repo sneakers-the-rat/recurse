@@ -37,8 +37,56 @@ use std::time::Instant;
 use config::{Audit, Config};
 use graph::{FxMap, FxSet};
 
+const USAGE: &str = "\
+graphgen — build the recurse graph and puzzle bank
+
+  graphgen                       build everything into public/data
+  graphgen pair <from> <to>      judge one pair and print what a build would decide
+  graphgen --help
+
+Every number comes from .env; any RECURSE_* value can be overridden for one run:
+
+  RECURSE_ALT_WAYS=6 graphgen pair understanding keynoting
+";
+
+/// What this run is for.
+///
+/// Hand-parsed, because the crate is held to dependencies that have to agree with something
+/// outside it — a digest and a stemmer — and argument parsing is not one of those.
+enum Command {
+    /// Build everything. What `npm run data` does.
+    Build,
+    /// Judge one pair and print it, for looking at a puzzle without building a bank.
+    Pair(String, String),
+}
+
+fn command(args: &[String]) -> Result<Command, String> {
+    match args {
+        [] => Ok(Command::Build),
+        [verb] if verb == "-h" || verb == "--help" => Err(USAGE.to_string()),
+        [verb, from, to] if verb == "pair" => Ok(Command::Pair(from.clone(), to.clone())),
+        [verb, ..] if verb == "pair" => {
+            Err(format!("`pair` takes exactly two words.\n\n{USAGE}"))
+        }
+        [verb, ..] => Err(format!("unknown command {verb:?}.\n\n{USAGE}")),
+    }
+}
+
 fn main() {
-    if let Err(message) = run() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let command = match command(&args) {
+        Ok(command) => command,
+        // Usage is not an error to be dressed in red; it is the answer to the question asked.
+        Err(message) if args.iter().any(|a| a == "-h" || a == "--help") => {
+            eprint!("{message}");
+            return;
+        }
+        Err(message) => {
+            eprintln!("\x1b[31merror\x1b[0m: {message}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(message) = run(command) {
         eprintln!("\x1b[31merror\x1b[0m: {message}");
         std::process::exit(1);
     }
@@ -57,7 +105,7 @@ fn find_root() -> Result<PathBuf, String> {
     }
 }
 
-fn run() -> Result<(), String> {
+fn run(command: Command) -> Result<(), String> {
     let started = Instant::now();
     let root = find_root()?;
     let cache = root.join("tools").join("cache");
@@ -138,6 +186,11 @@ fn run() -> Result<(), String> {
     let legal = tier("legal ", &legal_words, &legal_subs);
     let common = tier("common", &common_words, &common_subs);
 
+    // One pair, and stop. See `inspect_pair`.
+    if let Command::Pair(from, to) = &command {
+        return inspect_pair(&common, &common_subs, &legal, &config, &rank, from, to);
+    }
+
     // --------------------------------------------------------------- puzzles
     //
     // The search is the expensive half and its result is cached; the calendar and the
@@ -208,6 +261,125 @@ fn run() -> Result<(), String> {
     write_survey(&root.join("tools").join("survey.txt"), &config, &selection)?;
     progress::published_done();
     eprintln!("done in {:.1}s", started.elapsed().as_secs_f64());
+    Ok(())
+}
+
+/// Judge one pair and print what the build would decide about it, then stop.
+///
+/// The taste loop for what a puzzle *is*. A full build searches twenty-eight million candidate
+/// pairs to answer a question about one of them, so every change to the rules or to what a
+/// board declares cost eleven minutes to see. This costs about three seconds.
+///
+/// It goes through `judge_candidates`, which is the real thing — every rule, every knob, the
+/// same board, the same statistics. Reimplementing the setup here instead would be a second
+/// path that could quietly disagree with the build about what the puzzle is, which is the
+/// error this whole file has been chasing all along.
+///
+///     npm run data -- pair understanding keynoting
+fn inspect_pair(
+    common: &graph::Graph,
+    common_subs: &FxSet<&str>,
+    legal: &graph::Graph,
+    config: &Config,
+    rank: &FxMap<String, usize>,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    let (Some(src), Some(tgt)) = (common.id(from), common.id(to)) else {
+        return Err(format!(
+            "{from} and {to} both have to be ordinary words carrying a move — one of them is not"
+        ));
+    };
+
+    // The same distance tables selection builds, for two endpoints instead of twelve thousand.
+    let far = (config.max_par + config.slack) as u32;
+    let unreachable_u8 = u8::MAX;
+    let mut bfs = graph::Bfs::new(common.words.len());
+    let mut tables: Vec<Vec<u8>> = Vec::with_capacity(2);
+    for id in [src, tgt] {
+        let mut row = vec![unreachable_u8; common.words.len()];
+        bfs.run(common, id, far);
+        for &word in &bfs.touched {
+            row[word as usize] = bfs.get(word).min(u8::MAX as u32 - 1) as u8;
+        }
+        tables.push(row);
+    }
+    let mut slot_of: FxMap<u32, usize> = FxMap::default();
+    slot_of.insert(src, 0);
+    slot_of.insert(tgt, 1);
+
+    let par = tables[0][tgt as usize];
+    if par == unreachable_u8 {
+        return Err(format!(
+            "{from} cannot reach {to} through ordinary words within {far} moves"
+        ));
+    }
+    let par = par as u32;
+
+    // Every rule judged, so the report says everything the pair breaks rather than whichever
+    // rule happens to run first.
+    let progress = progress::Progress::new("pair", 1);
+    let (puzzles, refused, _) = select::judge_candidates(
+        &[(src, tgt, par)],
+        common,
+        common_subs,
+        legal,
+        config,
+        rank,
+        &tables,
+        &slot_of,
+        unreachable_u8,
+        true,
+        &progress,
+    );
+
+    eprintln!("{from} -> {to}  par {par}");
+    let broken: Vec<&str> = select::Rule::ALL
+        .iter()
+        .enumerate()
+        .filter(|&(slot, _)| refused[slot] > 0)
+        .map(|(_, rule)| rule.describe().0)
+        .collect();
+    if !broken.is_empty() {
+        eprintln!("  refused: {}", broken.join("; "));
+    }
+    let Some(puzzle) = puzzles.first() else {
+        return Ok(());
+    };
+
+    let words: Vec<&str> = puzzle.board.split_whitespace().collect();
+    let on_board: FxSet<u32> = words.iter().filter_map(|w| common.id(w)).collect();
+    let edges: usize = on_board
+        .iter()
+        .map(|&w| common.neighbors(w).iter().filter(|n| on_board.contains(n)).count())
+        .sum::<usize>()
+        / 2;
+    // Cross-links the budget left behind: the number to watch when tuning what a board holds.
+    let mut touching: FxMap<u32, usize> = FxMap::default();
+    for &w in &on_board {
+        for &near in common.neighbors(w) {
+            if !on_board.contains(&near) {
+                *touching.entry(near).or_insert(0) += 1;
+            }
+        }
+    }
+    let untaken = touching.values().filter(|&&n| n >= 2).count();
+
+    eprintln!(
+        "  id {}  secret {}  {} words, {} on a shortest route, {} edges ({:.2} per word), \
+         {untaken} cross-links untaken",
+        puzzle.id,
+        puzzle.secret,
+        words.len(),
+        // `alt_nodes` counts the words off a shortest route, so the rest are gold.
+        words.len().saturating_sub(puzzle.alt_nodes),
+        edges,
+        edges as f64 / words.len().max(1) as f64,
+    );
+    for route in &puzzle.routes {
+        eprintln!("    {route}");
+    }
+    eprintln!("  {}", words.join(" "));
     Ok(())
 }
 

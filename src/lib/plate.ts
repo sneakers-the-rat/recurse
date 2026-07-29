@@ -137,42 +137,6 @@ function pruneDeadEnds(graph: Graph, nodes: Set<string>, keep: ReadonlySet<strin
 }
 
 /**
- * A second way out of the source, with a route onward so it is not a stub.
- *
- * Puzzle selection guarantees the first move is a choice, but a guarantee about the
- * neighbourhood is not a guarantee about the drawing: the budget trims the
- * widest detours first, and the second branch is exactly the widest detour there
- * is. So the board keeps one deliberately. Returned as a whole path down to the
- * target, because protecting the branch alone would leave it dangling the moment
- * the rest of its route was trimmed.
- */
-function secondWayOut(
-  graph: Graph,
-  source: string,
-  distToTarget: ReadonlyMap<string, number>,
-): string[] {
-  const options = graph
-    .commonNeighbors(source)
-    .filter((word) => distToTarget.has(word))
-    .sort((a, b) => distToTarget.get(a)! - distToTarget.get(b)! || a.localeCompare(b));
-
-  // The first is the shortest route, which is drawn anyway. Every one after it is a
-  // candidate for the branch, and the first that leads *somewhere* wins — asking only
-  // about `options[1]` meant that when its route doubled back, the board got a spur
-  // instead of a second way and nothing else was tried.
-  for (const branch of options.slice(1)) {
-    const path = descend(
-      branch,
-      (word) => graph.commonNeighbors(word),
-      distToTarget,
-      new Set([source]),
-    );
-    if (path) return path;
-  }
-  return [];
-}
-
-/**
  * A walk from `word` to whatever `distance` measures zero at, never revisiting.
  *
  * Each step goes to a neighbour one move closer, which is what makes the result a
@@ -230,15 +194,14 @@ export function buildPlate(
   const distToTarget = new Map(distancesFrom(graph, target));
   const distFromSource = new Map(distancesFrom(graph, source));
 
-  // Never prune away the words the puzzle is about or the ones already found:
-  // a player who walked into a dead end must still see where they are standing.
-  // And never prune away the second way out of the source — see secondWayOut.
-  const protectedNodes = new Set<string>([
-    source,
-    target,
-    ...named,
-    ...secondWayOut(graph, source, distToTarget),
-  ]);
+  // The two words the puzzle is about, and everything the player has found: a player who
+  // walked into a dead end must still see where they are standing.
+  //
+  // The second way out of the source is *not* here. It used to be, worked out client-side and
+  // forced onto the board — but the builder declares the opening branch now, at the same reach
+  // the rule promises it at, so computing one here could only add words the puzzle never
+  // declared. Which is the whole failure mode this file was built to stop having.
+  const protectedNodes = new Set<string>([source, target, ...named]);
 
   // Anchors: the source plus the named words that have been expanded, so naming
   // a word outside the drawn region pulls in the routes from there onward.

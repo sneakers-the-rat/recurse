@@ -398,7 +398,7 @@ fn note(broken: &mut Vec<Rule>, rule: Rule) {
 ///    connected first, capped at `around_percent` of it. Two and not one, because one drawn
 ///    neighbour is a spur that says only "there is more graph out here", while two shows the
 ///    ways through are one neighbourhood rather than parallel lines.
-fn board_words(
+pub fn board_words(
     common: &Graph,
     src: u32,
     tgt: u32,
@@ -504,9 +504,12 @@ fn board_words(
     let reach = config.link_reach as u32;
     let mut root: FxMap<u32, u32> = FxMap::default();
     let mut parent: FxMap<u32, u32> = FxMap::default();
+    // How many steps off the board each word is, so a rung's cost is known before it is taken.
+    let mut depth: FxMap<u32, u32> = FxMap::default();
     let mut frontier: Vec<u32> = live.iter().copied().collect();
     for &word in &frontier {
         root.insert(word, word);
+        depth.insert(word, 0);
     }
     // Words joining two chains, with the pair they join, best (shortest) first.
     let mut rungs: Vec<(u32, u32)> = Vec::new();
@@ -522,6 +525,7 @@ fn board_words(
                     None => {
                         root.insert(near, from);
                         parent.insert(near, word);
+                        depth.insert(near, depth[&word] + 1);
                         next.push(near);
                     }
                     // Reached from a second chain: this word is a rung between them.
@@ -538,15 +542,25 @@ fn board_words(
 
     // Take the rungs, cheapest first, until the board has had its share. Each brings its own
     // way back to both chains, because half a rung is a spur.
-    rungs.sort_unstable_by_key(|&(word, touched)| (word, touched));
+    // Cheapest first, and that ordering is the difference between the step working and not.
+    //
+    // A rung costs its whole chain back to the board at both ends, so a reach-1 rung — one word
+    // touching two ways through — costs one word, while a reach-3 one costs up to seven. Sorted
+    // by word id instead, as this first was, a couple of deep chains that happened to sort early
+    // ate the entire budget and the cheap rungs were never reached: 293 boards in 300 still had
+    // an untaken single-word rung, which is exactly the cross-link that makes two chains read as
+    // one neighbourhood. The id only breaks ties, so a rebuild draws the same board.
+    rungs.sort_unstable_by_key(|&(word, touched)| (depth[&word] + depth[&touched], word));
     let room = (live.len() * config.around_percent) / 100;
     let mut added = 0usize;
     for (word, touched) in rungs {
         if added >= room {
             break;
         }
-        let mut chain: Vec<u32> = vec![word];
-        // Back to the chain this word grew from, and to the one that found it.
+        // The rung, the word that found it, and the way back from each to the chain it grew
+        // from. Both ends matter: leaving out the discoverer leaves the rung attached to a word
+        // that is not on the board, which is a dead end wearing a rung's clothes.
+        let mut chain: Vec<u32> = vec![word, touched];
         for &start in &[word, touched] {
             let mut at = start;
             while let Some(&up) = parent.get(&at) {
@@ -850,7 +864,12 @@ pub fn schedule(mut selection: Selection, config: &Config) -> Selection {
 /// Every argument but `part` is shared read-only across workers. The scratch buffers
 /// and the tallies are local, which is the whole of what makes this parallel.
 #[allow(clippy::too_many_arguments)]
-fn judge_candidates(
+/// Judge a run of candidates: the whole of what a build decides about a puzzle.
+///
+/// Public because inspecting one pair has to go through exactly this — every rule, every knob,
+/// the same board. A separate path for looking at a single puzzle is a path that can disagree
+/// with the build about what the puzzle is.
+pub fn judge_candidates(
     part: &[(u32, u32, u32)],
     common: &Graph,
     common_subs: &FxSet<&str>,
