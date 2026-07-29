@@ -24,6 +24,18 @@ describe('markGuesses', () => {
     expect(markGuesses(['ball'], route, board)).toEqual(['route']);
   });
 
+  it('stars a word on a shortcut, over anything else it also is', () => {
+    // A shortcut is the strongest thing a word can be: a way through that beats par, which
+    // is the best thing that can happen in a round. `cannonball` is on the answer too.
+    const shortcut = new Set(['cannonball', 'lifetime']);
+    expect(markGuesses(['cannonball', 'lifetime', 'baseball'], route, board, shortcut)).toEqual([
+      'shortcut',
+      'shortcut',
+      'alternate',
+    ]);
+    expect(emojiTrail(['shortcut', 'route'])).toBe('⭐🟨');
+  });
+
   it('keeps the order the guesses were made in', () => {
     const marks = markGuesses(['lifetime', 'ball'], route, board);
     expect(marks).toEqual(['stray', 'route']);

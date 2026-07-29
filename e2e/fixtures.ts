@@ -8,11 +8,35 @@
 
 import type { Locator, Page } from '@playwright/test';
 import { shortestPath, shortestPathNodes } from '../src/lib/graph';
-import { shippedData } from '../src/test/shipped';
+import { shippedData, shippedShard } from '../src/test/shipped';
+import { shardForDay } from '../src/lib/data';
+import { dayIndex, dayNumber, puzzleForDay, type DailyPuzzle } from '../src/lib/daily';
 import { pathFor } from '../src/lib/route';
 import type { Puzzle } from '../src/lib/types';
 
 export const gameData = shippedData;
+
+/**
+ * The board a day falls on, from the shard that day names.
+ *
+ * Consecutive days are deliberately in different shards — day N is in shard `N % 256`, which
+ * is what lets any board be reached with one fetch and no index — so "the next puzzle" is not
+ * the next entry of anything in memory. A test that steps the calendar has to read the shard
+ * the app will read, which is what this is for: taking one shard's array order for calendar
+ * order is how the stepping test came to expect an id from the wrong shard entirely.
+ */
+export function boardOnDay(day: number): DailyPuzzle {
+  const { manifest } = gameData();
+  const wanted = dayIndex(day, manifest.days);
+  const found = puzzleForDay(shippedShard(shardForDay(wanted, manifest)), wanted, manifest.days);
+  if (!found) throw new Error(`no puzzle on day ${wanted}: the shard arithmetic disagrees`);
+  return found;
+}
+
+/** Today's board, the one a bare visit opens. */
+export function today(): DailyPuzzle {
+  return boardOnDay(dayNumber());
+}
 
 /**
  * The finished round's verdict and score.

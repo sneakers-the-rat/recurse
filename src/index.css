@@ -152,6 +152,20 @@ svg :focus:not(:focus-visible) {
   animation: refuse 200ms ease-in-out;
 }
 
+/* The mark a hint was refused on: it says no, then goes back to what it was. */
+@keyframes crossed {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.crossed {
+  animation: crossed 700ms 200ms ease-in forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .surface,
   .refuse {

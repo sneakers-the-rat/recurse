@@ -1,0 +1,162 @@
+name: CI
+
+# Everything the repo can be asked to prove about itself, on every push.
+#
+# Four jobs, because they need different things and fail for different reasons:
+#
+#   data      the graph and the bank (data.yml) — the unit tests and the e2e suite both
+#             play the real shipped data, so this is a dependency of both
+#   rust      cargo test, which needs no data and nothing from npm
+#   checks    tsc and vitest: pure logic over the real bank, seconds of work
+#   e2e       playwright, one job per viewport, which is most of the wall clock
+#
+# `rust` and `checks` are the fast ones and neither waits on the other. The e2e projects are a
+# matrix rather than one `npm run e2e` so that phone and desktop fail separately and run at
+# once: a CI runner has two cores, and the suite is dominated by page loads of 4.9MB of word
+# data whichever way it is sliced.
+
+on:
+  push:
+  # For pull requests from forks, which never get a `push` run here. A branch of this repo with
+  # a PR open therefore gets both, which is the ordinary cost of covering both cases.
+  pull_request:
+  workflow_dispatch:
+
+# Push a fix over a run that is still going and the older one is abandoned. Not true of the
+# deploy — see github-pages.yml — but a superseded test run is only telling you about code
+# that no longer exists.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The graph and the bank, cached, shared by `checks` and `e2e`. A branch that has not touched
+  # the builder reads the cache main wrote and rebuilds nothing.
+  data:
+    name: Data
+    uses: ./.github/workflows/data.yml
+
+  rust:
+    name: Builder tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Note the toolchain
+        id: rust
+        run: echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+
+      # Its own key, not the deploy's: `cargo test` builds the debug profile, and the two
+      # would otherwise take turns overwriting one cache with the other's target directory.
+      - name: Cache the crate's build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/graphgen/target
+          key: >-
+            graphgen-test-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{
+            hashFiles('tools/graphgen/Cargo.lock', 'tools/graphgen/Cargo.toml',
+            'tools/graphgen/src/**') }}
+
+      - name: Test
+        run: cargo test --locked --manifest-path tools/graphgen/Cargo.toml
+
+  checks:
+    name: Types and unit tests
+    needs: data
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `plate.test.ts` runs against the real shipped bank on purpose: a toy fixture cannot
+      # show whether a graph of this size stays drawable. So the unit tests need the data.
+      - name: Fetch the data
+        uses: actions/download-artifact@v4
+        with:
+          name: data
+          path: public/data
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
+  e2e:
+    name: End to end (${{ matrix.project }})
+    needs: data
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      # Both viewports are reported, always. Stopping the phone run because the desktop one
+      # failed loses the answer to "is this the layout or is this the game".
+      fail-fast: false
+      matrix:
+        project: [phone, desktop]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch the data
+        uses: actions/download-artifact@v4
+        with:
+          name: data
+          path: public/data
+
+      # Keyed on the lockfile, because the browser build a Playwright release wants is pinned
+      # by the Playwright version in it.
+      - name: Cache the browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Chromium alone: both projects are Chromium-based (see playwright.config.ts), and the
+      # system libraries are wanted whether or not the browser itself came from the cache.
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      # Playwright starts the dev server itself. The screenshot-only specs stay skipped —
+      # they cost more than every assertion in the suite put together and assert nothing;
+      # `RECURSE_LOOK=1` is for looking at the layout by hand.
+      - name: Test
+        run: npm run e2e -- --project=${{ matrix.project }}
+
+      # Traces for whatever failed, which is the only way to read a force layout after the
+      # fact. `retain-on-failure`, so a green run uploads nothing.
+      - name: Keep the traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traces-${{ matrix.project }}
+          path: e2e/.results
+          if-no-files-found: ignore
+          retention-days: 7

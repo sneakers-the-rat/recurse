@@ -40,7 +40,22 @@ export interface GameState {
    * nothing has been asked about it. See `hintLabel` for what each level shows.
    */
   hints: Map<string, number>;
+  /**
+   * Moves given away, as `"from to"` — directed, because what a hint on a move says is which
+   * way the letters go *from the word that was asked*.
+   *
+   * The hint for a word on the answer, and the only one it has. Spelling out a word on a
+   * shortest route hands over the answer: three letters of a seven-letter word usually names
+   * it. So those words sell the *shape* of the move instead — arriving letters or leaving
+   * ones, drawn on the edge, because that is what a move is and a node is not.
+   */
+  edgeHints: Set<string>;
   log: LogEntry[];
+}
+
+/** The key a given-away move is remembered by, and drawn from. Directed. */
+export function moveKey(from: string, to: string): string {
+  return `${from} ${to}`;
 }
 
 /**
@@ -128,7 +143,7 @@ export function fullyHinted(word: string, level: number): boolean {
  * it *was* a hint one tap on a ten-letter word put ten on the tally.
  */
 export function hintCount(state: GameState): number {
-  let total = 0;
+  let total = state.edgeHints.size;
   for (const level of state.hints.values()) total += level;
   return total;
 }
@@ -144,6 +159,7 @@ export function newGame(puzzle: Puzzle): GameState {
     misses: 0,
     solved: false,
     hints: new Map(),
+    edgeHints: new Set(),
     log: [],
   };
 }
@@ -225,6 +241,58 @@ export function useHint(state: GameState, word: string): GameState {
 }
 
 /**
+ * Give away one more of a word's moves: the next of `near` that has not been given away yet.
+ *
+ * What a word on the answer sells instead of its letters. `near` is the words it is joined to
+ * *on the board*, in the order the caller wants them spent — so this owns the rule ("one more
+ * per click, and nothing once they are all marked") and the board owns which moves exist.
+ *
+ * Which matters as the board grows: a word that had two drawn moves when it was first asked
+ * about has four once the player names something beside it, and the two new ones are then
+ * there to be bought. Marks are remembered by the pair rather than counted, so the ones
+ * already paid for stay where they are when that happens.
+ */
+export function useMoveHint(state: GameState, word: string, near: readonly string[]): GameState {
+  if (state.revealed.has(word)) return state;
+  // Both directions, because the mark is drawn on the *edge*: a move bought from one end is
+  // already on the board when the player asks from the other, and charging again for a mark
+  // that is already there is a click that buys nothing.
+  const next = near.find(
+    (other) =>
+      !state.edgeHints.has(moveKey(word, other)) && !state.edgeHints.has(moveKey(other, word)),
+  );
+  if (next === undefined) return state;
+  return { ...state, edgeHints: new Set(state.edgeHints).add(moveKey(word, next)) };
+}
+
+/**
+ * A given-away move, as **the word it was asked about and how you get there**, or null if that
+ * move has not been bought.
+ *
+ * The mark belongs to the word, not to the line: it is drawn beside `at`, and says whether
+ * arriving at `at` along this move *adds* letters or *removes* them. Which is the only reading
+ * that survives being looked at — a sign floating between two words is a claim with no
+ * direction in it, and a sign that describes the move away from the word you asked about
+ * answers a question nobody asked.
+ *
+ * So: `cons ————— + contractions` reads "you get to `contractions` from here by adding", and
+ * the `+` sits against `contractions` because that is the word it is about.
+ *
+ * Either end is accepted, because a move bought from one end is not for sale again from the
+ * other.
+ */
+export function moveHint(
+  state: GameState,
+  a: string,
+  b: string,
+): { at: string; other: string; kind: 'add' | 'remove' } | null {
+  const at = state.edgeHints.has(moveKey(a, b)) ? a : state.edgeHints.has(moveKey(b, a)) ? b : null;
+  if (at === null) return null;
+  const other = at === a ? b : a;
+  return { at, other, kind: at.length > other.length ? 'add' : 'remove' };
+}
+
+/**
  * A game in progress, in a form that survives being written down.
  *
  * Only what cannot be derived. `revealed` is exactly the source plus one entry
@@ -240,6 +308,8 @@ export interface GameSnapshot {
   misses: number;
   /** Word and level, as pairs. The tally is derived from the levels. */
   hints: [string, number][];
+  /** Moves given away, as `"from to"`. Absent in games saved before they existed. */
+  edgeHints?: string[];
 }
 
 export function snapshot(state: GameState): GameSnapshot {
@@ -248,6 +318,7 @@ export function snapshot(state: GameState): GameSnapshot {
     selected: state.selected,
     misses: state.misses,
     hints: [...state.hints],
+    edgeHints: [...state.edgeHints],
   };
 }
 
@@ -299,6 +370,16 @@ export function restore(puzzle: Puzzle, saved: GameSnapshot | null | undefined):
     hints.set(word, wanted);
   }
 
+  // A given-away move, as written down: two words with a space between them. Nothing here
+  // checks that the pair is a move — the board decides what it can draw a mark on, and a pair
+  // that is no longer an edge simply never gets drawn.
+  const edgeHints = new Set<string>();
+  for (const key of Array.isArray(saved.edgeHints) ? saved.edgeHints : []) {
+    if (typeof key !== 'string') continue;
+    const [from, to] = key.split(' ');
+    if (from && to && from !== to) edgeHints.add(moveKey(from, to));
+  }
+
   return {
     puzzle,
     revealed,
@@ -308,6 +389,7 @@ export function restore(puzzle: Puzzle, saved: GameSnapshot | null | undefined):
     misses: Number.isFinite(saved.misses) ? Math.max(0, Math.trunc(saved.misses)) : 0,
     solved: revealed.has(puzzle.target),
     hints,
+    edgeHints,
   };
 }
 
@@ -319,5 +401,10 @@ export function restore(puzzle: Puzzle, saved: GameSnapshot | null | undefined):
  * the player comes back to a board they already solved.
  */
 export function worthKeeping(state: GameState): boolean {
-  return state.log.length > 0 || state.misses > 0 || state.hints.size > 0;
+  return (
+    state.log.length > 0 ||
+    state.misses > 0 ||
+    state.hints.size > 0 ||
+    state.edgeHints.size > 0
+  );
 }

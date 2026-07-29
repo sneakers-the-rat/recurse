@@ -3,19 +3,25 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { board, gameData, inShot, result } from './fixtures';
+import { board, gameData, inShot, result, today } from './fixtures';
 
 test('steps through the bank', async ({ page }) => {
-  await page.goto(board(puzzles[0]!, '?dev'));
+  // What the bar counts is the *calendar*, so it says which day this is and not where the
+  // board sits in the shard in memory. Starting from today rather than from the first entry
+  // of that shard, because one shard holds every 256th day and its array order is not the
+  // calendar's — taking the two for each other is what made this expect day 1 of a shard
+  // whose earliest day was 3.
+  const here = today();
+  await page.goto(board(here.puzzle, '?dev'));
 
   const bar = page.locator('text=DEV').locator('..');
-  await expect(bar).toContainText('1/');
+  await expect(bar).toContainText(`${here.day + 1}/`);
 
   await page.getByLabel('Next puzzle').click();
-  await expect(bar).toContainText('2/');
+  await expect(bar).toContainText(`${here.day + 2}/`);
 
   await page.getByLabel('Previous puzzle').click();
-  await expect(bar).toContainText('1/');
+  await expect(bar).toContainText(`${here.day + 1}/`);
 
   // Jump straight to a numbered puzzle.
   await page.getByLabel('Jump to puzzle number').fill('40');

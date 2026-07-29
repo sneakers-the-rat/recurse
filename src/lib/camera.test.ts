@@ -8,7 +8,6 @@ import {
   GENEROUS_SCALE,
   MAX_SCALE,
   MIN_SCALE,
-  READABLE_SCALE,
   between,
   clampCamera,
   fitCamera,
@@ -40,26 +39,30 @@ describe('playCamera', () => {
     expect(playCamera(390, phone).scale).not.toBe(playCamera(650, phone).scale);
   });
 
-  it('keeps words readable even when that means the ends run off screen', () => {
-    // A long answer on a short phone. Legibility wins: a board of words too small to
-    // read is not a board.
-    const squeezed = playCamera(2000, { width: 412, height: 300 });
-    expect(squeezed.scale).toBe(READABLE_SCALE);
-    const view = viewOf(squeezed, { width: 412, height: 300 });
-    expect(view.height).toBeLessThan(2000);
+  it('draws the words small rather than framing a long answer from the middle', () => {
+    // par 10 on a phone, the worst case the bank offers. There used to be a floor of fifteen
+    // pixels here — a scale of 1.2 — and legibility won, which from par 7 up meant opening
+    // inside the spine with both of the puzzle's own words off the ends of the plate.
+    const spine = 10 * 80;
+    const camera = playCamera(spine, phone);
+    expect(camera.scale).toBeLessThan(15 / 12.5);
+    expect(camera.scale).toBeGreaterThan(MIN_SCALE);
+    const view = viewOf(camera, phone);
+    expect(view.y).toBeLessThan(0);
+    expect(view.y + view.height).toBeGreaterThan(spine);
   });
 
-  it('draws every answer in the bank at a size a word can be read at', () => {
-    // The bank runs par 3 to par 5 (see .env), the spine is `par * ROW_HEIGHT`, and the
-    // point of both those numbers is this: no board opens smaller than READABLE_SCALE.
-    // It used to, without ever reaching the floor — fitting the spine of a par-5 answer
-    // landed at 0.93 of its own accord and drew the words at 11.7px.
+  it('holds the whole answer for every par the bank offers', () => {
+    // The bank runs par 3 to par 10 (see .env) and the spine is `par * ROW_HEIGHT`, so this
+    // is the promise across all of it: source at the top and target at the bottom, both on
+    // screen, on the smallest plate the game is played on.
     const rowHeight = 80;
-    for (const par of [3, 4, 5]) {
+    for (const par of [3, 4, 5, 7, 10]) {
       for (const plate of [phone, desktop, { width: 412, height: 620 }]) {
-        const scale = playCamera(par * rowHeight, plate).scale;
-        expect(scale).toBeGreaterThanOrEqual(READABLE_SCALE);
-        expect(scale).toBeLessThanOrEqual(GENEROUS_SCALE);
+        const spine = par * rowHeight;
+        const view = viewOf(playCamera(spine, plate), plate);
+        expect(view.y).toBeLessThan(0);
+        expect(view.y + view.height).toBeGreaterThan(spine);
       }
     }
   });

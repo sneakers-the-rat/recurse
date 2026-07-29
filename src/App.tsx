@@ -22,7 +22,8 @@ import { GraphPlate } from './components/GraphPlate';
 import { GuessBar } from './components/GuessBar';
 import { Header } from './components/Header';
 import { HowTo } from './components/HowTo';
-import { shortestPath } from './lib/graph';
+import { Toast } from './components/Toast';
+import { shortestPath, shortestRoutes } from './lib/graph';
 import {
   applyGuess,
   hintCount,
@@ -31,11 +32,28 @@ import {
   select,
   snapshot,
   useHint,
+  useMoveHint,
   worthKeeping,
   type GameState,
 } from './lib/game';
-import { loadGameData, loadShard, type GameData } from './lib/data';
-import { dateForDay, dayIndex, puzzleForDay, resolvePuzzle, type DailyPuzzle } from './lib/daily';
+import {
+  loadGameData,
+  loadPairs,
+  loadShard,
+  shardForDay,
+  shardOf,
+  type GameData,
+  type Pair,
+} from './lib/data';
+import {
+  dateForDay,
+  dayIndex,
+  dayNumber,
+  puzzleById,
+  puzzleForDay,
+  resolvePuzzle,
+  type DailyPuzzle,
+} from './lib/daily';
 import { idFromPath, pathFor, shareUrl } from './lib/route';
 import { markGuesses, shareText } from './lib/share';
 import { gameKey, loadGame, saveGame } from './lib/storage';
@@ -43,6 +61,7 @@ import { buildPlate } from './lib/plate';
 import { useBoardLayout, type BoardSpec } from './lib/useBoardLayout';
 import { openingCamera, playCamera, viewOf, type Camera, type Plate } from './lib/camera';
 import { usePanZoom } from './lib/usePanZoom';
+import type { Puzzle } from './lib/types';
 
 /**
  * The plate's size on screen, in pixels.
@@ -96,25 +115,27 @@ function usePlateSize() {
 }
 
 /**
- * Whether the instrument panel is showing, and a way to turn it off *in place*.
+ * Whether the instrument panel is showing, and a way to turn it on and off *in place*.
  *
- * On by default while developing, and available in a deployed build via `?dev` so a
- * real device can be inspected. `?dev=0` forces it off, which is what the screenshot
- * tests use to capture the game without the panel.
+ * **Off unless asked for, everywhere.** It used to come up by itself in a development
+ * build, which meant the game as written was never the game as seen: every `npm run dev`
+ * page load, and most of what gets looked at while working, arrived with a bar of
+ * instruments across the top of it.
  *
- * Toggling matters because the whole point of the panel is judging the game, and
- * some of that is judging what a player sees — which cannot be done from behind the
- * instruments. Ctrl+D flips it either way, so the view can be checked and come back
- * without losing the board or the game in progress; the `dev` parameter is kept in
- * step so a reload holds whichever was chosen. Ctrl rather than a bare key because
- * GuessBar sends unmodified keystrokes to the guess field, where a shortcut would
- * arrive as a letter.
+ * Asking is `?dev`, the switch in the help panel, or Ctrl+D, and all three are the same
+ * toggle. The keystroke needs a keyboard and the parameter needs a URL bar, so on a phone
+ * the switch is the only one of the three there is — and inspecting a real board on a real
+ * phone is most of what the panel is for.
+ *
+ * The `dev` parameter is kept in step either way, so a reload holds whichever was chosen and
+ * the state of the instruments is a thing that can be sent to somebody. Ctrl rather than a
+ * bare key because GuessBar sends unmodified keystrokes to the guess field, where a shortcut
+ * would arrive as a letter.
  */
 function useDevMode(): [boolean, () => void] {
   const [on, setOn] = useState(() => {
     const flag = new URLSearchParams(window.location.search).get('dev');
-    if (flag !== null) return flag !== '0' && flag !== 'false';
-    return import.meta.env.DEV;
+    return flag !== null && flag !== '0' && flag !== 'false';
   });
 
   const toggle = useCallback(() => {
@@ -240,7 +261,6 @@ export default function App() {
   const [at, setAt] = useState<{ day: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
-  const [showRoute, setShowRoute] = useState(true);
 
   const [devMode, toggleDev] = useDevMode();
 
@@ -270,40 +290,83 @@ export default function App() {
     else window.history.replaceState(null, '', url);
   }, []);
 
+  /**
+   * The shard that can answer a path, fetched if it is not the one already in hand.
+   *
+   * Only a slice of the bank is ever in memory, and the slice that arrived with the graph is
+   * the one the *first* URL of the session named. Two things follow, and both were bugs:
+   *
+   * - **A dead id brings its own shard, not today's.** `/deadbeef` fetched shard 222, which
+   *   holds neither that id nor today's board, so the fallback found nothing and every link
+   *   shared before a rebuild landed on "the puzzle data is out of step with the app" — an
+   *   error page, in the one case the scheme is designed to survive.
+   * - **A board reached by stepping is outside it too.** Consecutive days are deliberately in
+   *   different shards, so the back button asked the opening shard about an id that was never
+   *   in it and silently fell back to today.
+   *
+   * `loadShard` remembers what it has fetched, so going back over ground already walked costs
+   * nothing.
+   */
+  const bankForPath = useCallback(async (loaded: GameData, path: string): Promise<Puzzle[]> => {
+    const { manifest } = loaded;
+    const asked = idFromPath(path);
+    if (asked !== null) {
+      const bank = puzzleById(loaded.puzzles, asked)
+        ? loaded.puzzles
+        : await loadShard(shardOf(asked), manifest.version);
+      // Only if it is really there. An id that names nothing is a link from before a rebuild,
+      // and the answer to that is today's board, from today's own shard.
+      if (puzzleById(bank, asked)) return bank;
+    }
+    const day = dayNumber();
+    return puzzleForDay(loaded.puzzles, day, manifest.days)
+      ? loaded.puzzles
+      : loadShard(shardForDay(day, manifest), manifest.version);
+  }, []);
+
+  /** Which board a path names, once the shard that can say is in hand. */
+  const boardForPath = useCallback(
+    async (loaded: GameData, path: string) =>
+      resolvePuzzle(await bankForPath(loaded, path), path, loaded.manifest.days),
+    [bankForPath],
+  );
+
   useEffect(() => {
     // The path decides which shard is fetched, so the loader is told the id up front
     // rather than being asked for a board it did not bring.
     const asked = idFromPath(window.location.pathname);
     loadGameData(asked === null ? undefined : { id: asked })
-      .then((loaded) => {
+      .then(async (loaded) => {
         setData(loaded);
-        const chosen = resolvePuzzle(loaded.puzzles, window.location.pathname, loaded.manifest.days);
+        const chosen = await boardForPath(loaded, window.location.pathname);
         if (!chosen) {
-          // The shard arrived but does not hold the day it was fetched for, which means
-          // the client and the builder disagree about the shard arithmetic.
+          // Today's own shard does not hold today, which means the client and the builder
+          // disagree about the shard arithmetic — see `shardForDay`.
           setLoadError('the puzzle data is out of step with the app: rebuild it');
           return;
         }
         show(chosen, 'replace');
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
-  }, [show]);
+  }, [show, boardForPath]);
 
   /**
    * The back button, which moves between boards rather than out of the game.
    *
-   * Resolved from the path the same way the first load is, so going back to `/`
-   * lands on today rather than on nothing.
+   * Resolved from the path the same way the first load is — including the shard fetch, since
+   * what is being gone back to is usually a board in another shard — so going back to `/`
+   * lands on today and going back to a stepped board lands on that board.
    */
   useEffect(() => {
     if (!data) return;
     const onPop = () => {
-      const chosen = resolvePuzzle(data.puzzles, window.location.pathname, data.manifest.days);
-      if (chosen) show(chosen, 'replace');
+      void boardForPath(data, window.location.pathname).then((chosen) => {
+        if (chosen) show(chosen, 'replace');
+      });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [data, show]);
+  }, [data, show, boardForPath]);
 
   /**
    * Found words whose onward routes have been worked out.
@@ -353,14 +416,135 @@ export default function App() {
       '|' +
       [...spelled].sort().join(' ')
     : '';
+  /**
+   * The two answers a puzzle with a secret has, as node and edge sets.
+   *
+   * `answer` is the route through ordinary words — what par counts and what the board is
+   * drawn as. `shortcut` is the shortest way through *at all*, which on these puzzles is
+   * shorter because some rarer word cuts a corner; `puzzle.secret` is how short, so the
+   * search is bounded at it. Null on the majority of puzzles, which have no shortcut.
+   *
+   * Both memoised on the puzzle: four bounded searches, once per board.
+   */
+  const answer = useMemo(() => {
+    if (!data || !state) return null;
+    const { source, target, par } = state.puzzle;
+    return shortestRoutes(data.graph, source, target, par, data.graph.commonNeighbors);
+  }, [data, state?.puzzle]);
+
+  const shortcut = useMemo(() => {
+    if (!data || !state || state.puzzle.secret === 0) return null;
+    const { source, target, secret } = state.puzzle;
+    return shortestRoutes(data.graph, source, target, secret);
+  }, [data, state?.puzzle]);
+
+  /**
+   * Whether the player has found the shortcut, which is the only thing that puts it on the
+   * board.
+   *
+   * Two ways to be on one, and both have to count. Usually it runs through a word no
+   * ordinary answer uses, so naming that word is the discovery. But a shortcut can also be a
+   * *move* between two words the board already draws — a rare subword joining them directly
+   * — and then no word gives it away and only the move does. So: a named word or a walked
+   * move that the shortcut has and the answer does not.
+   *
+   * The endpoints and the answer's own words say nothing, being on every way through.
+   */
+  const onSecret = useMemo(() => {
+    if (!shortcut || !answer || !state) return false;
+    for (const word of state.revealed.keys()) {
+      if (shortcut.nodes.has(word) && !answer.nodes.has(word)) return true;
+    }
+    for (const { from, to } of state.log) {
+      const key = from < to ? `${from} ${to}` : `${to} ${from}`;
+      if (shortcut.edges.has(key) && !answer.edges.has(key)) return true;
+    }
+    return false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shortcut, answer, revealedKey]);
+
+  /**
+   * The shortcut **the player found**, which is not every shortcut there is.
+   *
+   * `shortcut` is the whole DAG of shortest legal routes, and a hub-ish puzzle has several:
+   * `warming → wing → {sewing | shewing | sowing} → sing → scolding` is three. Drawing all of
+   * them for landing on one hands over two the player never touched — so the trail is only the
+   * routes that run through what they have actually named.
+   *
+   * Walked off the DAG's own depths rather than searched: from a word on it, step to a
+   * neighbour one nearer the source until there are none, and one further until the target.
+   * Alphabetical at a fork, so the same discovery draws the same line every time. No search,
+   * which matters because this is recomputed on every guess.
+   */
+  const trail = useMemo(() => {
+    if (!onSecret || !shortcut || !answer || !state || !data) return null;
+    const { graph } = data;
+    const { source, target } = state.puzzle;
+    const nodes = new Set<string>();
+    const edges = new Set<string>();
+
+    const link = (a: string, b: string) => {
+      nodes.add(a);
+      nodes.add(b);
+      edges.add(a < b ? `${a} ${b}` : `${b} ${a}`);
+    };
+
+    /** One way on from `word`, `step` being -1 toward the source and +1 toward the target. */
+    const follow = (word: string, step: -1 | 1) => {
+      let at = word;
+      nodes.add(at);
+      for (;;) {
+        const depth = shortcut.depth.get(at);
+        if (depth === undefined) return;
+        if (step === -1 ? at === source : at === target) return;
+        const next = graph
+          .neighbors(at)
+          .filter((near) => shortcut.depth.get(near) === depth + step)
+          .sort()[0];
+        if (next === undefined) return;
+        link(at, next);
+        at = next;
+      }
+    };
+
+    /** The whole of the route through one word on the shortcut. */
+    const routeThrough = (word: string) => {
+      if (!shortcut.nodes.has(word)) return;
+      follow(word, -1);
+      follow(word, 1);
+    };
+
+    // Every word they named that the answer does not use — the ordinary case, one word off
+    // the answer and the route that goes through it.
+    for (const word of state.revealed.keys()) {
+      if (!answer.nodes.has(word)) routeThrough(word);
+    }
+    // And the case with no such word: a *move* between two words the board already draws,
+    // which the answer does not have. The route through that move is what was found.
+    for (const { from, to } of state.log) {
+      const key = from < to ? `${from} ${to}` : `${to} ${from}`;
+      if (!shortcut.edges.has(key) || answer.edges.has(key)) continue;
+      const near = shortcut.depth.get(from) ?? 0;
+      const far = shortcut.depth.get(to) ?? 0;
+      const [head, tail] = near < far ? [from, to] : [to, from];
+      link(head, tail);
+      follow(head, -1);
+      follow(tail, 1);
+    }
+
+    return nodes.size > 0 ? { nodes, edges } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSecret, shortcut, answer, data, state?.puzzle, revealedKey]);
+
   const plate = useMemo(() => {
     if (!data || !state) return null;
     return buildPlate(data.graph, state.puzzle.source, state.puzzle.target, state.revealed.values(), {
       board: state.puzzle.board,
       anchors: expanded,
+      ...(trail ? { secret: trail.nodes } : {}),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, state?.puzzle, revealedKey, expanded]);
+  }, [data, state?.puzzle, revealedKey, expanded, trail]);
 
   const [plateRef, plateSize, plateEl] = usePlateSize();
 
@@ -475,9 +659,84 @@ export default function App() {
     setState((s) => (s ? select(s, word) : s));
   }, []);
 
-  const hintWord = useCallback((word: string) => {
-    setState((s) => (s ? useHint(s, word) : s));
-  }, []);
+  /**
+   * A hint on a word only the shortcut draws, refused.
+   *
+   * The board shows those words because the player found the shortcut; selling their letters
+   * would hand over the whole of what they found. So the mark says no — a cross, briefly —
+   * and the tally is not touched, because a refused click bought nothing.
+   *
+   * A fresh object each time rather than the word alone: clicking the same word twice has to
+   * cross it twice, and setting a state to the value it already holds does nothing.
+   */
+  const [refusal, setRefusal] = useState<{ word: string } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  /**
+   * Which words are the shortcut's alone.
+   *
+   * A word the puzzle declares is an ordinary board word and hints work on it as usual, even
+   * if a shortcut happens to run through it. It is the ones the board would not be drawing at
+   * all that are off limits.
+   */
+  const secretOnly = useMemo(() => {
+    if (!trail || !state) return null;
+    const declared = new Set([state.puzzle.source, state.puzzle.target, ...state.puzzle.board]);
+    return new Set([...trail.nodes].filter((word) => !declared.has(word)));
+  }, [trail, state?.puzzle]);
+
+  /**
+   * A click on an unnamed word, and which of the three things it buys.
+   *
+   * - A word only the shortcut draws: nothing. It says no and says why.
+   * - **A word on the answer: the shape of one of its moves**, drawn on the edge — letters
+   *   arriving or letters leaving. Its letters are not for sale at all: three of the seven in
+   *   a word on a shortest route usually names it, which is the answer rather than a hint
+   *   toward it. One more move per click, from the moves the board is drawing, until they have
+   *   all been bought; name something else beside it and the new moves are there to buy too.
+   * - Any other word: the letter ladder, as before. Spelling out an alternative costs the
+   *   player a hint and tells them about a road they may not even want.
+   */
+  const hintWord = useCallback(
+    (word: string) => {
+      if (secretOnly?.has(word)) {
+        setRefusal({ word });
+        setToast('There are no hints on shortcuts!');
+        return;
+      }
+      if (plate?.routeNodes.has(word)) {
+        // The moves the *board* has, and **the ones along the answer first**: those are the
+        // moves the question is usually about, and spending the first click on a detour is
+        // spending it on the wrong thing. Alphabetical within each group, so the order stays
+        // put as the board grows and a mark already paid for never moves to another edge.
+        const near = plate.edges
+          .filter(({ a, b }) => a === word || b === word)
+          .map(({ a, b }) => (a === word ? b : a))
+          .sort(
+            (x, y) =>
+              Number(plate.routeNodes.has(y)) - Number(plate.routeNodes.has(x)) ||
+              x.localeCompare(y),
+          );
+        setState((s) => (s ? useMoveHint(s, word, near) : s));
+        return;
+      }
+      setState((s) => (s ? useHint(s, word) : s));
+    },
+    [secretOnly, plate],
+  );
+
+  // Both go away on their own: the cross is over in under a second, the toast is read in two.
+  useEffect(() => {
+    if (!refusal) return;
+    const timer = setTimeout(() => setRefusal(null), 900);
+    return () => clearTimeout(timer);
+  }, [refusal]);
+
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const spellWord = useCallback((word: string) => {
     setSpelled((current) => new Set(current).add(word));
@@ -485,7 +744,6 @@ export default function App() {
 
   const openHelp = useCallback(() => setShowHelp(true), []);
   const closeHelp = useCallback(() => setShowHelp(false), []);
-  const toggleRoute = useCallback(() => setShowRoute((v) => !v), []);
 
   /**
    * Remember the game after every move.
@@ -516,7 +774,7 @@ export default function App() {
     (next: number) => {
       if (!data) return;
       const day = dayIndex(next, data.manifest.days);
-      void loadShard(day % data.manifest.shards, data.manifest.version).then((bank) => {
+      void loadShard(shardForDay(day, data.manifest), data.manifest.version).then((bank) => {
         const chosen = puzzleForDay(bank, day, data.manifest.days);
         if (chosen) show(chosen, 'push');
       });
@@ -533,16 +791,79 @@ export default function App() {
   }, [state]);
 
   /**
-   * A best route, for the dev bar and its solve button.
+   * The answer, for the dev bar and its solve button: the best route through *ordinary*
+   * words, which is the one the board is drawn as and the one par counts.
    *
    * Memoised on the puzzle, not computed per render: see the note at the top.
    */
   const bestRoute = useMemo(
     () =>
       data && state
-        ? (shortestPath(data.graph, state.puzzle.source, state.puzzle.target) ?? [])
+        ? (shortestPath(
+            data.graph,
+            state.puzzle.source,
+            state.puzzle.target,
+            data.graph.commonNeighbors,
+          ) ?? [])
         : [],
     [data, state?.puzzle],
+  );
+
+
+  /**
+   * A few of the shortcut's routes, for the dev bar to list under the answer.
+   *
+   * Walked off the DAG's own depths rather than searched again, and stopped at three: the
+   * point is to read what the shortcut is made of, not to enumerate a hub's worth of ways
+   * through it. Dev mode only, because nothing else asks.
+   */
+  const secretRoutes = useMemo(() => {
+    if (!devMode || !shortcut || !data || !state) return [];
+    const { source, target } = state.puzzle;
+    const found: string[][] = [];
+    const path: string[] = [source];
+    const walk = (word: string) => {
+      if (found.length >= 3) return;
+      if (word === target) {
+        found.push([...path]);
+        return;
+      }
+      const depth = shortcut.depth.get(word) ?? 0;
+      for (const near of data.graph.neighbors(word)) {
+        if (shortcut.depth.get(near) !== depth + 1) continue;
+        path.push(near);
+        walk(near);
+        path.pop();
+      }
+    };
+    walk(source);
+    return found;
+  }, [devMode, shortcut, data, state?.puzzle]);
+
+  /**
+   * Dev only: the pair index, and a board opened by its address.
+   *
+   * The index is 3.7MB and nothing a player does fetches it — see `loadPairs`. So it is
+   * requested by the lookup itself, on the first keystroke into it, and kept for the session.
+   *
+   * Opening by id is the same path an arriving link takes: fetch the shard the id names, find
+   * the puzzle in it, show it. A step, so the back button undoes it.
+   */
+  const [pairs, setPairs] = useState<readonly Pair[] | null>(null);
+  const needPairs = useCallback(() => {
+    if (!data) return;
+    void loadPairs(data.manifest.version).then(setPairs).catch(() => setPairs([]));
+  }, [data]);
+
+  const openById = useCallback(
+    (id: string) => {
+      if (!data) return;
+      void loadShard(shardOf(id), data.manifest.version).then((bank) => {
+        const chosen = puzzleById(bank, id);
+        if (chosen) show(chosen, 'push');
+      });
+    },
+    [data, show],
   );
 
   /**
@@ -568,17 +889,24 @@ export default function App() {
    * against the grown board would call every one of them an alternative that was
    * always there. See share.ts.
    *
-   * Gold is `routeNodes` and green is the rest of that board, which is the whole of
-   * the rule: on the shortest route, on the board, or neither.
+   * A star is a word on a shortcut, gold is `routeNodes`, green is the rest of that
+   * board: the strongest true thing about each word, in that order.
+   *
+   * The two endpoints are left out of the shortcut set, because they are on every way
+   * through and starring them would put a star on a round nobody cut a corner in.
    */
   const result = useMemo(() => {
     if (!data || !state?.solved || !at) return null;
     const { source, target } = state.puzzle;
     const first = buildPlate(data.graph, source, target, [], { board: state.puzzle.board });
+    const starred = new Set(shortcut?.nodes ?? []);
+    starred.delete(source);
+    starred.delete(target);
     const marks = markGuesses(
       state.log.map((entry) => entry.to),
       first.routeNodes,
       new Set(first.nodes),
+      starred,
     );
     const date = dateForDay(at.day);
     const url = shareUrl(state.puzzle.id, window.location.origin);
@@ -596,7 +924,7 @@ export default function App() {
         url,
       }),
     };
-  }, [data, state, at]);
+  }, [data, state, at, shortcut]);
 
   /** Dev only: on to the next board, once this one is done with. */
   const playAgain = useCallback(() => {
@@ -663,6 +991,10 @@ export default function App() {
             puzzle={state.puzzle}
             drawn={plate.nodes.length}
             path={bestRoute}
+            secrets={secretRoutes}
+            pairs={pairs}
+            onNeedPairs={needPairs}
+            onOpenId={openById}
             guesses={state.guesses}
             onGo={goToPuzzle}
             onSolve={solveIt}
@@ -676,6 +1008,7 @@ export default function App() {
           source={state.puzzle.source}
           target={state.puzzle.target}
           par={state.puzzle.par}
+          shortcuts={shortcut?.count ?? 0}
           day={at.day}
           guesses={state.guesses}
           hints={hintCount(state)}
@@ -711,7 +1044,9 @@ export default function App() {
             routeNodes={plate.routeNodes}
             distToTarget={plate.distToTarget}
             spurCount={plate.spurCount}
-            showRoute={showRoute}
+            secretNodes={trail?.nodes}
+            secretEdges={trail?.edges}
+            refused={refusal?.word ?? null}
             beatPar={beatPar}
             namesWords={devMode}
             spelled={spelled}
@@ -733,15 +1068,6 @@ export default function App() {
               phase={opening}
             />
           )}
-
-          <button
-            type="button"
-            onClick={toggleRoute}
-            className="label hover:text-gilt absolute right-3 bottom-2 transition-colors"
-            aria-pressed={showRoute}
-          >
-            {showRoute ? 'Hide route' : 'Show route'}
-          </button>
         </main>
 
         {!finished && (
@@ -766,10 +1092,14 @@ export default function App() {
         />
       )}
 
+      {toast !== null && <Toast message={toast} />}
+
       {showHelp && (
         <HowTo
           minWord={data.graph.params.minWord}
           minSub={data.graph.params.minSub}
+          devMode={devMode}
+          onToggleDev={toggleDev}
           onClose={closeHelp}
         />
       )}

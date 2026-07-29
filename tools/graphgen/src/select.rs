@@ -49,6 +49,9 @@ pub struct Puzzle {
 /// Fewest words a board may have and still be worth drawing.
 const MIN_BOARD: usize = 10;
 
+/// Words off the answer a board needs per move of it, for `OffRouteTooFew`.
+const OFF_ROUTE_PER_MOVE: usize = 2;
+
 /// How far past par the search for a way out of the source will look, as a multiple
 /// of par. A bound on pointless work rather than a property of a good puzzle: a
 /// branch that has to wander further than this to reach the target is not a route
@@ -89,6 +92,8 @@ const BRANCH_REACH: u32 = 3;
 pub enum Rule {
     BoardTooSmall,
     NoAlternatives,
+    OffRouteTooFew,
+    NoLateBranch,
     OpeningForced,
     NotInLegalGraph,
     SameFamilyOnRoute,
@@ -97,9 +102,11 @@ pub enum Rule {
 }
 
 impl Rule {
-    pub const ALL: [Rule; 7] = [
+    pub const ALL: [Rule; 9] = [
         Rule::BoardTooSmall,
         Rule::NoAlternatives,
+        Rule::OffRouteTooFew,
+        Rule::NoLateBranch,
         Rule::OpeningForced,
         Rule::NotInLegalGraph,
         Rule::SameFamilyOnRoute,
@@ -112,13 +119,17 @@ impl Rule {
         match self {
             Rule::BoardTooSmall => ("nothing around the answer to weigh", "10, fixed"),
             Rule::NoAlternatives => ("no genuine longer way round", "RECURSE_MIN_ALT_NODES"),
+            Rule::OffRouteTooFew => ("too little off the answer for its length", "2 x par, fixed"),
+            Rule::NoLateBranch => ("nothing joins the answer past halfway", "par / 2, fixed"),
             Rule::OpeningForced => {
                 ("first move is forced — no branch at the root", "RECURSE_MIN_SOURCE_MOVES")
             }
             Rule::NotInLegalGraph => ("an endpoint has no moves in the legal graph", "none"),
             Rule::SameFamilyOnRoute => ("two words on the answer are the same word", "none"),
             Rule::CompoundSwap => ("answer splits or merges a compound", "RECURSE_MAX_SWAPS"),
-            Rule::NoInternalMove => ("answer never finds a word inside a word", "RECURSE_MIN_INTERNAL"),
+            Rule::NoInternalMove => {
+                ("too few moves find a word inside a word", "max(MIN_INTERNAL, par/2-1)")
+            }
         }
     }
 
@@ -128,6 +139,8 @@ impl Rule {
             Rule::SameFamilyOnRoute | Rule::CompoundSwap | Rule::NoInternalMove => Needs::Chain,
             Rule::BoardTooSmall
             | Rule::NoAlternatives
+            | Rule::OffRouteTooFew
+            | Rule::NoLateBranch
             | Rule::OpeningForced
             | Rule::NotInLegalGraph => Needs::Neighbourhood,
         }
@@ -163,24 +176,53 @@ impl Needs {
     }
 }
 
-/// One tally per rule, sized from `Rule::ALL`.
-pub type Tally = [usize; Rule::ALL.len()];
+/// Longest par a tally has a column for. `RECURSE_MAX_PAR` is bounded well inside this, and
+/// a par past it is counted in the last column rather than panicking a build over a report.
+pub const PAR_SLOTS: usize = 16;
+
+/// One tally per rule *per par*, sized from `Rule::ALL`.
+///
+/// Per par because that is the question tuning actually asks. A rule that refuses a tenth of
+/// the bank is doing something quite different depending on whether that tenth is spread over
+/// every length or is the whole of par 10 — and the rules that scale with par (see
+/// `internal_wanted`, `OffRouteTooFew`, `NoLateBranch`) cannot be read any other way.
+pub type Tally = [[usize; PAR_SLOTS]; Rule::ALL.len()];
+
+/// A fresh grid. `[[0; _]; _]` inline everywhere reads as noise.
+pub fn empty_tally() -> Tally {
+    [[0; PAR_SLOTS]; Rule::ALL.len()]
+}
+
+/// Which column a par counts in.
+pub fn par_slot(par: u32) -> usize {
+    (par as usize).min(PAR_SLOTS - 1)
+}
 
 /// How each rule fared over every candidate, independent of the others.
-#[derive(Default, Debug)]
+///
+/// Both grids are per rule per par; the totals are sums along a row. See `Tally`.
+#[derive(Debug, Clone)]
 pub struct Rejections {
-    /// Candidates this rule refused, whether or not any other rule also did.
-    pub alone: Vec<(Rule, usize)>,
-    /// Candidates this rule was the *only* objection to — what relaxing it buys.
-    pub only: Vec<(Rule, usize)>,
+    /// Candidates each rule refused, whether or not any other rule also did.
+    pub alone: Tally,
+    /// Candidates each rule was the *only* objection to — what relaxing it buys.
+    pub only: Tally,
+}
+
+impl Default for Rejections {
+    fn default() -> Rejections {
+        Rejections { alone: empty_tally(), only: empty_tally() }
+    }
 }
 
 impl Rejections {
     pub fn from_tallies(alone: &Tally, only: &Tally) -> Rejections {
-        Rejections {
-            alone: Rule::ALL.iter().copied().zip(alone.iter().copied()).collect(),
-            only: Rule::ALL.iter().copied().zip(only.iter().copied()).collect(),
-        }
+        Rejections { alone: *alone, only: *only }
+    }
+
+    /// One rule's whole row: what it refused at every par.
+    pub fn total(grid: &Tally, rule: Rule) -> usize {
+        grid[rule.slot()].iter().sum()
     }
 }
 
@@ -325,7 +367,7 @@ fn judge_one_answer(
             has_internal_reading(common.word(w[0]), common.word(w[1]), &is_word, config.min_sub)
         })
         .count();
-    if internal < config.min_internal {
+    if internal < internal_wanted(config, (path.len() - 1) as u32) {
         note(broken, Rule::NoInternalMove);
     }
 }
@@ -366,6 +408,19 @@ fn canonical_answer(
     }
     debug_assert_eq!(answer.last().map(String::as_str), Some(common.word(tgt)));
     answer
+}
+
+/// How many of an answer's moves have to find a word *inside* a word, at this par.
+///
+/// Finding a word inside a word is the move the game is about; gluing one onto the end is the
+/// move anybody can see. One of them is enough to make a three-move answer a puzzle, but a
+/// ten-move answer made of nine compound joins and one discovery is a long walk with one idea
+/// in it — so what is asked scales with the length: `par / 2 - 1`, floored at the knob.
+///
+///     par  3 4 5 6 7 8 9 10
+///     want 1 1 1 2 2 3 3 4
+fn internal_wanted(config: &Config, par: u32) -> usize {
+    config.min_internal.max((par as usize / 2).saturating_sub(1))
 }
 
 /// Record a broken rule once, however many answers break it.
@@ -643,8 +698,8 @@ pub fn select(
 ) -> Selection {
     // One tally per rule: how many candidates it refused, and how many it was the
     // sole objection to.
-    let mut alone: Tally = [0; Rule::ALL.len()];
-    let mut only: Tally = [0; Rule::ALL.len()];
+    let mut alone: Tally = empty_tally();
+    let mut only: Tally = empty_tally();
 
     // Every ordinary word that has a move is a possible endpoint.
     let endpoints: Vec<u32> = (0..common.words.len() as u32)
@@ -826,8 +881,10 @@ pub fn select(
             let (found, chunk_alone, chunk_only) = handle.join().expect("judge worker panicked");
             puzzles.extend(found);
             for slot in 0..Rule::ALL.len() {
-                alone[slot] += chunk_alone[slot];
-                only[slot] += chunk_only[slot];
+                for par in 0..PAR_SLOTS {
+                    alone[slot][par] += chunk_alone[slot][par];
+                    only[slot][par] += chunk_only[slot][par];
+                }
             }
         }
         judging.finish();
@@ -882,8 +939,8 @@ pub fn judge_candidates(
     full: bool,
     progress: &Progress,
 ) -> (Vec<Puzzle>, Tally, Tally) {
-    let mut alone: Tally = [0; Rule::ALL.len()];
-    let mut only: Tally = [0; Rule::ALL.len()];
+    let mut alone: Tally = empty_tally();
+    let mut only: Tally = empty_tally();
     let mut puzzles: Vec<Puzzle> = Vec::new();
     let mut counted = 0usize;
 
@@ -963,12 +1020,59 @@ pub fn judge_candidates(
                 }
             }
 
-            alt = drawn
-                .iter()
-                .filter(|&&w| at(from_src_row, w) + at(from_tgt_row, w) > par)
-                .count();
+            // Is this word on a shortest way through? Only if the distances through it add
+            // up to par exactly. Guarded, because a rung can be drawn from further out than
+            // the distance tables reach and UNREACHED is `u32::MAX`.
+            let on_route = |word: u32| {
+                let (from_src, from_tgt) = (at(from_src_row, word), at(from_tgt_row, word));
+                from_src != UNREACHED && from_tgt != UNREACHED && from_src + from_tgt == par
+            };
+
+            alt = drawn.iter().filter(|&&w| !on_route(w)).count();
             if alt < config.min_alt_nodes {
                 broken.push(Rule::NoAlternatives);
+                if !full {
+                    break 'judge;
+                }
+            }
+
+            // Enough off the answer to be worth weighing, *for the length of the answer*.
+            //
+            // `NoAlternatives` asks for a flat four, which is a thin board at par 3 and a bare
+            // one at par 10: a long answer with four words beside it is a corridor. Two words
+            // per move is the same board at every par.
+            //
+            // It also *subsumes* the flat four, since `2 * par` is at least six over the whole
+            // range the bank offers. A cascade will not show that — it runs `NoAlternatives`
+            // first, so the counts get attributed there — but an audit should now put that
+            // rule's "only reason" at zero, which is the evidence rules have been deleted on
+            // before. Kept for now because it is the one of the two with a knob.
+            if alt <= OFF_ROUTE_PER_MOVE * par as usize {
+                broken.push(Rule::OffRouteTooFew);
+                if !full {
+                    break 'judge;
+                }
+            }
+
+            // Something has to join the answer in its *second half*.
+            //
+            // A board can satisfy everything above with a crowd of alternatives that all hang
+            // off the opening and rejoin early, leaving the run to the target a single line
+            // with no choice on it: the puzzle looks open and plays as a corridor from halfway.
+            // So at least one word off the answer has to touch a word on it more than par / 2
+            // moves in — which at par 4 means the last two of the five words on the answer, and
+            // at par 5 the last three of six. The target counts: arriving at it from off the
+            // answer is a genuine second way in.
+            let joins_late = drawn.iter().any(|&word| {
+                !on_route(word)
+                    && common.neighbors(word).iter().any(|&near| {
+                        on_route(near)
+                            && at(from_src_row, near) * 2 > par
+                            && drawn.binary_search(&near).is_ok()
+                    })
+            });
+            if !joins_late {
+                broken.push(Rule::NoLateBranch);
                 if !full {
                     break 'judge;
                 }
@@ -1010,9 +1114,9 @@ pub fn judge_candidates(
         }
 
         for rule in &broken {
-            alone[rule.slot()] += 1;
+            alone[rule.slot()][par_slot(par)] += 1;
             if broken.len() == 1 {
-                only[rule.slot()] += 1;
+                only[rule.slot()][par_slot(par)] += 1;
             }
         }
         if !broken.is_empty() {

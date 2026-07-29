@@ -2,15 +2,23 @@
  * The rules. Worth being precise about, because the central constraint — that
  * the piece you add or remove must itself be a word — is the whole game and is
  * easy to misread as "any letters".
+ *
+ * And, at the foot of it, the switch for the instrument panel. It is here because this is
+ * the only dialog the game has, and because the other two ways in — `?dev` and Ctrl+D —
+ * both need hardware a phone does not have, while looking at a real board on a real phone
+ * is most of what the panel is for. Set apart below a rule and labelled for what it is, so
+ * it reads as the back of the manual rather than as part of the game.
  */
 
 interface Props {
   minWord: number;
   minSub: number;
+  devMode: boolean;
+  onToggleDev: () => void;
   onClose: () => void;
 }
 
-export function HowTo({ minWord, minSub, onClose }: Props) {
+export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center"
@@ -86,6 +94,26 @@ export function HowTo({ minWord, minSub, onClose }: Props) {
         >
           Begin
         </button>
+
+        {/*
+          The instruments. Not part of the rules, so it sits under a rule of its own, in the
+          quietest ink the palette has — and it says which way it is going rather than what
+          it currently is, because a switch that reads "dev mode: off" is ambiguous about
+          which half of it is the state and which is the button.
+        */}
+        <div className="border-rule mt-6 flex items-center justify-between border-t pt-4">
+          <p className="label text-ash-lit normal-case">
+            {devMode ? 'Instruments are showing' : 'Building this thing?'}
+          </p>
+          <button
+            onClick={onToggleDev}
+            className="label border-rule text-ash-lit hover:border-gilt hover:text-gilt border px-3 py-1.5 transition-colors"
+            type="button"
+            aria-pressed={devMode}
+          >
+            {devMode ? 'hide dev tools' : 'show dev tools'}
+          </button>
+        </div>
       </div>
     </div>
   );

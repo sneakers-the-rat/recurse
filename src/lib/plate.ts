@@ -67,6 +67,15 @@ export interface PlateOptions {
    * reveal itself stays instant — see App.
    */
   anchors?: ReadonlySet<string>;
+  /**
+   * The words on a shortcut the player has found an end of, if they have.
+   *
+   * Drawn like a found word — every legal edge it has to the board — because a shortcut is
+   * only ever handed over once its existence has been earned. Empty or absent until then,
+   * which is what keeps the board agreeing with the par in the header. See App's secret
+   * trail and `secret` on Puzzle.
+   */
+  secret?: ReadonlySet<string>;
 }
 
 /**
@@ -228,6 +237,11 @@ export function buildPlate(
   for (const word of puzzleBoard) {
     if (graph.has(word)) live.add(word);
   }
+  // The rest of a shortcut the player is standing on. Unnamed and unlabelled — this says a
+  // shorter way exists and that the words are there to be guessed, not what they are.
+  for (const word of options.secret ?? []) {
+    if (graph.has(word)) live.add(word);
+  }
   for (const word of anchors) {
     if (live.has(word) && puzzleBoard.includes(word)) continue;
     const onward = descend(word, (w) => graph.commonNeighbors(w), distToTarget, new Set());
@@ -255,42 +269,57 @@ export function buildPlate(
     edges.push(a < b ? { a, b } : { a: b, b: a });
   };
 
+  /**
+   * Every edge there is between two drawn words — with one line drawn between what "there
+   * is" means for a word the player walked to and a word the puzzle merely declares.
+   *
+   * A word the player **reached by a move** shows *all* of its legal moves to words on the
+   * board. Anything less is a lie about where they are standing: a word arriving from off
+   * the corpus was drawn joined only to the word it sprouted from, so a rare word sitting
+   * between three drawn words looked like a spur off one of them. The edge list is shipped
+   * and indexed by word, so this is a row lookup per drawn word — no search, nothing to
+   * wait for, nothing to show progress of.
+   *
+   * A word **nobody has reached yet** shows its common moves only, and that is not
+   * conservatism about drawing: a legal edge between two ordinary words that the player has
+   * not found is a *shortcut*, and drawing it puts a line on the board that is shorter than
+   * the par in the header. The whole point of a secret is that finding it is the reward — so
+   * the board keeps quiet about one until the player has an end of it. See `secret` on
+   * Puzzle, and App's secret trail.
+   */
+  const reached = new Set(found.filter((entry) => entry.via !== null).map((entry) => entry.word));
+  const openly = (word: string) => reached.has(word) || (options.secret?.has(word) ?? false);
   for (const a of nodes) {
-    for (const b of graph.commonNeighbors(a)) {
+    for (const b of openly(a) ? graph.neighbors(a) : graph.commonNeighbors(a)) {
       if (live.has(b)) addEdge(a, b);
     }
   }
 
   /**
-   * Nothing drawn is ever drawn unattached.
+   * **Every move the player has made is drawn**, and that is a stronger promise than the
+   * one this used to keep.
    *
-   * A word the player found is never pruned — they must be able to see where they
-   * are standing — but being kept is not the same as being connected, and a word
-   * can end up on the board with no drawn neighbour in two different ways:
+   * It used to ask only whether a found word had ended up with *some* edge, and attach the
+   * orphans. Which covered the two ways a kept word can end up with no drawn neighbour —
+   * the graph has never heard of it, because guesses are judged against the whole
+   * dictionary and a legal move can land outside the common corpus; or the graph knows it
+   * and the route joining it to the rest was not part of what the puzzle declared — but it
+   * missed the case where the word at the *far* end already had edges of its own. Then the
+   * move was silently not on the board.
    *
-   *  - The graph has never heard of it. Guesses are judged against the whole
-   *    dictionary, so a legal move can land on an ordinary word outside the common
-   *    corpus, and such a word has no edges here at all.
-   *  - The graph knows it perfectly well, but the route joining it to everything
-   *    else did not survive the drawing budget. This is the one that was missed,
-   *    and it is not rare: restoring a saved game materialises every word found so
-   *    far at once, against a budget of thirty, so the connecting routes are
-   *    exactly what gets trimmed. The word was left as a dot in the corner, which
-   *    reads as the game having lost it.
+   * That is every secret route there is: walking one steps out to a rare word and back onto
+   * the answer, and the step back lands on a word that is already drawn and already joined
+   * to its neighbours, so nothing was orphaned and nothing was added. The player's own move
+   * was missing from the figure — measured at 40 boards out of 40 with a secret — and the
+   * label naming the subword went with it, since GraphPlate can only write it along an edge
+   * that exists.
    *
-   * Both have the same answer — attach it to whatever it was reached from, which
-   * the player has by definition also found, and inherit a place in the vertical
-   * ordering from there. Asking "did this end up with an edge?" rather than "is
-   * this word in the corpus?" catches both, and cannot be outgrown by a third way.
+   * So the trail is drawn because it was walked, not because the alternative would look
+   * broken. A word off the corpus also inherits its place in the vertical ordering from
+   * where it was reached from, which is the only thing that can say where it belongs.
    */
-  const attached = new Set<string>();
-  for (const { a, b } of edges) {
-    attached.add(a);
-    attached.add(b);
-  }
-
   for (const entry of found) {
-    if (!live.has(entry.word) || attached.has(entry.word)) continue;
+    if (!live.has(entry.word)) continue;
     // Up the trail to the first word that is actually on the board. The source
     // always is, so this terminates.
     let via = entry.via;
@@ -300,8 +329,6 @@ export function buildPlate(
     if (via === null) continue;
 
     addEdge(via, entry.word);
-    attached.add(entry.word);
-    attached.add(via);
 
     const parentToTarget = distToTarget.get(via);
     const parentFromSource = distFromSource.get(via);

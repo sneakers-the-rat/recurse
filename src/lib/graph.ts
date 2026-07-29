@@ -191,15 +191,89 @@ export function shortestPathNodes(graph: Graph, src: string, tgt: string, par: n
   return nodes;
 }
 
-/** One shortest path as a list of words, or null if unreachable. */
-export function shortestPath(graph: Graph, src: string, tgt: string): string[] | null {
+/**
+ * Every node and edge on a shortest route of exactly `length` between two words.
+ *
+ * The shortest-route DAG, not one route: a puzzle usually has several ways through of the
+ * same length, and a player who finds a shortcut may be on any of them. Two searches and a
+ * scan, so it costs the same as asking about one route.
+ *
+ * `edges` picks the graph, and which one matters: over the legal graph at the puzzle's
+ * `secret` this is the shortcut a rare word cuts, which is a different figure from the
+ * common answer the board is drawn as.
+ *
+ * Edge keys are the two words sorted and joined by a space, which is how plate.ts and
+ * GraphPlate name an edge. `count` is how many routes of this length there are — the header
+ * says it, for the shortcuts.
+ */
+export function shortestRoutes(
+  graph: Graph,
+  src: string,
+  tgt: string,
+  length: number,
+  edges: (word: string) => readonly string[] = graph.neighbors,
+): { nodes: Set<string>; edges: Set<string>; depth: ReadonlyMap<string, number>; count: number } {
+  const fromSrc = bfs(graph, src, length, edges);
+  const fromTgt = bfs(graph, tgt, length, edges);
+  const nodes = new Set<string>();
+  for (const [word, ds] of fromSrc) {
+    const dt = fromTgt.get(word);
+    if (dt !== undefined && ds + dt === length) nodes.add(word);
+  }
+
+  const walked = new Set<string>();
+  for (const word of nodes) {
+    const ds = fromSrc.get(word)!;
+    for (const near of edges(word)) {
+      // One step further from the source and still on a route of this length: that is a
+      // step a shortest route takes, and every such pair is one.
+      if (nodes.has(near) && fromSrc.get(near) === ds + 1) {
+        const [a, b] = word < near ? [word, near] : [near, word];
+        walked.add(`${a} ${b}`);
+      }
+    }
+  }
+  // How far along each node is, so a caller can walk the routes in order rather than
+  // searching them again. `depth` is over the nodes on a route and nothing else.
+  const depth = new Map<string, number>();
+  for (const word of nodes) depth.set(word, fromSrc.get(word)!);
+
+  // And how many routes there are, which is a count over the same DAG: every way into a word
+  // is a way into every way out of it. Shallowest first, so a word's ways in are all known
+  // before it is asked about.
+  const ways = new Map<string, number>([[src, 1]]);
+  for (const word of [...nodes].sort((a, b) => depth.get(a)! - depth.get(b)!)) {
+    if (word === src) continue;
+    let into = 0;
+    for (const near of edges(word)) {
+      if (depth.get(near) === depth.get(word)! - 1) into += ways.get(near) ?? 0;
+    }
+    ways.set(word, into);
+  }
+
+  return { nodes, edges: walked, depth, count: ways.get(tgt) ?? 0 };
+}
+
+/**
+ * One shortest path as a list of words, or null if unreachable.
+ *
+ * `edges` picks the graph, the same way `bfs` does: the legal one answers "what is the
+ * shortest way through at all", the common one "what is the answer this puzzle advertises",
+ * and on a puzzle with a secret those are different routes.
+ */
+export function shortestPath(
+  graph: Graph,
+  src: string,
+  tgt: string,
+  edges: (word: string) => readonly string[] = graph.neighbors,
+): string[] | null {
   if (src === tgt) return [src];
   const prev = new Map<string, string | null>([[src, null]]);
   let frontier = [src];
   while (frontier.length) {
     const next: string[] = [];
     for (const word of frontier) {
-      for (const nbr of graph.neighbors(word)) {
+      for (const nbr of edges(word)) {
         if (prev.has(nbr)) continue;
         prev.set(nbr, word);
         if (nbr === tgt) {

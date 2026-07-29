@@ -337,7 +337,7 @@ fn inspect_pair(
     let broken: Vec<&str> = select::Rule::ALL
         .iter()
         .enumerate()
-        .filter(|&(slot, _)| refused[slot] > 0)
+        .filter(|&(slot, _)| refused[slot].iter().sum::<usize>() > 0)
         .map(|(_, rule)| rule.describe().0)
         .collect();
     if !broken.is_empty() {
@@ -420,12 +420,16 @@ fn check_ids(puzzles: &[select::Puzzle], config: &Config) -> Result<(), String> 
 /// rules run as a cascade and every candidate stops at its first failure, so both
 /// are attributed to whichever rule ran earliest.
 fn rule_rows(selection: &select::Selection) -> Vec<(select::Rule, usize, usize)> {
-    let mut rows: Vec<(select::Rule, usize, usize)> = selection
-        .rejections
-        .alone
+    let mut rows: Vec<(select::Rule, usize, usize)> = select::Rule::ALL
         .iter()
-        .zip(selection.rejections.only.iter())
-        .map(|((rule, refused), (_, sole))| (*rule, *refused, *sole))
+        .copied()
+        .map(|rule| {
+            (
+                rule,
+                select::Rejections::total(&selection.rejections.alone, rule),
+                select::Rejections::total(&selection.rejections.only, rule),
+            )
+        })
         .filter(|(_, refused, _)| *refused > 0)
         .collect();
     rows.sort_by_key(|(_, refused, _)| std::cmp::Reverse(*refused));
@@ -460,6 +464,56 @@ fn report_rules(selection: &select::Selection, audited: bool) {
             rule.needs().label()
         );
     }
+    eprint!("{}", rule_grid(selection));
+}
+
+/// The same refusals, by rule *and by par*.
+///
+/// A total says a rule is expensive; only the grid says what it is expensive *at*. Three of the
+/// rules scale with par by construction — the internal-move count, the off-route count, the
+/// halfway branch — so a row that climbs with par is those rules working, and a row that
+/// collapses at one end is a rule that has stopped asking anything there.
+///
+/// Columns are the pars the search actually looked at (`RECURSE_MIN_PAR`..`MAX_PAR`), and the
+/// last column is the row's total. Every cell is a count over every candidate; nothing is
+/// sampled.
+fn rule_grid(selection: &select::Selection) -> String {
+    let pars: Vec<usize> = (0..select::PAR_SLOTS)
+        .filter(|&par| {
+            select::Rule::ALL
+                .iter()
+                .any(|rule| selection.rejections.alone[rule.slot()][par] > 0)
+        })
+        .collect();
+    if pars.is_empty() {
+        return String::new();
+    }
+
+    /// Thousands, as three characters and a suffix, because a grid of nine-digit counts is
+    /// unreadable and the shape is what the grid is for.
+    fn short(n: usize) -> String {
+        match n {
+            0 => "·".to_string(),
+            n if n < 10_000 => n.to_string(),
+            n if n < 10_000_000 => format!("{}k", n / 1_000),
+            n => format!("{}M", n / 1_000_000),
+        }
+    }
+
+    let mut out = String::from("    refused by par:\n      ");
+    out.push_str(&format!("{:<44}", "rule"));
+    for par in &pars {
+        out.push_str(&format!("{:>8}", format!("par {par}")));
+    }
+    out.push_str(&format!("{:>10}\n", "all"));
+    for (rule, refused, _) in rule_rows(selection) {
+        out.push_str(&format!("      {:<44}", rule.describe().0));
+        for par in &pars {
+            out.push_str(&format!("{:>8}", short(selection.rejections.alone[rule.slot()][*par])));
+        }
+        out.push_str(&format!("{:>10}\n", short(refused)));
+    }
+    out
 }
 
 /// What the boards came to: how big, and how much of each is off the shortest route.
@@ -545,6 +599,8 @@ fn write_survey(
         let (what, knob) = rule.describe();
         out.push_str(&format!("  {refused:>7} ({sole:>6})  {what}  [{knob}]\n"));
     }
+    out.push('\n');
+    out.push_str(&rule_grid(selection));
     out.push('\n');
 
     for (i, puzzle) in selection.puzzles.iter().enumerate() {
@@ -662,6 +718,32 @@ fn write_puzzle_shards(
         largest = largest.max(body.len());
         words::write_file(&dir.join(name_of(index)), body)?;
     }
+
+    // Every pair and the address it lives at, for dev mode's lookup by words.
+    //
+    // A shard can only be found from an id, and an id is a digest of an answer, so there is
+    // no way to get from "the puzzle about `warming` and `scolding`" to a board without an
+    // index of the pairs — and the client holds one shard of the bank, not the bank. This is
+    // that index: the whole calendar, three fields a line, sorted so it reads.
+    //
+    // Nothing a player does fetches it. Dev mode asks for it when the lookup is used, which
+    // is why it is one file rather than part of the shards: a build that ships it costs
+    // players nothing and costs whoever is judging the bank one download.
+    let mut pairs: Vec<&select::Puzzle> = puzzles.iter().collect();
+    pairs.sort_unstable_by(|a, b| {
+        (&a.source, &a.target, &a.id).cmp(&(&b.source, &b.target, &b.id))
+    });
+    let mut index = String::with_capacity(pairs.len() * 32);
+    for puzzle in &pairs {
+        index.push_str(&puzzle.source);
+        index.push('\t');
+        index.push_str(&puzzle.target);
+        index.push('\t');
+        index.push_str(&puzzle.id);
+        index.push('\n');
+    }
+    words::write_file(&dir.join(format!("pairs-{version}.tsv")), &index)?;
+
     // Written last: a manifest naming shards that are not on disk yet would be a
     // deploy that serves a version it cannot fetch.
     words::write_file(&dir.join("manifest.json"), &manifest)?;
@@ -682,11 +764,11 @@ fn write_puzzle_shards(
     Ok(())
 }
 
-/// Delete shards left over from an earlier version.
+/// Delete shards, and the pair index, left over from an earlier version.
 ///
-/// Every rebuild renames all 256 of them, so without this the directory grows by 25MB a
-/// build and the old files ship. Only names matching the shard pattern at a *different*
-/// version are removed, so nothing else in the directory is ever touched.
+/// Every rebuild renames all 257 of them, so without this the directory grows by 28MB a
+/// build and the old files ship. Only the names this function writes, at a *different*
+/// version, are removed — nothing else in the directory is ever touched.
 fn remove_stale_shards(dir: &Path, version: &str) -> Result<usize, String> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -701,11 +783,12 @@ fn remove_stale_shards(dir: &Path, version: &str) -> Result<usize, String> {
         let Some((index, found)) = rest.split_once('-') else {
             continue;
         };
-        let looks_like_a_shard = index.len() == 2
-            && index.chars().all(|c| c.is_ascii_hexdigit())
-            && !found.is_empty()
-            && found.chars().all(|c| c.is_ascii_hexdigit());
-        if looks_like_a_shard && found != version && std::fs::remove_file(entry.path()).is_ok() {
+        // A shard, or the pair index, which is versioned the same way and would otherwise be
+        // the one file that accumulated a copy per build.
+        let versioned = !found.is_empty() && found.chars().all(|c| c.is_ascii_hexdigit());
+        let ours = index == "pairs"
+            || (index.len() == 2 && index.chars().all(|c| c.is_ascii_hexdigit()));
+        if versioned && ours && found != version && std::fs::remove_file(entry.path()).is_ok() {
             removed += 1;
         }
     }

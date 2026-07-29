@@ -17,6 +17,12 @@ interface Props {
   source: string;
   target: string;
   par: number;
+  /**
+   * How many ways through there are that are *shorter* than par, which exist because a rarer
+   * word cuts a corner. Said out loud from the start: that a shortcut exists is the hook, and
+   * which words it runs through is the puzzle. Zero on most boards, and then not shown.
+   */
+  shortcuts?: number;
   day: number;
   guesses: number;
   /** Hints asked for. Shown beside the guesses: it is the other half of a score. */
@@ -42,6 +48,7 @@ export const Header = memo(function Header({
   source,
   target,
   par,
+  shortcuts = 0,
   day,
   guesses,
   hints,
@@ -94,7 +101,15 @@ export const Header = memo(function Header({
             <span className="word text-bone text-2xl sm:text-3xl">{target}</span>
           </p>
           <p className="label mt-2.5">
-            {par} moves at best
+            par: {par} moves
+            {shortcuts > 0 && (
+              <>
+                <span className="text-ash-lit mx-2">·</span>
+                <span className="text-gilt-dim">
+                  {shortcuts} {shortcuts === 1 ? 'shortcut' : 'shortcuts'}
+                </span>
+              </>
+            )}
             <span className="text-ash-lit mx-2">·</span>
             {guesses === 0 ? 'no guesses yet' : `${guesses} guessed`}
             {/* Only once any have been asked for: a nought here would read as a

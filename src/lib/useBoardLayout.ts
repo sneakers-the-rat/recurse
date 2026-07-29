@@ -49,9 +49,11 @@ import type { Point } from './types';
  *
  * A move is always this far, so the figure's height is the length of the answer and nothing
  * else — which makes this number, and not the camera, what decides how big a word is drawn.
- * The play view frames the spine, so the whole answer plus its margins has to fit a phone's
- * plate at a readable size: about 620 pixels for `par * ROW_HEIGHT + 104` graph units, at
- * fifteen pixels for every 12.5 units of label. At par 5, the bank's longest, that is 80.
+ * The play view fits the spine, so `par * ROW_HEIGHT + 104` graph units are shown in about 620
+ * pixels of phone: 80 draws a par-5 answer's words at 15px and a par-10 answer's at 9px. It is
+ * the one lever on that, since the camera no longer trades the answer's own ends away to keep
+ * the words large (see GENEROUS_SCALE) — a bank of longer pars is a bank of smaller words until
+ * this number changes.
  */
 const ROW_HEIGHT = 80;
 
@@ -122,14 +124,20 @@ function boxOf(word: string, labelled: boolean): { w: number; h: number; cy: num
  * distance, so it pushes two words apart exactly as hard as it pulls them together, and if
  * that distance is the same everywhere the only arrangement satisfying it is an even mesh.
  *
- * The *strength* is flat, and deliberately rigid. d3's default is `1 / min(degree)`, which
- * makes a hub's bonds the weakest on the board — the opposite of what is wanted here, since
- * the short hub links are the whole mechanism by which a cluster forms. At full strength they
- * behave as rods and the crowd holds together.
+ * The *strength* is flat, because d3's default is `1 / min(degree)`, which makes a hub's bonds
+ * the weakest on the board — the opposite of what is wanted here, since the short hub links
+ * are the whole mechanism by which a cluster forms.
+ *
+ * But it is a spring and not a rod. At 1 a link is a hard constraint, and a hard constraint is
+ * the one thing repulsion cannot argue with: a hub's crowd was drawn as a knot of dots 13 to
+ * 25 units apart, and raising the charge from -70 to -320 barely moved them — it inflated the
+ * rest of the figure instead, which is the same mistake as the -320 charge that was once doing
+ * a collider's job. Halved, the springs give where two words are on top of each other and hold
+ * everywhere else, which is what lets the charge do the job it is there for.
  */
 const LINK_DISTANCE = 74;
 const LINK_MIN_DISTANCE = 30;
-const LINK_STRENGTH = 1;
+const LINK_STRENGTH = 0.5;
 
 /**
  * Repulsion, which is what holds one cluster off another.
@@ -139,9 +147,29 @@ const LINK_STRENGTH = 1;
  * pushing equally hard is a statement that every word is equally important, which is the
  * opposite of what a hub is — so hubs clear a space the size of their own crowd, and leaves
  * nestle inside it.
+ *
+ * The base is what opposes the springs' contraction, and it only does that with `LINK_STRENGTH`
+ * off 1 — the two numbers are one decision and neither works alone.
+ *
+ * **The field has a range, and it is the range that makes the strength affordable.** An
+ * inverse-square repulsion with no bound is still pushing at two hundred units, where nothing is
+ * being crowded and nothing needs to move: raising the base without one tripled the largest
+ * boards, flung every loosely joined word off toward the margins, and left the crowds it was
+ * raised for barely better than before. Past `CHARGE_REACH` the field is simply off, so a strong
+ * base is spent entirely on words that are actually in each other's way and a word joined by one
+ * link sits where its link wants it. Measured over five boards, the closest pair on each went
+ * from 14, 25, 20, 13 and 16 units to 29, 39, 50, 25 and 28, the number of pairs drawn inside
+ * each other's room roughly halved, and the figures came out the size they were before.
  */
-const CHARGE_BASE = -70;
+const CHARGE_BASE = -220;
 const CHARGE_PER_MOVE = -14;
+/**
+ * How far the charge reaches, in graph units: about two moves at full link length.
+ *
+ * Far enough to hold one cluster off the next, near enough that the far side of the board is
+ * not an influence on this side of it.
+ */
+const CHARGE_REACH = 160;
 
 /**
  * Clear air either side of the answer, and how firmly it is kept.
@@ -613,7 +641,7 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
       linkForceRef.current = link;
       simulation = forceSimulation<SimNode>(nodeList)
         .alphaDecay(REHEAT_DECAY)
-        .force('charge', forceManyBody<SimNode>().strength(charge))
+        .force('charge', forceManyBody<SimNode>().strength(charge).distanceMax(CHARGE_REACH))
         .force('corridor', forceSpineCorridor(CORRIDOR_PUSH, () => corridorRef.current))
         .force('link', link)
         .on('tick', () => setTick((n) => n + 1))

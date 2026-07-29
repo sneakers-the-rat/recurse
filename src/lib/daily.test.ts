@@ -15,7 +15,7 @@ import {
   resolvePuzzle,
 } from './daily';
 import { pathFor } from './route';
-import { shardOf } from './data';
+import { shardForDay, shardOf } from './data';
 import { shippedData } from '../test/shipped';
 import type { Puzzle } from './types';
 
@@ -195,6 +195,12 @@ describe('resolvePuzzle', () => {
  */
 describe('the shipped bank', () => {
   const { puzzles, manifest } = shippedData();
+  /**
+   * Which shard this is: the one holding today's board, because that is the one the app has
+   * in memory. Not a constant — `shippedData` used to take it for shard 00 and everything
+   * about today was wrong on any day but the first.
+   */
+  const index = shardForDay(dayNumber(), manifest);
 
   it('gives every puzzle an id, all of one form', () => {
     expect(puzzles.length).toBeGreaterThan(100);
@@ -210,18 +216,18 @@ describe('the shipped bank', () => {
 
   it('puts every puzzle in the shard its id names', () => {
     // The whole of how a shared link is resolved in one fetch: the first two hex
-    // digits of the id are the file it lives in. This shard is 00.
+    // digits of the id are the file it lives in.
     for (const puzzle of puzzles) {
-      expect(shardOf(puzzle.id)).toBe(0);
+      expect(shardOf(puzzle.id)).toBe(index);
     }
   });
 
   it('puts every day in the shard its number names', () => {
-    // What lets today's board be found without an index, checked on real data: day N
-    // is in shard N % shards, so every day in shard 00 is a multiple of 256.
+    // What lets today's board be found without an index, checked on real data: day N is in
+    // shard N % shards, so every day in this file is congruent to its own number.
     for (const puzzle of puzzles) {
       if (puzzle.day < manifest.days) {
-        expect(puzzle.day % manifest.shards).toBe(0);
+        expect(puzzle.day % manifest.shards).toBe(index);
       }
     }
   });

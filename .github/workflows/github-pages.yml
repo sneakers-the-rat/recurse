@@ -1,15 +1,39 @@
-name: Build and deploy ReCurse to GitHub Pages
+name: Deploy to GitHub Pages
 
-# The puzzle data in public/data is committed, so a deploy is just a Vite build:
-# the Rust builder is a tool for changing the game, not a step in shipping it.
+# A deploy is the builder, then Vite over what it wrote, then Pages.
+#
+# `public/data` is not committed, so the first of those three is not optional and is most of
+# the cost — see data.yml, which owns that half and its caches. What is left here is the web
+# build and the deploy itself.
+#
+# Pages is deployed the way Pages now works: an artifact and `deploy-pages`, rather than a
+# commit pushed to a gh-pages branch. The site carries 47MB of graph and bank, and committing
+# that on every deploy grew the repository by that much every time, for a snapshot nothing
+# would ever read again. Needs Settings → Pages → Source: GitHub Actions.
 
 on:
   push:
     branches:
       - main
+  # So that a deploy can be asked for without an empty commit — a cache to clear, a run to
+  # repeat, a site to put back.
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one halfway: the queued run would be deploying a
+# dist built from a half-written public/data.
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  github-pages:
+  # The graph and the bank, cached. Runs inside this run and hands over the `data` artifact.
+  data:
+    name: Data
+    uses: ./.github/workflows/data.yml
+
+  site:
+    name: Site
+    needs: data
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,12 +50,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Into public/data, which is where Vite copies it from and where a local build has it.
+      - name: Fetch the data
+        uses: actions/download-artifact@v4
+        with:
+          name: data
+          path: public/data
+
       - name: Build
         run: npm run build
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      # Vite emits dist/, including the 404.html that makes a puzzle's own URL resolve on a
+      # host with no rewrites — see vite.config.ts.
+      - name: Package the site for Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Vite emits dist/. This said ./build for as long as it was broken.
-          publish_dir: ./dist
+          path: ./dist
+
+  deploy:
+    name: Deploy
+    needs: site
+    runs-on: ubuntu-latest
+    permissions:
+      # What `deploy-pages` needs, and nothing else: no job in this workflow writes to the
+      # repository at all any more.
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4

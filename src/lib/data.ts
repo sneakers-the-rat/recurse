@@ -107,6 +107,20 @@ export function shardOf(id: string): number {
 }
 
 /**
+ * Which shard holds the board for a day.
+ *
+ * Two steps, and leaving either out is a bug that waits: the day is wrapped into the
+ * calendar's length, and *then* taken modulo the number of shards, because `spread` placed
+ * day N in shard `N % SHARDS` (see write_puzzle_shards). Without the second step the
+ * calendar's own day number was being used as a shard index, which is the same number for
+ * the first 256 days and then asks for `puzzles/12c-<version>.tsv` — a file that has never
+ * existed. The game would have kept working until day 256 and then stopped loading at all.
+ */
+export function shardForDay(day: number, manifest: RawManifest): number {
+  return dayIndex(day, manifest.days) % manifest.shards;
+}
+
+/**
  * Where a shard lives.
  *
  * The version is in the name, so a rebuilt bank is asked for at an address nobody has
@@ -312,15 +326,50 @@ export async function loadShard(index: number, version: string): Promise<Puzzle[
   return puzzles;
 }
 
+/** One line of the pair index: which board the puzzle about two words is at. */
+export interface Pair {
+  source: string;
+  target: string;
+  id: string;
+}
+
+/**
+ * Every pair in the bank and the address it lives at.
+ *
+ * **Dev mode only, and fetched only when asked for.** A shard is found from an id and an id is
+ * a digest of an answer, so there is no way from "the puzzle about these two words" to a board
+ * without an index — and the client holds one shard, not the bank. This is 3.7MB, which is why
+ * nothing a player does touches it: it is what the instrument panel's lookup reads, once, when
+ * somebody types into it.
+ */
+let pairs: Promise<Pair[]> | null = null;
+
+export function loadPairs(version: string): Promise<Pair[]> {
+  pairs ??= (async () => {
+    const text = await (await get(`puzzles/pairs-${version}.tsv`, true)).text();
+    const out: Pair[] = [];
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      const [source, target, id] = line.split('\t');
+      if (source && target && id) out.push({ source, target, id });
+    }
+    return out;
+  })().catch((error: unknown) => {
+    pairs = null;
+    throw error;
+  });
+  return pairs;
+}
+
 async function fetchGameData(want?: { id?: string; day?: number }): Promise<GameData> {
   // The manifest first and alone: it names the shard, and nothing else can be asked for
   // until its version is known.
   const manifest = await getJson<RawManifest>('puzzles/manifest.json', false);
-  // Which shard holds the board being opened. An id names its own shard; a day is
-  // wrapped into the calendar by `dayIndex`, which daily.ts owns because the epoch and
-  // the local-midnight arithmetic belong there and must have exactly one definition.
+  // Which shard holds the board being opened: an id names its own, a day names one through
+  // the calendar. Both answers live above, in one place each, because this arithmetic has to
+  // agree with the builder's and with everywhere else that asks.
   const day = want?.day ?? dayNumber();
-  const index = want?.id !== undefined ? shardOf(want.id) : dayIndex(day, manifest.days);
+  const index = want?.id !== undefined ? shardOf(want.id) : shardForDay(day, manifest);
 
   const [dictionary, graph, common, puzzles] = await Promise.all([
     getJson<RawDictionary>('dictionary.json'),

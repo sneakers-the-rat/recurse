@@ -3,12 +3,12 @@
  *
  * The board used to *be* the viewport: the figure was squeezed into a box the shape
  * of the plate and every word clamped inside it, so a board with sixty words drew
- * them all smaller. That is backwards for a game played on a phone — the one thing
- * that must not vary is whether the words can be read.
+ * them all smaller. That is backwards for a game played on a phone — a word's size
+ * should be a fact about the answer, not about how much else there is beside it.
  *
- * So the figure has whatever size it needs and this is a camera onto it. The scale is
- * decided first, from what is readable and from wanting the answer in shot; the
- * surrounding graph runs off the edges and is reached by dragging and pinching.
+ * So the figure has whatever size it needs and this is a camera onto it. The scale comes from
+ * the *answer* — the whole of it, source to target, in shot — and the surrounding graph runs
+ * off the edges and is reached by dragging and pinching.
  *
  * A camera is a point and a scale — `scale` being pixels per graph unit — and the
  * viewBox is derived from it and the plate's size in pixels, so the view always has
@@ -50,30 +50,26 @@ export interface Box {
  * How big a word is on screen, which is the thing the play view is actually *for*.
  *
  * Labels are set at this many graph units (GraphPlate's own font size), so a scale is a
- * word size and the two bounds below are the only honest way to say what this view is
- * promising: no word smaller than fifteen pixels, and none larger than eighteen.
+ * word size, and `GENEROUS_SCALE` is that reading of it.
  */
 const LABEL_UNITS = 12.5;
 
 /**
- * Smallest a word may be drawn and still be read.
- *
- * It was 0.85 — eleven pixels — which was not a floor at all in practice: the play view
- * *fits the spine*, so on a par-5 answer it landed at 0.93 of its own accord and drew the
- * board at 11.7px on a phone. Making the words readable is not something to leave to
- * whatever the arithmetic happens to give, and it is the whole reason the plate can be
- * zoomed and dragged: the words come first and the surplus board runs off the edges.
- */
-export const READABLE_SCALE = 15 / LABEL_UNITS;
-
-/**
- * And the largest worth going to on its own.
+ * The largest a word is worth drawing on its own.
  *
  * A short answer fits its spine at nearly twice the scale of a long one, which would draw
  * a par-3 board at 24px — as large as the header's own statement — and make the board's
- * apparent size a fact about par rather than about the board. Capped, the whole bank draws
- * its words between fifteen and eighteen pixels. Zooming by hand still goes to MAX_SCALE:
- * this bounds what the game chooses, not what the player may ask for.
+ * apparent size a fact about par rather than about the board. Zooming by hand still goes to
+ * MAX_SCALE: this bounds what the game chooses, not what the player may ask for.
+ *
+ * **There is no floor to match it, and that is the point.** There was one — fifteen pixels, on
+ * the grounds that a board of words too small to read is not a board — and a bank that runs to
+ * par 10 turned it into the opposite of what it was for. A par-7 spine is 664 units with its
+ * margins and a phone's plate holds 517 of them at that scale, so the view opened *inside* the
+ * answer with both of the puzzle's own words cut off the ends: the one thing the play view
+ * exists to frame, hidden, on every long board in the bank. A board drawn small is a board;
+ * a board whose subject is off screen is not, and the size of the words is the half of this a
+ * pinch can fix.
  */
 export const GENEROUS_SCALE = 18 / LABEL_UNITS;
 
@@ -87,7 +83,7 @@ export const MAX_SCALE = 4;
  * Enough for a word's *label*, not just its mark: labels sit twenty-odd units above the
  * node they belong to and stand about twelve tall, so anything under about forty clips the
  * source's own name against the top of the plate. Fifty-two is that with a little to
- * spare, and every unit of it is a unit the words cannot have — see READABLE_SCALE.
+ * spare, and every unit of it is a unit the words cannot have.
  */
 const SPINE_MARGIN = 52;
 
@@ -106,14 +102,16 @@ export function viewOf(camera: Camera, plate: Plate): View {
  * The view a puzzle is played at: source, target and the route between them, filling
  * the plate.
  *
- * Fixed by the *spine*, never by how much else there is to draw, which is what makes
- * the words the same size on a bare board and a crowded one. Where the spine is too
- * long to fit and stay legible — a long answer on a short phone — legibility wins and
- * the ends run off the screen, because a board of unreadable words is not a board.
+ * Fixed by the *spine*, never by how much else there is to draw, which is what makes the words
+ * the same size on a bare board and a crowded one — and **both of its ends are always in
+ * shot**, whatever that costs in word size. The two words the puzzle is about are the one
+ * thing on the plate a player is entitled to be able to find; a long answer is drawn small
+ * rather than framed from the middle. Everything else still runs off the edges and is reached
+ * by dragging.
  */
 export function playCamera(spineHeight: number, plate: Plate): Camera {
   const wanted = plate.height / (spineHeight + SPINE_MARGIN * 2);
-  return { cx: 0, cy: spineHeight / 2, scale: clamp(wanted, READABLE_SCALE, GENEROUS_SCALE) };
+  return { cx: 0, cy: spineHeight / 2, scale: clamp(wanted, MIN_SCALE, GENEROUS_SCALE) };
 }
 
 /**

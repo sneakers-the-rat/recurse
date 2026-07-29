@@ -6,11 +6,13 @@ import {
   hintCount,
   hintLabel,
   hintLevels,
+  moveHint,
   newGame,
   restore,
   select,
   snapshot,
   useHint,
+  useMoveHint,
   worthKeeping,
 } from './game';
 import type { Puzzle } from './types';
@@ -163,6 +165,71 @@ describe('hints', () => {
     // number the player posts, and it has to mean something.
     const spent = hintCount(state);
     expect(hintCount(useHint(state, 'cannonball'))).toBe(spent);
+  });
+
+  /**
+   * What a word on the answer sells instead of its letters: the shape of one move at a time.
+   *
+   * Its letters are not for sale at all — three of the seven in a word on a shortest route
+   * names it, which is the answer rather than a hint toward it.
+   */
+  describe('moves given away', () => {
+    it('marks one move per click, in the order the board offers them', () => {
+      let state = newGame(puzzle);
+      state = useMoveHint(state, 'cannonball', ['ball', 'cannon']);
+      // Asked about `cannonball`, so the mark is about arriving there: from `ball`, by adding.
+      expect(moveHint(state, 'cannonball', 'ball')).toMatchObject({
+        at: 'cannonball',
+        kind: 'add',
+      });
+      expect(moveHint(state, 'cannonball', 'cannon')).toBeNull();
+
+      state = useMoveHint(state, 'cannonball', ['ball', 'cannon']);
+      expect(moveHint(state, 'cannonball', 'cannon')).toMatchObject({ kind: 'add' });
+    });
+
+    it('says how you arrive at the word that was asked about', () => {
+      // The mark is about that word, and sits beside it: reaching `ball` from `cannonball`
+      // takes letters away, and reaching `cannonball` from `ball` adds them.
+      const shorter = useMoveHint(newGame(puzzle), 'ball', ['cannonball']);
+      expect(moveHint(shorter, 'ball', 'cannonball')).toMatchObject({
+        at: 'ball',
+        kind: 'remove',
+      });
+      const longer = useMoveHint(newGame(puzzle), 'cannonball', ['ball']);
+      expect(moveHint(longer, 'ball', 'cannonball')).toMatchObject({
+        at: 'cannonball',
+        kind: 'add',
+      });
+    });
+
+    it('does not sell the same move twice, from either end', () => {
+      let state = useMoveHint(newGame(puzzle), 'cannonball', ['ball']);
+      const spent = hintCount(state);
+      state = useMoveHint(state, 'cannonball', ['ball']);
+      state = useMoveHint(state, 'ball', ['cannonball']);
+      expect(hintCount(state)).toBe(spent);
+    });
+
+    it('has more to sell once the board draws more moves', () => {
+      // The board grows as the player names words beside a route, and the moves that arrive
+      // with them are buyable too — while the ones already paid for stay where they are.
+      let state = useMoveHint(newGame(puzzle), 'cannonball', ['ball']);
+      state = useMoveHint(state, 'cannonball', ['ball', 'cannon']);
+      expect(hintCount(state)).toBe(2);
+      expect(moveHint(state, 'cannonball', 'ball')).not.toBeNull();
+      expect(moveHint(state, 'cannonball', 'cannon')).not.toBeNull();
+    });
+
+    it('counts on the tally, and comes back from a snapshot', () => {
+      let state = useHint(newGame(puzzle), 'cannon');
+      state = useMoveHint(state, 'cannonball', ['ball']);
+      expect(hintCount(state)).toBe(2);
+
+      const again = restore(puzzle, JSON.parse(JSON.stringify(snapshot(state))));
+      expect(hintCount(again)).toBe(2);
+      expect(moveHint(again, 'cannonball', 'ball')).toMatchObject({ kind: 'add' });
+    });
   });
 
   it('counts one per click, across every word', () => {

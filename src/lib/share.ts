@@ -11,13 +11,15 @@
  *
  * The emoji are the interesting part. One per guess, in the order they were made:
  *
+ *     ⭐ star   — a word on a shortcut: a way through shorter than par
  *     🟨 gold   — a word on a shortest route: dead on the line
  *     🟩 green  — a word on the board but not on a shortest route: an alternative
  *     🟥 red    — any other word: off exploring
  *
  * Which means the trail reads as a story — a run of gold is someone who saw it, a
- * red then gold is someone who went wandering and came back — without naming a
- * single word, so nothing here spoils the puzzle for whoever reads it.
+ * red then gold is someone who went wandering and came back, a star is someone who
+ * found a corner nobody expected to be cut — without naming a single word, so
+ * nothing here spoils the puzzle for whoever reads it.
  *
  * "The board" is the board **as first drawn**, never as it ended up. The board grows
  * to follow a player who strays (see plate.ts), so judging against the final one
@@ -30,9 +32,10 @@
  */
 
 /** What a guessed word was, in relation to the answer. */
-export type Mark = 'route' | 'alternate' | 'stray';
+export type Mark = 'shortcut' | 'route' | 'alternate' | 'stray';
 
 const EMOJI: Record<Mark, string> = {
+  shortcut: '⭐',
   route: '🟨',
   alternate: '🟩',
   stray: '🟥',
@@ -41,16 +44,28 @@ const EMOJI: Record<Mark, string> = {
 /**
  * Which mark each guessed word earns.
  *
- * `route` wins over `alternate` where both are true, because being on the line is
- * the stronger fact — every node on a shortest route is also a node on the board.
+ * Strongest fact first, because a word can be several of these at once. A word on a
+ * shortcut is a star even when it is also on the board, and a word on a shortest route
+ * beats an alternative — every node on a shortest route is also a node on the board.
+ *
+ * `shortcut` is the words of a route shorter than par: the whole of it, not only the rare
+ * word that made it possible, because the shortcut is the line and not one step on it.
+ * Endpoints are excluded by the caller, being on every way through.
  */
 export function markGuesses(
   words: readonly string[],
   routeNodes: ReadonlySet<string>,
   boardNodes: ReadonlySet<string>,
+  shortcutNodes: ReadonlySet<string> = new Set(),
 ): Mark[] {
   return words.map((word) =>
-    routeNodes.has(word) ? 'route' : boardNodes.has(word) ? 'alternate' : 'stray',
+    shortcutNodes.has(word)
+      ? 'shortcut'
+      : routeNodes.has(word)
+        ? 'route'
+        : boardNodes.has(word)
+          ? 'alternate'
+          : 'stray',
   );
 }
 

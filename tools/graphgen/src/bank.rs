@@ -24,11 +24,16 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 use crate::id::digest;
-use crate::select::{Rejections, Rule, Selection};
+use crate::select::{self, Rejections, Rule, Selection};
 
-/// Bumped when the file's layout changes, so an old cache misses rather than being
-/// misread as a new one.
-const FORMAT: u32 = 4;
+/// Bumped when the file's layout changes, or when a rule does.
+///
+/// The layout half is obvious. The rules half is the trap: the digest below covers every
+/// *knob*, so a rule with a hard-coded threshold — `MIN_BOARD`, `OFF_ROUTE_PER_MOVE`, the
+/// halfway test, how much of an answer has to find a word inside a word — moves nothing in the
+/// key, and a cached bank chosen by the old rules would be read straight back and shipped.
+/// Adding or changing one of those means bumping this.
+const FORMAT: u32 = 6;
 
 /// Everything the search's result depends on, as one hex string.
 ///
@@ -87,15 +92,17 @@ pub fn save(path: &Path, selection: &Selection) -> Result<(), String> {
     // Header: the counts and the rule tallies, which the survey prints and which
     // cannot be recovered from the puzzles alone.
     out.push_str(&format!("candidates\t{}\n", selection.candidates));
-    for (rule, refused) in &selection.rejections.alone {
-        let sole = selection
-            .rejections
-            .only
-            .iter()
-            .find(|(r, _)| r == rule)
-            .map(|(_, n)| *n)
-            .unwrap_or(0);
-        out.push_str(&format!("rule\t{}\t{refused}\t{sole}\n", rule.slot()));
+    // One line per rule per par, because that is the grid the survey prints and none of it
+    // can be recovered from the puzzles that survived.
+    for rule in Rule::ALL {
+        for par in 0..select::PAR_SLOTS {
+            let refused = selection.rejections.alone[rule.slot()][par];
+            let sole = selection.rejections.only[rule.slot()][par];
+            if refused == 0 && sole == 0 {
+                continue;
+            }
+            out.push_str(&format!("rule\t{}\t{par}\t{refused}\t{sole}\n", rule.slot()));
+        }
     }
     for puzzle in &selection.puzzles {
         out.push_str(&format!(
@@ -122,8 +129,8 @@ pub fn load(path: &Path) -> Option<Bank> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut puzzles = Vec::new();
     let mut candidates = 0usize;
-    let mut alone = [0usize; Rule::ALL.len()];
-    let mut only = [0usize; Rule::ALL.len()];
+    let mut alone = select::empty_tally();
+    let mut only = select::empty_tally();
 
     for line in text.lines() {
         let mut field = line.split('\t');
@@ -134,8 +141,12 @@ pub fn load(path: &Path) -> Option<Bank> {
                 if slot >= Rule::ALL.len() {
                     return None;
                 }
-                alone[slot] = field.next()?.parse().ok()?;
-                only[slot] = field.next()?.parse().ok()?;
+                let par: usize = field.next()?.parse().ok()?;
+                if par >= select::PAR_SLOTS {
+                    return None;
+                }
+                alone[slot][par] = field.next()?.parse().ok()?;
+                only[slot][par] = field.next()?.parse().ok()?;
             }
             "p" => {
                 let id = field.next()?.to_string();

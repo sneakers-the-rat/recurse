@@ -1,0 +1,138 @@
+name: Graph and puzzle bank
+
+# The expensive half of every workflow in this repo, and the only place its cache keys are
+# written down.
+#
+# `public/data` is not committed — it is 47MB of generated graph and bank — so the deploy and
+# the tests both need it built, and neither should build it twice or build it needlessly. So
+# this is a reusable workflow: it runs inside the caller's run, uploads what it made as the
+# `data` artifact, and the caller's other jobs take it from there with `download-artifact`.
+#
+# Two caches, and each one names exactly the inputs of the step it guards:
+#
+#   the crate     rustc, Cargo.lock/toml, src/**  ->  ~/.cargo and target/
+#   the data      those, plus .env, the blocklist and the corpora  ->  public/data
+#
+# So an ordinary change — a component, a comment, a README — rebuilds neither, and a change to
+# a selection rule rebuilds both, because it genuinely means a different bank.
+#
+# GitHub scopes a cache to the branch that wrote it, with a fallback to the default branch, so
+# a branch that has not touched the builder reads main's data rather than making its own.
+
+on:
+  workflow_call:
+
+jobs:
+  builder:
+    name: Rust builder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # In the cache key, because the same source compiled by a different toolchain is a
+      # different binary and the registry layout it wants can move with it.
+      - name: Note the toolchain
+        id: rust
+        run: echo "version=$(rustc --version | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the crate's build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/graphgen/target
+          # Two dependencies and eight source files: hashing all of them is cheap and exact,
+          # so a hit means the binary in `target/release` is the binary this commit wants.
+          key: >-
+            graphgen-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{
+            hashFiles('tools/graphgen/Cargo.lock', 'tools/graphgen/Cargo.toml',
+            'tools/graphgen/src/**') }}
+
+      # Skipped outright on a hit, which is the point of the key above.
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: cargo build --release --locked --manifest-path tools/graphgen/Cargo.toml
+
+      # The one thing the next job needs. Artifacts do not carry the executable bit, so the
+      # job that receives this has to put it back.
+      - name: Hand the binary on
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphgen
+          path: tools/graphgen/target/release/graphgen
+          if-no-files-found: error
+          retention-days: 1
+
+  data:
+    name: Puzzle bank
+    needs: builder
+    runs-on: ubuntu-latest
+    # The search is minutes of work on a laptop and this is a two-core runner, so the ceiling
+    # is generous. It is here to catch a build that has hung, not to bound a slow one.
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Everything the builder reads: the crate that does the work, every number that shapes
+      # the game, the blocklist, and the corpora — which are committed under tools/cache, so
+      # nothing here needs the network.
+      - name: Cache the data
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: public/data
+          key: >-
+            data-${{ hashFiles('tools/graphgen/src/**', 'tools/graphgen/Cargo.lock', '.env',
+            'tools/blocklist.txt', 'tools/cache/*.txt') }}
+
+      # The search's own result, which the builder caches for itself in tools/cache. Restored
+      # by *prefix*, deliberately: the file's name carries a digest of everything the search
+      # depends on (see bank.rs), and that digest excludes the knobs that only order the
+      # calendar. So handing the builder the most recent bank from any previous run lets it
+      # decide for itself whether it may reuse one — which is how a change to RECURSE_SEED
+      # stays seconds of work instead of re-running the search.
+      - name: Cache the search
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: tools/cache/bank-*.tsv
+          key: >-
+            bank-${{ hashFiles('tools/graphgen/src/**', 'tools/graphgen/Cargo.lock', '.env',
+            'tools/blocklist.txt', 'tools/cache/*.txt') }}
+          restore-keys: bank-
+
+      - name: Fetch the builder
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: graphgen
+          path: bin
+
+      # From the repo root, because that is how the builder finds the repo: it walks up
+      # looking for a .env beside a package.json.
+      - name: Build the graph and the bank
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          chmod +x bin/graphgen
+          ./bin/graphgen
+
+      - name: Say what it came to
+        run: |
+          du -sh public/data
+          ls public/data public/data/puzzles | head -20
+
+      - name: Hand the data on
+        uses: actions/upload-artifact@v4
+        with:
+          name: data
+          path: public/data
+          if-no-files-found: error
+          retention-days: 1

@@ -13,7 +13,8 @@
  * so a screenshot never gets mistaken for the real thing.
  */
 
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
+import type { Pair } from '../lib/data';
 import type { Puzzle } from '../lib/types';
 
 interface Props {
@@ -22,8 +23,24 @@ interface Props {
   puzzle: Puzzle;
   /** Drawn nodes, which can exceed corridorSize once the player strays. */
   drawn: number;
-  /** A shortest path, for eyeballing word quality. */
+  /**
+   * The answer: a shortest route through ordinary words, which is what par counts and what
+   * the board is drawn as. This used to be handed the *legal* shortest route, so on a puzzle
+   * with a secret the bar showed a line of rare words that was shorter than the par beside
+   * it and never showed the answer at all.
+   */
   path: readonly string[];
+  /** Shortcuts: routes shorter than par, which exist because a rarer word cuts a corner. */
+  secrets?: readonly (readonly string[])[];
+  /**
+   * Every pair in the bank and its address, for finding a board by its two words — null until
+   * it has been fetched, which is on the first keystroke into the lookup. See `loadPairs`.
+   */
+  pairs?: readonly Pair[] | null;
+  /** Ask for the pair index. Called when the lookup is first used and not before. */
+  onNeedPairs?: () => void;
+  /** Open a board by its address, which is how the lookup arrives at one. */
+  onOpenId?: (id: string) => void;
   guesses: number;
   onGo: (index: number) => void;
   onSolve: () => void;
@@ -65,6 +82,107 @@ function Stat({ name, children }: { name: string; children: React.ReactNode }) {
   );
 }
 
+/** How many words a dropdown offers. Enough to choose from, few enough to read. */
+const SUGGESTIONS = 8;
+
+/**
+ * Find a board by the two words it is about.
+ *
+ * Ids are digests and they change with every rebuild, so the id written down beside a puzzle
+ * yesterday names nothing today — while `warming → scolding` still means the same board. This
+ * is the way back to one: type either word, take a suggestion, and go.
+ *
+ * The index behind it is 3.7MB and is not part of what a player loads, so it is fetched on the
+ * first keystroke here and not before. Until it arrives the field says so, because a lookup
+ * that silently offers nothing is indistinguishable from a lookup with no answer.
+ */
+function FindPair({
+  pairs,
+  onNeed,
+  onOpen,
+}: {
+  pairs: readonly Pair[] | null;
+  onNeed: (() => void) | undefined;
+  onOpen: ((id: string) => void) | undefined;
+}) {
+  const [source, setSource] = useState('');
+  const [target, setTarget] = useState('');
+
+  /**
+   * What each field offers, and the pair the two of them name.
+   *
+   * The target's suggestions are the words that *pair with this source*, not every target in
+   * the bank: the point of the lookup is to reach a board, and a target the source has no
+   * puzzle with is a suggestion that cannot be taken.
+   */
+  const { sources, targets, found } = useMemo(() => {
+    if (!pairs) return { sources: [], targets: [], found: null };
+    const from = source.trim().toLowerCase();
+    const to = target.trim().toLowerCase();
+
+    const matching = from ? pairs.filter((pair) => pair.source.startsWith(from)) : pairs;
+    const exact = matching.filter((pair) => pair.source === from);
+    const withSource = exact.length > 0 ? exact : matching;
+
+    const pick = (words: Iterable<string>) => [...new Set(words)].slice(0, SUGGESTIONS);
+    return {
+      sources: pick(matching.map((pair) => pair.source)),
+      targets: pick(
+        withSource.filter((pair) => pair.target.startsWith(to)).map((pair) => pair.target),
+      ),
+      found: withSource.find((pair) => pair.source === from && pair.target === to) ?? null,
+    };
+  }, [pairs, source, target]);
+
+  const field = (
+    value: string,
+    set: (next: string) => void,
+    list: string,
+    label: string,
+    options: readonly string[],
+  ) => (
+    <>
+      <input
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        onFocus={() => !pairs && onNeed?.()}
+        list={list}
+        placeholder={pairs ? label : '…'}
+        aria-label={`Find a puzzle by its ${label} word`}
+        autoComplete="off"
+        className="w-24 border border-neutral-700 bg-transparent px-1.5 py-0.5 outline-none focus:border-neutral-500"
+      />
+      <datalist id={list}>
+        {options.map((word) => (
+          <option key={word} value={word} />
+        ))}
+      </datalist>
+    </>
+  );
+
+  return (
+    <form
+      className="flex items-center gap-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (found) onOpen?.(found.id);
+      }}
+    >
+      {field(source, setSource, 'dev-sources', 'source', sources)}
+      <span className="text-neutral-600">→</span>
+      {field(target, setTarget, 'dev-targets', 'target', targets)}
+      <Key
+        onClick={() => {
+          if (found) onOpen?.(found.id);
+        }}
+        label="Open the puzzle about these two words"
+      >
+        {found ? 'open' : pairs ? 'no pair' : 'find'}
+      </Key>
+    </form>
+  );
+}
+
 // Memoised for the same reason as the rest: the plate's own motion re-renders App on
 // every frame, and the instruments have nothing to say about any of them.
 export const DevBar = memo(function DevBar({
@@ -73,6 +191,10 @@ export const DevBar = memo(function DevBar({
   puzzle,
   drawn,
   path,
+  secrets = [],
+  pairs = null,
+  onNeedPairs,
+  onOpenId,
   guesses,
   onGo,
   onSolve,
@@ -119,6 +241,8 @@ export const DevBar = memo(function DevBar({
           />
         </form>
 
+        <FindPair pairs={pairs} onNeed={onNeedPairs} onOpen={onOpenId} />
+
         {/* The address of the board on screen, which is what the survey quotes. */}
         <Stat name="id">{puzzle.id}</Stat>
         <Stat name="par">{puzzle.par}</Stat>
@@ -141,9 +265,21 @@ export const DevBar = memo(function DevBar({
           </Key>
         </span>
 
+        {/*
+          The answer first, then any shortcut under it, each said to be one. Two different
+          routes with two different lengths, and a bar that shows one line cannot say which
+          it is showing.
+        */}
         <p className="w-full break-words text-neutral-500">
+          <span className="text-neutral-600">answer </span>
           {path.length ? path.join(' → ') : 'no path'}
         </p>
+        {secrets.map((route, i) => (
+          <p key={route.join(' ')} className="w-full break-words text-neutral-500">
+            <span className="text-gilt-dim">secret{secrets.length > 1 ? ` ${i + 1}` : ''} </span>
+            <span className="text-neutral-400">{route.join(' → ')}</span>
+          </p>
+        ))}
       </div>
     </div>
   );

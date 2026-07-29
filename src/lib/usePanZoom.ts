@@ -44,13 +44,37 @@ const WHEEL_STEP = 0.0022;
  * handler was silently doing nothing at all. It is a native non-passive listener now, and
  * the choice is made deliberately rather than lost.)
  *
- * So scrolling past is the default and the board has to be *asked* for, by coming to rest
- * on it. Half a second is long enough that a wheel through the plate never catches, and
- * short enough that meaning to zoom does not feel like waiting. Any scrolling of the page
- * re-arms it, so the board can never take the wheel out from under a scroll already in
- * progress; leaving the plate gives it up.
+ * **The wait is only for the case where there is genuinely something to lose.** While a round is
+ * being played the page is one fixed-height screen and does not scroll at all, so there is no
+ * ambiguity to resolve and no reason to make anybody wait for a zoom: the board simply has the
+ * wheel. It is when the round ends and the page runs on past the plate that deference is worth
+ * anything, and that is the only time this waits. Making every board wait was most of why the
+ * wheel felt broken — half a second of nothing happening, on a page that was never going to
+ * scroll.
+ *
+ * When the page *can* scroll, scrolling past is the default and the board has to be asked for by
+ * putting a pointer on it and letting the wheel go quiet. Two details:
+ *
+ * - **The pointer has to have moved here.** A page scrolled under a stationary mouse slides the
+ *   plate up to meet it, and the mouse has not been asked about anything. The wait used to start
+ *   on `pointerenter`, which is exactly what that scroll fires, so the board took the wheel out
+ *   from under a page the player was reading.
+ * - **A wheel that goes to the page restarts the wait rather than ending it**, so a scroll in
+ *   progress can never be interrupted mid-gesture, and a pointer already resting on the plate
+ *   does not have to be jiggled to get the board's attention once the scrolling stops.
  */
 const DWELL_MS = 500;
+
+/**
+ * Whether there is any page to scroll, which is the whole reason the wheel is ever contested.
+ *
+ * Asked at the moment the wheel arrives rather than remembered, because the answer changes
+ * inside a round: finishing one adds the result and the move list below the plate.
+ */
+function pageScrolls(): boolean {
+  const page = document.scrollingElement ?? document.documentElement;
+  return page.scrollHeight > page.clientHeight + 1;
+}
 
 export interface PanZoom {
   camera: Camera;
@@ -157,66 +181,115 @@ export function usePanZoom(
   useEffect(() => {
     if (!target) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    /** Where the pointer last was, so a plate that moves under it is not mistaken for a move. */
+    let at: { x: number; y: number } | null = null;
+
+    /** The board has the wheel from here, and the lit border says so. */
+    const take = () => {
+      clearTimeout(timer);
+      engage(true);
+    };
 
     /**
-     * Start the clock again.
+     * A pointer has been put on the plate on purpose. Take the wheel, or start the clock.
      *
-     * Called when the pointer arrives or moves and whenever the page scrolls, which is
-     * what stops the board from grabbing a scroll in progress: as long as the page is
-     * moving, the wait keeps restarting and never completes.
+     * Nothing to defer to means nothing to wait for: with the page at one screen there is no
+     * scroll to interrupt, so the board takes the wheel at once.
      *
-     * Only while *not* engaged, though. Once the board has the wheel, a twitch of the hand
-     * must not hand it back — losing it mid-zoom and sending the next notch to the page
-     * would be the same confusion in a smaller form. Leaving the plate is what gives it up.
+     * Nothing happens at all once the board has it. A twitch of the hand must not hand it back
+     * — losing it mid-zoom and sending the next notch to the page would be the same confusion
+     * in a smaller form. Leaving the plate is what gives it up.
      */
     const arm = () => {
       if (engagedRef.current) return;
+      if (!pageScrolls()) {
+        take();
+        return;
+      }
       clearTimeout(timer);
       timer = setTimeout(() => engage(true), DWELL_MS);
     };
 
+    /**
+     * Note where the pointer is, and say whether it actually went there.
+     *
+     * Scrolling the page fires `pointermove` at whatever arrives under a mouse that never
+     * went anywhere, and taking those at face value is what let a scroll engage the board.
+     * The wheel records a position too, for the same reason from the other side: the
+     * boundary event a scroll fires carries the coordinates the wheel already reported, so
+     * remembering them is what tells the two apart.
+     */
+    const moveTo = (x: number, y: number) => {
+      const moved = at === null || at.x !== x || at.y !== y;
+      at = { x, y };
+      return moved;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (moveTo(event.clientX, event.clientY)) arm();
+    };
+
+    // A hand put on the board is as deliberate as a hand moved across it, wherever it lands.
+    const onPointerDown = (event: PointerEvent) => {
+      moveTo(event.clientX, event.clientY);
+      arm();
+    };
+
     const release = () => {
       clearTimeout(timer);
+      at = null;
       engage(false);
     };
 
     const onWheel = (event: WheelEvent) => {
-      // Not ours: say nothing, do nothing, and let the page scroll as it would.
-      if (!engagedRef.current) return;
+      if (!engagedRef.current) {
+        // A page of one screen has no scroll to lose, so this notch is the board's — and a
+        // wheel over the plate is proof enough that a pointer is here to say so out loud.
+        if (!pageScrolls()) {
+          take();
+        } else {
+          // Otherwise the page keeps it: say nothing, do nothing, and let it scroll as it
+          // would. The position is recorded so that the boundary `pointermove` a scroll fires
+          // at the arriving plate is not mistaken for a hand being put on it; the wait starts
+          // again from here, so this gesture can only ever end with the page still scrolling.
+          moveTo(event.clientX, event.clientY);
+          clearTimeout(timer);
+          timer = setTimeout(() => engage(true), DWELL_MS);
+          return;
+        }
+      }
       // Ours, so it is *only* ours — including at the zoom stops, where doing nothing is
       // still an answer and letting the page have the leftovers would be the old bug back.
       event.preventDefault();
       stopGlide();
       const box = target.getBoundingClientRect();
-      const at = { x: event.clientX - box.left, y: event.clientY - box.top };
+      const over = { x: event.clientX - box.left, y: event.clientY - box.top };
       // Exponential in the delta, so a trackpad's stream of small deltas and a mouse's
       // single large one both feel like the same gesture.
       const factor = Math.exp(-event.deltaY * WHEEL_STEP);
       setCamera((current) =>
         clampCamera(
-          zoomAround(current, plateRef.current, factor, at),
+          zoomAround(current, plateRef.current, factor, over),
           boundsRef.current,
           plateRef.current,
         ),
       );
     };
 
-    target.addEventListener('pointerenter', arm);
-    target.addEventListener('pointermove', arm);
+    target.addEventListener('pointermove', onPointerMove);
+    target.addEventListener('pointerdown', onPointerDown);
     target.addEventListener('pointerleave', release);
     // Non-passive, which is the whole point: a passive listener may not call
     // `preventDefault`, and React registers `wheel` passively, so the handler this
     // replaces was asking the page not to scroll and being ignored.
     target.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('scroll', arm, { passive: true });
 
     return () => {
       clearTimeout(timer);
-      target.removeEventListener('pointerenter', arm);
-      target.removeEventListener('pointermove', arm);
+      target.removeEventListener('pointermove', onPointerMove);
+      target.removeEventListener('pointerdown', onPointerDown);
       target.removeEventListener('pointerleave', release);
       target.removeEventListener('wheel', onWheel);
-      window.removeEventListener('scroll', arm);
     };
   }, [target, engage, stopGlide]);
 

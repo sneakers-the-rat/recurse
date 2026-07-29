@@ -5,8 +5,44 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { decodeDeltas, decodeRows, decodeGameData } from './data';
+import { decodeDeltas, decodeRows, decodeGameData, shardForDay, shardOf } from './data';
 import { DICTIONARY, EDGES, PARAMS } from '../test/fixture';
+import { shippedData, shippedShard } from '../test/shipped';
+import { puzzleForDay } from './daily';
+
+/**
+ * Which shard a board is in, which is the one piece of arithmetic the client and the builder
+ * both have to get right and neither can check alone.
+ *
+ * It is also the arithmetic a bug hides in for months: shards are named by id prefix and
+ * there are 256 of them, while the calendar is 149,717 days long, so *any* wrong answer here
+ * is right for the first 256 days of the bank.
+ */
+describe('shardForDay', () => {
+  const { manifest } = shippedData();
+
+  it('names a shard that exists, for any day in the calendar', () => {
+    // Including the days past the number of shards, which is where the day number was being
+    // used as a shard index and the game would have stopped loading altogether.
+    for (const day of [0, 1, 255, 256, 257, 999, manifest.days - 1, manifest.days, -1]) {
+      const index = shardForDay(day, manifest);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(index).toBeLessThan(manifest.shards);
+    }
+  });
+
+  it('names the shard that actually holds that day, in the bank that shipped', () => {
+    // The builder's promise, checked against the files: `spread` placed day N in shard
+    // N % SHARDS, and a puzzle's id — hence its shard — is a digest of its own answer, so
+    // nothing but the builder's own placement makes these agree.
+    for (const day of [0, 1, 3, 255, 256, 300, 1000]) {
+      const index = shardForDay(day, manifest);
+      const found = puzzleForDay(shippedShard(index), day, manifest.days);
+      expect(found, `day ${day} should be in shard ${index}`).not.toBeNull();
+      expect(shardOf(found!.puzzle.id)).toBe(index);
+    }
+  });
+});
 
 describe('decodeDeltas', () => {
   it('turns steps back into indices', () => {

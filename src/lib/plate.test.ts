@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'vitest';
 import { drawOptions, shippedData } from '../test/shipped';
 import { buildPlate } from './plate';
+import { shortestPath } from './graph';
+import { applyGuess, newGame } from './game';
 import type { Revealed } from './types';
 
 function real() {
@@ -151,6 +153,81 @@ describe('buildPlate', () => {
     }
 
     expect(stranded).toEqual([]);
+  });
+
+  /**
+   * The stronger version of the rule above, and the one a secret route needs.
+   *
+   * Every board with a secret failed this — 40 of 40 — while passing the orphan test, because
+   * the step *back* from a rare word lands on a word that is already drawn and already joined
+   * to its neighbours. Nothing was stranded, so nothing was attached, so the move the player
+   * had just made was not on the board and its subword label had nowhere to be written.
+   */
+  it('draws an edge for every move the player made, including off the common graph', () => {
+    const { graph, puzzles } = real();
+    const missing: string[] = [];
+
+    for (const puzzle of puzzles.slice(0, 40)) {
+      // The legal route rather than the common one: on a puzzle with a secret it steps
+      // outside the corpus and back, which is the case that was broken.
+      const route = shortestPath(graph, puzzle.source, puzzle.target);
+      if (!route || route.length < 3) continue;
+
+      let state = newGame(puzzle);
+      for (const word of route.slice(1)) {
+        state = applyGuess(state, graph, word, graph.isWord).state;
+      }
+
+      const plate = buildPlate(graph, puzzle.source, puzzle.target, state.revealed.values(), {
+        ...drawOptions(puzzle),
+        anchors: new Set(state.revealed.keys()),
+      });
+      const drawn = new Set(plate.edges.map(({ a, b }) => `${a} ${b}`));
+      for (const entry of state.revealed.values()) {
+        if (entry.via === null) continue;
+        const [a, b] = [entry.via, entry.word].sort();
+        if (!drawn.has(`${a} ${b}`)) missing.push(`${puzzle.id}: ${a} ${b}`);
+      }
+    }
+
+    expect(missing).toEqual([]);
+  });
+
+  /**
+   * A word the player walked to shows every move it has to the board, not just the one it
+   * arrived by. Drawn joined only to its parent, a rare word standing between three drawn
+   * words reads as a spur off one of them.
+   */
+  it('draws every legal edge from a word the player walked to', () => {
+    const { graph, puzzles } = real();
+    const missing: string[] = [];
+
+    for (const puzzle of puzzles.slice(0, 25)) {
+      const route = shortestPath(graph, puzzle.source, puzzle.target);
+      if (!route || route.length < 3) continue;
+      let state = newGame(puzzle);
+      for (const word of route.slice(1)) {
+        state = applyGuess(state, graph, word, graph.isWord).state;
+      }
+
+      const plate = buildPlate(graph, puzzle.source, puzzle.target, state.revealed.values(), {
+        ...drawOptions(puzzle),
+        anchors: new Set(state.revealed.keys()),
+      });
+      const drawn = new Set(plate.nodes);
+      const edges = new Set(plate.edges.map(({ a, b }) => `${a} ${b}`));
+
+      for (const entry of state.revealed.values()) {
+        if (entry.via === null) continue;
+        for (const near of graph.neighbors(entry.word)) {
+          if (!drawn.has(near)) continue;
+          const [a, b] = [entry.word, near].sort();
+          if (!edges.has(`${a} ${b}`)) missing.push(`${puzzle.id}: ${a} ${b}`);
+        }
+      }
+    }
+
+    expect(missing).toEqual([]);
   });
 
   it('keeps a word the player found even if it is a dead end', () => {

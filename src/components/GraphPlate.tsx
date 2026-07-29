@@ -32,8 +32,8 @@
  * a line would be a free hint.
  */
 
-import { memo, useCallback, useMemo, useState } from 'react';
-import { fullyHinted, hintLabel, type GameState } from '../lib/game';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { fullyHinted, hintLabel, moveHint, type GameState } from '../lib/game';
 import type { PlateEdge } from '../lib/plate';
 import type { Point } from '../lib/types';
 
@@ -49,8 +49,26 @@ interface Props {
   distToTarget: ReadonlyMap<string, number>;
   /** Legal moves from each node that lead off the board. */
   spurCount: ReadonlyMap<string, number>;
-  /** Reveal the route's shape as gilt rings. */
-  showRoute: boolean;
+  /**
+   * A shortcut the player has found an end of: the words on it, and the moves between them.
+   *
+   * Only the route they landed on — App narrows the whole set of shortcuts to that (see its
+   * `trail`), because drawing all of them for finding one hands over the ones they never
+   * touched.
+   *
+   * Said in gilt and in the weight of the line, and in nothing else: the words are left
+   * *unnamed*, and the marks keep the size every other word of the same standing has, because
+   * on this board size means how much is known about a word. The discovery is that a shorter
+   * way runs through here — the words themselves are still the puzzle, so they are not spelled
+   * out and cannot be hinted (see `onHint` and App).
+   */
+  secretNodes?: ReadonlySet<string> | undefined;
+  secretEdges?: ReadonlySet<string> | undefined;
+  /**
+   * A word a hint was just refused on, if any: a cross, briefly, over the mark. Only ever a
+   * word on a shortcut, which is the one thing hints are not sold for.
+   */
+  refused?: string | null;
   /** The player's route beat par, so the trail is drawn as the secret it is. */
   beatPar?: boolean;
   /**
@@ -86,11 +104,27 @@ interface Props {
 const NODE_R = 14;
 /** A word that is on the board but unnamed: present, not competing. */
 const DOT_R = 4.5;
+/**
+ * How far from a word's mark still counts as pointing at it.
+ *
+ * Wider than the mark, because a dot is four units across and a thumb is not, and a sparse
+ * board should not have to be aimed at. Which means the reaches *overlap* wherever two words
+ * are close, and that is what `nearest` is for: an SVG gives the event to whichever shape was
+ * drawn last, so on a crowded board the word that lit up was the later one in the node list
+ * and not the one under the pointer. The reach stays generous; the nearest word wins it.
+ */
+const REACH = NODE_R + 8;
 /** Longest tick drawn for a move that leads off the board. */
 const SPUR_LEN = 9;
 
 /** Widest fan drawn, however many moves lead away. */
 const SPUR_SHOWN_MAX = 8;
+
+/** How far off the line a move's given-away sign sits. Perpendicular — see `beside`. */
+const MARK_OFF = 8;
+
+/** Where a pointer event happened, which is all of one that any of this needs. */
+type At = { clientX: number; clientY: number; currentTarget: Element };
 
 /**
  * Moves that lead off the board, drawn as a small fan of ticks.
@@ -168,29 +202,33 @@ const PlateNode = memo(function PlateNode({
   inspected,
   spurs,
   spurAngle,
-  namesWords,
+  onSecret,
+  refused,
   onHover,
   onUnhover,
-  onSelect,
-  onHint,
-  onSpell,
+  onActivate,
+  onInspect,
 }: {
   word: string;
   isRevealed: boolean;
   isSource: boolean;
   isTarget: boolean;
   isSelected: boolean;
+  /**
+   * The word is on a shortest route: gilt, and its *letters* are not for sale — a click buys
+   * the shape of one of its moves instead, drawn on the edge. See App's `hintWord`.
+   */
   onRoute: boolean;
   level: number;
   inspected: boolean;
   spurs: number;
   spurAngle: number;
-  namesWords: boolean;
-  onHover: (word: string) => void;
-  onUnhover: (word: string) => void;
-  onSelect: (word: string) => void;
-  onHint: (word: string) => void;
-  onSpell: ((word: string) => void) | undefined;
+  onSecret: boolean;
+  refused: boolean;
+  onHover: (word: string, at: At | null) => void;
+  onUnhover: (word: string, at: At | null) => void;
+  onActivate: (word: string, at: At | null) => void;
+  onInspect: ((word: string, at: At) => void) | undefined;
 }) {
   const isEndpoint = isSource || isTarget;
   const hinted = level > 0;
@@ -229,15 +267,22 @@ const PlateNode = memo(function PlateNode({
       : isRevealed
         ? 'var(--color-bone)'
         : 'var(--color-ash-lit)';
-  const fill = named
-    ? 'var(--color-noir-3)'
-    : hinted
-      ? 'var(--color-noir-2)'
-      : onRoute
-        ? 'var(--color-gilt-dim)'
-        : 'var(--color-ash)';
+  // A word on a found shortcut, still to be named: gilt, and otherwise exactly what it was.
+  // Size says how much is *known* about a word and nothing else on the board breaks that
+  // rule, so this does not either — the shortcut is said in colour, and in the weight of the
+  // line between one word and the next.
+  const secret = onSecret && !named;
+  const fill = secret
+    ? 'var(--color-gilt)'
+    : named
+      ? 'var(--color-noir-3)'
+      : hinted
+        ? 'var(--color-noir-2)'
+        : onRoute
+          ? 'var(--color-gilt-dim)'
+          : 'var(--color-ash)';
   const weight = named ? 1.4 : hinted ? 1 : 0.8;
-  const presence = named ? 1 : onRoute ? 0.95 : 0.7;
+  const presence = named || secret ? 1 : onRoute ? 0.95 : 0.7;
   // A word named by dev mode, rather than earned, is set dim: it is an
   // inspection of the board, not a move on it.
   const ink =
@@ -247,8 +292,11 @@ const PlateNode = memo(function PlateNode({
         ? 'var(--color-bone)'
         : 'var(--color-bone-dim)';
 
-  // The target is named from the start — it is the goal, not a secret.
-  const label = isRevealed || isTarget || inspected ? word : hintLabel(word, level);
+  // The target is named from the start — it is the goal, not a secret. A word on the answer
+  // shows nothing: its hints are on its edges, and a level stored by a version that sold its
+  // letters must not surface them now.
+  const label =
+    isRevealed || isTarget || inspected ? word : onRoute ? null : hintLabel(word, level);
 
   return (
     <>
@@ -273,7 +321,30 @@ const PlateNode = memo(function PlateNode({
           />
         )}
 
-        <circle r={r} fill={fill} stroke={ring} strokeWidth={weight} opacity={presence} />
+        <circle
+          r={r}
+          fill={fill}
+          stroke={secret ? 'var(--color-gilt)' : ring}
+          strokeWidth={secret ? 1.2 : weight}
+          opacity={presence}
+        />
+
+        {/*
+          A hint refused. Drawn over the mark rather than instead of it, and fading out on its
+          own, so the word says no and then goes back to being what it was — a shortcut still
+          waiting to be found — without the board moving or the mark changing size.
+        */}
+        {refused && (
+          <g className="crossed" aria-hidden>
+            <path
+              d={`M${-r - 2} ${-r - 2}L${r + 2} ${r + 2}M${r + 2} ${-r - 2}L${-r - 2} ${r + 2}`}
+              stroke="var(--color-blood-lit)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </g>
+        )}
 
         {/* Deco double ring marks the two words you are given. */}
         {isEndpoint && (
@@ -326,7 +397,13 @@ const PlateNode = memo(function PlateNode({
         aria-label={
           isRevealed
             ? `${word}${isSelected ? ', selected' : ''}. Guess from here.`
-            : !hinted
+            : // The goal is named from the start, so nothing about it is unnamed — but the
+              // moves into it are still worth asking about.
+              isTarget
+              ? `${word}, the goal. Show which way a move into it goes.`
+              : onRoute
+                ? 'Unnamed word on the best route. Show which way one of its moves goes.'
+                : !hinted
               ? 'Unnamed word. Reveal how many letters it has.'
               : fullyHinted(word, level)
                 ? `Unnamed word, spelled ${word}. Nothing left to hint.`
@@ -338,28 +415,34 @@ const PlateNode = memo(function PlateNode({
         // Hovering a word lifts every move from it out of the background, so
         // the question "what connects here" can be answered by pointing. Focus
         // does the same, since the board is usable from the keyboard.
-        onPointerEnter={() => onHover(word)}
-        onPointerLeave={() => onUnhover(word)}
-        onFocus={() => onHover(word)}
-        onBlur={() => onUnhover(word)}
-        onClick={() => (isRevealed ? onSelect(word) : onHint(word))}
+        //
+        // Every one of these hands the event on, because which word is being
+        // pointed at is a question about distance and only the plate can answer
+        // it — see `nearest`. `pointermove` as well as `pointerenter`, since two
+        // words' reaches overlap and crossing from one to the other need not
+        // leave the circle that is receiving the events.
+        onPointerEnter={(e) => onHover(word, e)}
+        onPointerMove={(e) => onHover(word, e)}
+        onPointerLeave={(e) => onUnhover(word, e)}
+        onFocus={() => onHover(word, null)}
+        onBlur={() => onUnhover(word, null)}
+        onClick={(e) => onActivate(word, e)}
         // Dev mode only: read the word without paying a hint for it.
         // Judging whether a puzzle is any good means reading the words around
         // the answer, and a right-click keeps that entirely out of the game —
         // spending hint levels to do it made the tally meaningless.
         onContextMenu={
-          namesWords && onSpell
+          onInspect
             ? (e) => {
                 e.preventDefault();
-                onSpell(word);
+                onInspect(word, e);
               }
             : undefined
         }
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if (isRevealed) onSelect(word);
-            else onHint(word);
+            onActivate(word, null);
           }
         }}
       />
@@ -375,7 +458,9 @@ export function GraphPlate({
   routeNodes,
   distToTarget,
   spurCount,
-  showRoute,
+  secretNodes,
+  secretEdges,
+  refused = null,
   beatPar = false,
   namesWords = false,
   spelled: spelledOut,
@@ -401,13 +486,93 @@ export function GraphPlate({
   const [overWord, setOverWord] = useState<string | null>(null);
   const [overEdge, setOverEdge] = useState<string | null>(null);
 
-  // Handed to every word, so they have to keep their identity: a memoised node given a
-  // fresh arrow function is a node that redraws on every frame anyway.
-  const hover = useCallback((word: string) => setOverWord(word), []);
-  const unhover = useCallback(
-    (word: string) => setOverWord((at) => (at === word ? null : at)),
-    [],
+  /**
+   * Everything the pointer arithmetic below needs, in a ref rather than closed over.
+   *
+   * The callbacks it feeds are handed to every word on the board, so they have to keep their
+   * identity: a memoised node given a fresh arrow function is a node that redraws on every
+   * frame anyway. Positions and the camera change on every one of those frames, and which
+   * words are named changes with every guess, so closing over any of it would mean a new
+   * callback — and a full redraw of ninety words — each time.
+   */
+  const live = useRef({ nodes, positions, view, revealed, onSelect, onHint, onSpell });
+  live.current = { nodes, positions, view, revealed, onSelect, onHint, onSpell };
+
+  /**
+   * The word the pointer is really on: the nearest one within reach, or none.
+   *
+   * See REACH. The pointer's position is turned into graph units the same way the viewBox
+   * turns graph units into pixels — the view always has the plate's own aspect (camera.ts),
+   * so the two axes scale alike and there is no letterboxing to allow for.
+   */
+  const nearest = useCallback((at: At) => {
+    const svg = (at.currentTarget as SVGElement).ownerSVGElement;
+    if (!svg) return null;
+    const box = svg.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return null;
+    const { nodes: drawn, positions: where, view: shot } = live.current;
+    const x = shot.x + ((at.clientX - box.left) / box.width) * shot.width;
+    const y = shot.y + ((at.clientY - box.top) / box.height) * shot.height;
+
+    let best: string | null = null;
+    let nearby = REACH * REACH;
+    for (const word of drawn) {
+      const p = where.get(word);
+      if (!p) continue;
+      const away = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (away > nearby) continue;
+      nearby = away;
+      best = word;
+    }
+    return best;
+  }, []);
+
+  /**
+   * Which word is lit, kept as a ref beside the state.
+   *
+   * Because hover is now answered on `pointermove` as well as on entering a circle, and a
+   * `setState` to the value it already holds still costs this component a render — which is
+   * the whole board's worth of edges and nodes rebuilt, sixty times a second, to arrive at
+   * the same figure.
+   */
+  const lit = useRef<string | null>(null);
+  const lift = useCallback((word: string | null) => {
+    if (lit.current === word) return;
+    lit.current = word;
+    setOverWord(word);
+  }, []);
+
+  const hover = useCallback(
+    (word: string, at: At | null) => lift(at ? (nearest(at) ?? word) : word),
+    [lift, nearest],
   );
+  /**
+   * Leaving one word's reach is not leaving the board: the pointer may well be inside a
+   * neighbour's, in which case that neighbour is what is being pointed at now. So this asks
+   * the same question as `hover` and simply accepts the answer, including none.
+   */
+  const unhover = useCallback(
+    (word: string, at: At | null) => lift(at ? nearest(at) : lit.current === word ? null : lit.current),
+    [lift, nearest],
+  );
+
+  /** A tap or a click: the same nearest-word question, then hint it or stand on it. */
+  const activate = useCallback(
+    (word: string, at: At | null) => {
+      const { revealed: named, onSelect: select, onHint: hint } = live.current;
+      const on = (at ? nearest(at) : null) ?? word;
+      if (named.has(on)) select(on);
+      else hint(on);
+    },
+    [nearest],
+  );
+
+  /** Dev mode's read-aloud, resolved the same way. */
+  const inspect = useCallback(
+    (word: string, at: At) => live.current.onSpell?.(nearest(at) ?? word),
+    [nearest],
+  );
+  const canInspect = namesWords && onSpell !== undefined;
 
   /**
    * A way on from the word under the pointer: the shortest route from it to the target,
@@ -551,9 +716,46 @@ export function GraphPlate({
           // On the way from the hovered word to the target: the answer to "does this
           // get me anywhere", drawn as the route it is.
           const ahead = onward.has(key);
+          // A move on the shortcut the player has found. Loud on purpose — see the note on
+          // `secretEdges` — and under the walked trail rather than over it, so a move they
+          // have actually made still reads as theirs and keeps its subword.
+          const shortcut = secretEdges?.has(key) ?? false;
+          // A move given away, drawn **beside the word it is about** — the one that was asked
+          // — saying whether you arrive there by adding letters or by taking them away. See
+          // `moveHint`: a sign in the middle of a line is a claim with no direction in it.
+          const marked = moveHint(state, a, b);
+          const beside = marked
+            ? (() => {
+                const at = marked.at === a ? pa : pb;
+                const away = marked.at === a ? pb : pa;
+                const span = Math.hypot(away.x - at.x, away.y - at.y) || 1;
+                const along = { x: (away.x - at.x) / span, y: (away.y - at.y) / span };
+                // Clear of its own word's mark, and never past the middle of the move: beyond
+                // that it starts reading as a label on the other word.
+                const down = Math.min(span / 2, 26);
+                // Then off the line *perpendicular*, not upward. Upward is beside the line on a
+                // diagonal move and directly on top of it on a vertical one — which is every
+                // move along the spine.
+                return {
+                  x: at.x + along.x * down + along.y * MARK_OFF,
+                  y: at.y + along.y * down - along.x * MARK_OFF,
+                };
+              })()
+            : null;
 
           return (
             <g key={key}>
+              {shortcut && (
+                <line
+                  x1={pa.x}
+                  y1={pa.y}
+                  x2={pb.x}
+                  y2={pb.y}
+                  stroke="var(--color-gilt)"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                />
+              )}
               {ahead && !trail && (
                 <line
                   x1={pa.x}
@@ -612,6 +814,24 @@ export function GraphPlate({
                 onPointerEnter={() => setOverEdge(key)}
                 onPointerLeave={() => setOverEdge((at) => (at === key ? null : at))}
               />
+              {marked && beside && !trail && (
+                <text
+                  x={beside.x}
+                  y={beside.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  className="word"
+                  fontSize="12"
+                  fontWeight={600}
+                  fill={marked.kind === 'add' ? 'var(--color-gilt)' : 'var(--color-blood-lit)'}
+                  paintOrder="stroke"
+                  stroke="var(--color-noir)"
+                  strokeWidth="3"
+                  strokeLinejoin="round"
+                >
+                  {marked.kind === 'add' ? '+' : '−'}
+                </text>
+              )}
               {trail && (
                 /*
                   At the middle of the move, which clears the word it leads to: a name
@@ -662,7 +882,7 @@ export function GraphPlate({
                 isSource={word === puzzle.source}
                 isTarget={word === puzzle.target}
                 isSelected={word === selected}
-                onRoute={showRoute && routeNodes.has(word)}
+                onRoute={routeNodes.has(word)}
                 level={state.hints.get(word) ?? 0}
                 inspected={spelledOut?.has(word) ?? false}
                 spurs={isRevealed ? (spurCount.get(word) ?? 0) : 0}
@@ -670,12 +890,12 @@ export function GraphPlate({
                 // follows live positions, and passing it for the eighty-odd words
                 // that never show one would re-render all of them every frame.
                 spurAngle={isRevealed ? (spurAngle.get(word) ?? 0) : 0}
-                namesWords={namesWords}
+                onSecret={secretNodes?.has(word) ?? false}
+                refused={refused === word}
                 onHover={hover}
                 onUnhover={unhover}
-                onSelect={onSelect}
-                onHint={onHint}
-                onSpell={onSpell}
+                onActivate={activate}
+                onInspect={canInspect ? inspect : undefined}
               />
             </g>
           );
