@@ -1,6 +1,36 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
+ * Against a **production build**, not the dev server, unless `RECURSE_E2E_DEV=1`.
+ *
+ * A page load is the dominant cost of this suite — 112 tests, and the fastest of them takes
+ * three and a half seconds — so what the page costs to load is what the suite costs to run. A
+ * CPU profile of one load says why the dev server is the wrong thing to measure against:
+ *
+ *     dev server                       production build
+ *     4338ms wall                      2211ms wall
+ *       866ms (program)                  1071ms (program)
+ *       849ms (idle)                      498ms (idle)
+ *       188ms decodeGameData              102ms (same, minified)
+ *       123ms buildGraph
+ *       115ms jsxDEV  <-- development React
+ *
+ * Twice as fast, and for a reason that has nothing to do with the app: the dev server ships
+ * unminified *development* React, which renders slower and double-invokes every effect under
+ * StrictMode. None of that is what the tests are about.
+ *
+ * Built to its own directory at base `/`, which is two deliberate choices. Its own directory so
+ * a test run never leaves a `dist/` that would deploy wrong; base `/` so the URLs the specs build
+ * are the ones the app serves — the real build uses `/recurse/` for Pages, and that difference
+ * belongs to the deploy rather than to the tests.
+ *
+ * No `reuseExistingServer` here either: reuse would skip the build, and a suite that quietly
+ * tests the previous commit is worse than a slow one.
+ */
+const DEV = process.env.RECURSE_E2E_DEV === '1';
+const OUT = 'dist-e2e';
+
+/**
  * Playwright drives the real game: it plays actual puzzles end to end and takes
  * screenshots, so gameplay and layout are checked rather than assumed.
  *
@@ -37,7 +67,7 @@ export default defineConfig({
   reporter: process.env.CI ? 'list' : [['list'], ['html', { open: 'never' }]],
   outputDir: './e2e/.results',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: DEV ? 'http://localhost:5173' : 'http://localhost:4173',
     trace: 'retain-on-failure',
     // Every test that is not *about* the opening sequence asks not to see it, the same
     // way a player with reduced-motion set does. That is the real code path rather than
@@ -52,11 +82,20 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 7'] } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    stdout: 'ignore',
-    stderr: 'pipe',
-  },
+  webServer: DEV
+    ? {
+        command: 'npm run dev',
+        url: 'http://localhost:5173',
+        reuseExistingServer: true,
+        stdout: 'ignore',
+        stderr: 'pipe',
+      }
+    : {
+        command: `npx vite build --base=/ --outDir ${OUT} && npx vite preview --port 4173 --base=/ --outDir ${OUT}`,
+        url: 'http://localhost:4173',
+        reuseExistingServer: false,
+        timeout: 120_000,
+        stdout: 'ignore',
+        stderr: 'pipe',
+      },
 });

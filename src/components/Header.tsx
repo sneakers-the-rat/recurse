@@ -52,6 +52,8 @@ interface Props {
   /** And they beat par, which is the one outcome louder than finishing. */
   beatPar?: boolean;
   onHelp: () => void;
+  /** To the archive of everything already played. See `Puzzles`. */
+  onPuzzles: () => void;
 }
 
 export const Header = memo(function Header({
@@ -69,6 +71,7 @@ export const Header = memo(function Header({
   finished = false,
   beatPar = false,
   onHelp,
+  onPuzzles,
 }: Props) {
   /**
    * The bar's own colour, which is a statement about the round rather than decoration.
@@ -89,9 +92,18 @@ export const Header = memo(function Header({
           </span>
           <span className="label text-ash-lit">№ {day}</span>
         </h1>
-        <button onClick={onHelp} className="label hover:text-gilt transition-colors" type="button">
-          How to play
-        </button>
+        <span className="flex items-baseline gap-4">
+          <button
+            onClick={onPuzzles}
+            className="label hover:text-gilt transition-colors"
+            type="button"
+          >
+            Puzzles
+          </button>
+          <button onClick={onHelp} className="label hover:text-gilt transition-colors" type="button">
+            How to play
+          </button>
+        </span>
       </div>
 
       {/*

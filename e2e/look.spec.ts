@@ -29,7 +29,10 @@ test('hovering a word lifts its moves out of the background', async ({ page }) =
   // right for a background of possibilities and useless when you want to follow one.
   await page.goto('/');
   const edges = page.locator('main svg line');
-  await expect(edges.first()).toBeVisible();
+  // Attached, not visible. A move along the spine is drawn as a perfectly vertical line, and
+  // a line with x1 === x2 has a zero-width box, which Playwright reads as hidden — so
+  // whether this passed depended on which board the calendar happened to open on.
+  await expect(edges.first()).toBeAttached();
 
   const widths = () => edges.evaluateAll((all) => all.map((l) => l.getAttribute('stroke-width')));
   expect(await widths()).not.toContain('1.8');

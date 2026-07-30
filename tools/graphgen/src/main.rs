@@ -24,6 +24,7 @@
 
 mod bank;
 mod config;
+mod date;
 mod graph;
 mod id;
 mod progress;
@@ -42,6 +43,7 @@ graphgen — build the recurse graph and puzzle bank
 
   graphgen                       build everything into public/data
   graphgen pair <from> <to>      judge one pair and print what a build would decide
+  graphgen routes <word>...      bank answers that run through all of these words
   graphgen --help
 
 Every number comes from .env; any RECURSE_* value can be overridden for one run:
@@ -58,6 +60,8 @@ enum Command {
     Build,
     /// Judge one pair and print it, for looking at a puzzle without building a bank.
     Pair(String, String),
+    /// Show the bank's answers that run through all of these words. See `show_routes`.
+    Routes(Vec<String>),
 }
 
 fn command(args: &[String]) -> Result<Command, String> {
@@ -67,6 +71,12 @@ fn command(args: &[String]) -> Result<Command, String> {
         [verb, from, to] if verb == "pair" => Ok(Command::Pair(from.clone(), to.clone())),
         [verb, ..] if verb == "pair" => {
             Err(format!("`pair` takes exactly two words.\n\n{USAGE}"))
+        }
+        [verb, words @ ..] if verb == "routes" && !words.is_empty() => {
+            Ok(Command::Routes(words.to_vec()))
+        }
+        [verb, ..] if verb == "routes" => {
+            Err(format!("`routes` takes at least one word.\n\n{USAGE}"))
         }
         [verb, ..] => Err(format!("unknown command {verb:?}.\n\n{USAGE}")),
     }
@@ -202,6 +212,11 @@ fn run(command: Command) -> Result<(), String> {
     let bank_key = bank::key(&config, &blocklist, config.id_chars);
     let bank_path = bank::path(&cache, &bank_key);
 
+    // Answers through a word, and stop. See `show_routes`.
+    if let Command::Routes(words) = &command {
+        return show_routes(&common, &config, &bank_path, words);
+    }
+
     let found = match bank::load(&bank_path) {
         Some(cached) if config.audit == Audit::Off => {
             eprintln!(
@@ -216,7 +231,6 @@ fn run(command: Command) -> Result<(), String> {
                 rejections: cached.rejections,
                 candidates: cached.candidates,
                 // Set by `schedule`, which runs on every build: the calendar is not cached.
-                aligned_days: [0; select::BANDS],
             }
         }
         _ => {
@@ -272,7 +286,13 @@ fn run(command: Command) -> Result<(), String> {
 /// pairs to answer a question about one of them, so every change to the rules or to what a
 /// board declares cost eleven minutes to see. This costs about three seconds.
 ///
-/// It goes through `judge_candidates`, which is the real thing — every rule, every knob, the
+/// **Both directions, separately.** A build offers each pair to the rules both ways round and
+/// keeps the first that survives (see `judge_candidates`), so reporting one ordering would
+/// answer a different question from the one the build asks. It is also the only place left that
+/// shows how far apart the two readings of a pair come out — they should be the same board, and
+/// mostly are.
+///
+/// It goes through `judge_direction`, which is the real thing — every rule, every knob, the
 /// same board, the same statistics. Reimplementing the setup here instead would be a second
 /// path that could quietly disagree with the build about what the puzzle is, which is the
 /// error this whole file has been chasing all along.
@@ -294,59 +314,61 @@ fn inspect_pair(
     };
 
     // The same distance tables selection builds, for two endpoints instead of twelve thousand.
-    let far = (config.max_par + config.slack) as u32;
-    let unreachable_u8 = u8::MAX;
     let mut bfs = graph::Bfs::new(common.words.len());
-    let mut tables: Vec<Vec<u8>> = Vec::with_capacity(2);
-    for id in [src, tgt] {
-        let mut row = vec![unreachable_u8; common.words.len()];
-        bfs.run(common, id, far);
-        for &word in &bfs.touched {
-            row[word as usize] = bfs.get(word).min(u8::MAX as u32 - 1) as u8;
-        }
-        tables.push(row);
-    }
+    let mut tables = [vec![u8::MAX; common.words.len()], vec![u8::MAX; common.words.len()]];
+    let Some(par) = rows_for(common, config, &mut bfs, &mut tables, [src, tgt]) else {
+        return Err(format!(
+            "{from} cannot reach {to} through ordinary words within {} moves",
+            config.max_par + config.slack
+        ));
+    };
     let mut slot_of: FxMap<u32, usize> = FxMap::default();
     slot_of.insert(src, 0);
     slot_of.insert(tgt, 1);
 
-    let par = tables[0][tgt as usize];
-    if par == unreachable_u8 {
-        return Err(format!(
-            "{from} cannot reach {to} through ordinary words within {far} moves"
-        ));
+    // Every rule judged, so the report says everything the direction breaks rather than
+    // whichever rule happens to run first. `mirrored` is false both times: the question here is
+    // what each direction is worth on its own, not which of them a build would have kept first.
+    let mut scratch = select::Scratch::new(common, legal);
+    let overexposed = select::Overexposed::new(common);
+    for (src, tgt) in [(src, tgt), (tgt, src)] {
+        let verdict = select::judge_direction(
+            src,
+            tgt,
+            par,
+            common,
+            common_subs,
+            legal,
+            config,
+            rank,
+            &tables[slot_of[&src]],
+            &tables[slot_of[&tgt]],
+            u8::MAX,
+            true,
+            false,
+            &overexposed,
+            &mut scratch,
+        );
+        report_direction(common, &verdict, common.word(src), common.word(tgt), par);
     }
-    let par = par as u32;
+    Ok(())
+}
 
-    // Every rule judged, so the report says everything the pair breaks rather than whichever
-    // rule happens to run first.
-    let progress = progress::Progress::new("pair", 1);
-    let (puzzles, refused, _) = select::judge_candidates(
-        &[(src, tgt, par)],
-        common,
-        common_subs,
-        legal,
-        config,
-        rank,
-        &tables,
-        &slot_of,
-        unreachable_u8,
-        true,
-        &progress,
-    );
-
+/// One direction of one pair, as the build sees it.
+fn report_direction(
+    common: &graph::Graph,
+    verdict: &select::Verdict,
+    from: &str,
+    to: &str,
+    par: u32,
+) {
     eprintln!("{from} -> {to}  par {par}");
-    let broken: Vec<&str> = select::Rule::ALL
-        .iter()
-        .enumerate()
-        .filter(|&(slot, _)| refused[slot].iter().sum::<usize>() > 0)
-        .map(|(_, rule)| rule.describe().0)
-        .collect();
+    let broken: Vec<&str> = verdict.broken.iter().map(|rule| rule.describe().0).collect();
     if !broken.is_empty() {
         eprintln!("  refused: {}", broken.join("; "));
     }
-    let Some(puzzle) = puzzles.first() else {
-        return Ok(());
+    let Some(puzzle) = &verdict.puzzle else {
+        return;
     };
 
     let words: Vec<&str> = puzzle.board.split_whitespace().collect();
@@ -382,6 +404,196 @@ fn inspect_pair(
         eprintln!("    {route}");
     }
     eprintln!("  {}", words.join(" "));
+}
+
+/// Distance rows for the two ends of one pair, and the par between them.
+///
+/// What every rule reads, and the only per-pair setup there is. `None` for a pair the search
+/// range does not join — which cannot happen for a pair out of the bank, but this is also how
+/// one pair is set up by hand.
+fn rows_for(
+    common: &graph::Graph,
+    config: &Config,
+    bfs: &mut graph::Bfs,
+    rows: &mut [Vec<u8>; 2],
+    ends: [u32; 2],
+) -> Option<u32> {
+    let far = (config.max_par + config.slack) as u32;
+    for (row, id) in rows.iter_mut().zip(ends) {
+        row.fill(u8::MAX);
+        bfs.run(common, id, far);
+        for &word in &bfs.touched {
+            row[word as usize] = bfs.get(word).min(u8::MAX as u32 - 1) as u8;
+        }
+    }
+    let par = rows[0][ends[1] as usize];
+    if par == u8::MAX {
+        return None;
+    }
+    Some(par as u32)
+}
+
+/// The bank's answers that run through **all** of these words, in any order.
+///
+/// For reading a word's exposure rather than counting it: `pivots.test.ts` says `ions` is on 19%
+/// of answers, and this says what those answers look like — which is the question that decides
+/// whether the word belongs in `TOO_FREQUENT`. Several words at once is how a *cluster* is read:
+/// `ions`, `contractions` and `cons` are individually exposed and turn out to be mostly one
+/// three-step, which only a query that insists on all three can show.
+///
+/// **One route holding all of them**, not each word on some route of its own. Those differ: a
+/// puzzle can have `a` on one shortest answer and `b` on another with no single answer holding
+/// both, and calling that "a route through both" would be a lie about a route nobody can walk.
+///
+/// Still no per-puzzle search: one search per asked-for word, then array lookups. A word lies on
+/// some shortest route exactly when its distances to the two ends add up to par — the trick the
+/// rule uses — and a single route holds several of them exactly when, sorted by distance from the
+/// source, each consecutive pair is as far apart as those distances differ. Both facts come out
+/// of the rows already built, since `d(a, b)` is just `a`'s row read at `b`.
+///
+/// The route printed is built to *walk* the words rather than taken from the puzzle's own stored
+/// answers, which are the alphabetically first ones and need not touch any of them.
+///
+///     npm run data -- routes ions contractions cons
+fn show_routes(
+    common: &graph::Graph,
+    config: &Config,
+    bank_path: &Path,
+    words: &[String],
+) -> Result<(), String> {
+    let Some(bank) = bank::load(bank_path) else {
+        return Err(format!(
+            "no cached bank at {} — run `npm run data` first, then ask about it",
+            bank_path.display()
+        ));
+    };
+
+    /// Answers printed in full before the rest are only counted.
+    const SHOWN: usize = 30;
+
+    let mut bfs = graph::Bfs::new(common.words.len());
+    let far = (config.max_par + config.slack) as u32;
+
+    // Distances from each asked-for word, copied out of the shared scratch so all of them are
+    // live at once while the bank is scanned.
+    let mut asked: Vec<(&str, u32, Vec<u32>)> = Vec::new();
+    for word in words {
+        let Some(id) = common.id(word) else {
+            eprintln!("{word}: not an ordinary word carrying a move — skipped");
+            continue;
+        };
+        bfs.run(common, id, far);
+        let mut row = vec![graph::UNREACHED; common.words.len()];
+        for &near in &bfs.touched {
+            row[near as usize] = bfs.get(near);
+        }
+        asked.push((word.as_str(), id, row));
+    }
+    if asked.is_empty() {
+        return Err("none of those words are in the common graph".into());
+    }
+
+    let empty: FxSet<u32> = FxSet::default();
+    let mut found = 0usize;
+    let mut printed = 0usize;
+    // Answers each word is on by itself, which is what makes a zero readable: a word at zero on
+    // its own is banned or unused, while words with thousands each and nothing in common means no
+    // single answer walks them all.
+    let mut alone = vec![0usize; asked.len()];
+    // The asked-for words in the order an answer would meet them, reused every puzzle.
+    let mut order: Vec<usize> = Vec::with_capacity(asked.len());
+    for puzzle in &bank.puzzles {
+        let (Some(src), Some(tgt)) = (common.id(&puzzle.source), common.id(&puzzle.target)) else {
+            continue;
+        };
+        // What each word is on by itself, which is only for the summary below.
+        for (slot, (_, _, row)) in asked.iter().enumerate() {
+            if select::on_some_answer(puzzle.par, row[src as usize], row[tgt as usize]) {
+                alone[slot] += 1;
+            }
+        }
+
+        // All of them on one answer. The rules ask exactly this of `TOO_FREQUENT_CLUSTER`, so it
+        // goes through the same function — `d(a, b)` being a row of `a` read at `b`.
+        if !select::all_on_one_route(
+            asked.len(),
+            puzzle.par,
+            &|i| asked[i].2[src as usize],
+            &|i| asked[i].2[tgt as usize],
+            &|i, j| asked[i].2[asked[j].1 as usize],
+        ) {
+            continue;
+        }
+        found += 1;
+
+        // The order an answer meets them in: every step of a shortest route moves one further
+        // from the source, so their distances from it are the order.
+        order.clear();
+        order.extend(0..asked.len());
+        order.sort_by_key(|&slot| asked[slot].2[src as usize]);
+        if printed >= SHOWN {
+            continue;
+        }
+        printed += 1;
+
+        // The answer, walked: source, the asked-for words in the order above, target. Each hop is
+        // a shortest route, and distance from the source rises across the whole chain, so the
+        // pieces join into one shortest answer and none of them revisits a word.
+        let mut stops: Vec<u32> = vec![src];
+        for &slot in &order {
+            if *stops.last().expect("starts with the source") != asked[slot].1 {
+                stops.push(asked[slot].1);
+            }
+        }
+        if *stops.last().expect("starts with the source") != tgt {
+            stops.push(tgt);
+        }
+        let mut route: Vec<u32> = vec![src];
+        for hop in stops.windows(2) {
+            match bfs.route_avoiding(common, hop[0], hop[1], &empty, puzzle.par) {
+                Some(part) => route.extend(part.iter().skip(1).copied()),
+                // Cannot happen — the distances above are what says every hop exists — but a
+                // reporting tool has no business panicking over it.
+                None => break,
+            }
+        }
+        eprintln!(
+            "  {} par {}  {}",
+            puzzle.id,
+            puzzle.par,
+            route.iter().map(|&step| common.word(step)).collect::<Vec<_>>().join(" → ")
+        );
+    }
+
+    // "a, b and c" rather than "a and b and c", which three words read as badly as it looks.
+    let names: Vec<&str> = asked.iter().map(|(word, _, _)| *word).collect();
+    let listed = match names.split_last() {
+        Some((last, [])) => (*last).to_string(),
+        Some((last, rest)) => format!("all of {} and {last}", rest.join(", ")),
+        None => String::new(),
+    };
+    eprintln!("{} of {} bank answers run through {listed}", found, bank.puzzles.len());
+    if found > printed {
+        eprintln!("  {} more not shown", found - printed);
+    }
+    if asked.len() > 1 {
+        eprintln!(
+            "  each on its own: {}",
+            asked
+                .iter()
+                .zip(&alone)
+                .map(|((word, _, _), count)| format!("{word} {count}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if found == 0 {
+        eprintln!(
+            "  nothing. A word in TOO_FREQUENT comes out at zero on its own, because the rule \
+             refused every puzzle whose answer touched it; words with counts of their own and \
+             nothing here share no single answer"
+        );
+    }
     Ok(())
 }
 
@@ -557,30 +769,45 @@ fn report_boards(selection: &select::Selection) {
 /// which puzzles the rules let through — so a rule change moves these shares, and this report
 /// is how that shows up. Printed on every build, beside the rule table, for that reason.
 ///
-/// `days` is the calendar each band can be reached by date over; `by link` is the tail past
-/// its shard alignment. The short band running out first is expected and is what the wrap in
-/// `dayIndex` is for.
+/// Every band runs the whole calendar; a band shorter than the longest one repeats to fill it,
+/// so `repeats` is how many times over. The calendar's length is the longest band's, which is
+/// what `write_calendar` writes and what "how many days there are" means.
 fn report_bands(selection: &select::Selection, config: &Config) {
     let total = selection.puzzles.len().max(1);
-    eprintln!("  bands ({} puzzles, one of each per day):", selection.puzzles.len());
+    let days = calendar_days(&selection.puzzles);
     eprintln!(
-        "    {:<8} {:>6}  {:>9}  {:>7}  {:>8}  {}",
-        "band", "pars", "puzzles", "share", "days", "years by date"
+        "  bands ({} puzzles over {days} days, {:.0} years, one of each length per day):",
+        selection.puzzles.len(),
+        days as f64 / 365.25,
+    );
+    eprintln!(
+        "    {:<8} {:>6}  {:>9}  {:>7}  {}",
+        "band", "pars", "puzzles", "share", "repeats"
     );
     for band in 0..select::BANDS {
         let held = selection.puzzles.iter().filter(|p| p.band == band).count();
         let (low, high) = band_pars(config, band);
-        let days = selection.aligned_days[band];
         eprintln!(
-            "    {:<8} {:>6}  {:>9}  {:>6.1}%  {:>8}  {:>13.0}",
+            "    {:<8} {:>6}  {:>9}  {:>6.1}%  {:>7.2}x",
             select::band_name(band),
             format!("{low}-{high}"),
             held,
             100.0 * held as f64 / total as f64,
-            days,
-            days as f64 / 365.25,
+            days as f64 / held.max(1) as f64,
         );
     }
+}
+
+/// How many days the calendar runs: the longest band's length.
+///
+/// Every band fills every day — a shorter one by cycling — so the longest is what bounds it.
+/// There is no second number here on purpose: a puzzle that shipped and could not be reached by
+/// any date was the bug this replaced.
+fn calendar_days(puzzles: &[select::Puzzle]) -> usize {
+    (0..select::BANDS)
+        .map(|band| puzzles.iter().filter(|p| p.band == band).count())
+        .max()
+        .unwrap_or(0)
 }
 
 /// How many puzzles at each par, which is what difficulty tiers get cut from.
@@ -636,10 +863,9 @@ fn write_survey(
         let held = selection.puzzles.iter().filter(|p| p.band == band).count();
         let (low, high) = band_pars(config, band);
         out.push_str(&format!(
-            "band {:<6} par {low}-{high}: {held} puzzles ({:.1}%), {} days by date\n",
+            "band {:<6} par {low}-{high}: {held} puzzles ({:.1}%)\n",
             select::band_name(band),
             100.0 * held as f64 / total as f64,
-            selection.aligned_days[band],
         ));
     }
     // The whole rule table, so a survey read weeks later still says which settings
@@ -707,7 +933,6 @@ fn write_puzzle_shards(
     data: &Path,
     config: &Config,
     puzzles: &[select::Puzzle],
-    aligned_days: [usize; select::BANDS],
 ) -> Result<(), String> {
     let dir = data.join("puzzles");
     let mut shards: Vec<Vec<&select::Puzzle>> = vec![Vec::new(); id::SHARDS];
@@ -742,40 +967,68 @@ fn write_puzzle_shards(
         })
         .collect();
 
-    // The digest covers every shard's contents, so any change to any puzzle — a new
-    // answer, a different day — renames all of them.
-    let mut everything = String::with_capacity(bodies.iter().map(String::len).sum());
+    // The calendar, built before the version because it is *part* of what the version names.
+    let calendar = calendar_bodies(config, puzzles)?;
+
+    // The digest covers every immutable file's contents — every shard and every calendar year —
+    // so any change to any of them renames all of them.
+    //
+    // The calendar has to be in here, and leaving it out was a bug that only appears on the
+    // second build: the version is a digest of the *shards*, and moving `RECURSE_EPOCH` rewrites
+    // every calendar year without touching a shard. The names stayed put, the files are fetched
+    // `force-cache` because their names promise they cannot change, and every browser that had
+    // been to the site kept serving last build's calendar for ever. The rule is simple — if a
+    // file is cached by name for good, its contents belong in the name.
+    let mut everything = String::with_capacity(
+        bodies.iter().map(String::len).sum::<usize>()
+            + calendar.iter().map(|(_, body)| body.len()).sum::<usize>(),
+    );
     for body in &bodies {
+        everything.push_str(body);
+    }
+    for (_, body) in &calendar {
         everything.push_str(body);
     }
     let version = id::digest(everything.as_bytes(), 8);
 
     let name_of = |index: usize| format!("{index:02x}-{version}.tsv");
 
-    // What the client reads before anything else: the version its shard names are built
-    // from, the shard arithmetic, and how long each band's calendar is. Without the lengths a
-    // day past the end of a band would fetch a shard and find nothing in it; with them the
-    // band wraps instead, which is what "the short one loops first" means.
+    // What the client reads before anything else: the version its shard names are built from,
+    // how many shards there are, the epoch the calendar counts from, and how long it runs.
     //
-    // `bands` carries what each length holds as well as how long it runs, because the header
-    // says "short (par 3-4)" and those numbers are `RECURSE_BAND_CUTS`, not the client's to
-    // know.
+    // `bands` carries what each length holds, because the header says "short (par 3-4)" and
+    // those numbers are `RECURSE_BAND_CUTS`, not the client's to know. It no longer carries a
+    // per-band length: every band runs the whole calendar now, so there is one length and it
+    // belongs to the calendar rather than to a band.
+    //
+    // The epoch ships because the client used to hard-code it, and a date that has to agree
+    // between the builder and the browser should be written down once. See `RECURSE_EPOCH`.
     let bands = (0..select::BANDS)
         .map(|band| {
             let (low, high) = band_pars(config, band);
             format!(
-                "{{\"name\":\"{}\",\"days\":{},\"minPar\":{low},\"maxPar\":{high}}}",
+                "{{\"name\":\"{}\",\"minPar\":{low},\"maxPar\":{high}}}",
                 select::band_name(band),
-                aligned_days[band],
             )
         })
         .collect::<Vec<_>>()
         .join(",");
+    let days = calendar_days(puzzles);
+    let epoch = config.epoch;
+    let last = date::civil_from_days(
+        date::days_from_civil(epoch) + days.saturating_sub(1) as i64,
+    );
     let manifest = format!(
         "{{\"version\":\"{version}\",\"shards\":{},\"bands\":[{bands}],\"puzzles\":{},\
+         \"epoch\":\"{:04}-{:02}-{:02}\",\"days\":{days},\"years\":[{},{}],\
          \"params\":{{\"slack\":{},\"minPar\":{},\"maxPar\":{}}}}}",
         id::SHARDS,
         puzzles.len(),
+        epoch.year,
+        epoch.month,
+        epoch.day,
+        epoch.year,
+        last.year,
         config.slack,
         config.min_par,
         config.max_par,
@@ -812,6 +1065,12 @@ fn write_puzzle_shards(
     }
     words::write_file(&dir.join(format!("pairs-{version}.tsv")), &index)?;
 
+    let mut widest = 0usize;
+    for (year, body) in &calendar {
+        widest = widest.max(body.len());
+        words::write_file(&dir.join(format!("{year}-{version}.json")), body)?;
+    }
+
     // Written last: a manifest naming shards that are not on disk yet would be a
     // deploy that serves a version it cannot fetch.
     words::write_file(&dir.join("manifest.json"), &manifest)?;
@@ -825,19 +1084,90 @@ fn write_puzzle_shards(
         largest / 1024,
         if stale > 0 { format!(", removed {stale} from an older version") } else { String::new() },
     );
-    // Per band, because each has its own calendar and the shortest is the one that decides
-    // when the game starts repeating itself.
-    for band in 0..select::BANDS {
-        let held = puzzles.iter().filter(|p| p.band == band).count();
-        let (low, high) = band_pars(config, band);
-        eprintln!(
-            "  {:<6} par {low}-{high}: {held} puzzles, {} days by date, {} by link only",
-            select::band_name(band),
-            aligned_days[band],
-            held.saturating_sub(aligned_days[band]),
-        );
-    }
+    eprintln!(
+        "  wrote {} calendar years {}-{} ({} KB each), {days} days from {:04}-{:02}-{:02}",
+        calendar.len(),
+        epoch.year,
+        last.year,
+        widest / 1024,
+        epoch.year,
+        epoch.month,
+        epoch.day,
+    );
     Ok(())
+}
+
+/// The calendar: one file per calendar year, naming the three puzzles of every day in it.
+///
+/// Returns the bodies rather than writing them, because the version every file is *named* by is
+/// a digest of all of their contents — see `write_puzzle_shards`.
+///
+/// **This is the whole of what a date means now.** It replaced arithmetic — day `N` of band `B`
+/// used to have to live in shard `(N * BANDS + B) % SHARDS`, so that a date could be found in one
+/// fetch with no index, and the price was that the round robin ran out of the thinnest shard
+/// while a third of the bank still had days nothing would ask for. A file costs one more request
+/// than arithmetic and buys every puzzle a date.
+///
+/// Keyed by the **actual calendar year**, not an offset from the epoch, so a file is the thing a
+/// player's own date names and last year's file is never rewritten. A year that has been and gone
+/// cannot change, which is what makes these worth caching forever.
+///
+/// Ids are written as one fixed-width run per band rather than as an array, so a day is a slice
+/// at `dayOfYear * idChars` and a year costs `365 * 3 * 12` bytes of payload and no punctuation —
+/// about 13 KB, against 40 KB of JSON commas and quotes for the same thing. It is the same trade
+/// the graph rows make.
+///
+/// A band shorter than the calendar **cycles**: day `D` of band `B` is that band's puzzle number
+/// `D % len(B)`. So the puzzles are stored once, in the shards, and a short list repeats in the
+/// calendar rather than on disk.
+fn calendar_bodies(
+    config: &Config,
+    puzzles: &[select::Puzzle],
+) -> Result<Vec<(i32, String)>, String> {
+    // Each band in day order. `spread` numbered them, so this is a sort into that order.
+    let mut by_band: Vec<Vec<&select::Puzzle>> = vec![Vec::new(); select::BANDS];
+    for puzzle in puzzles {
+        by_band[puzzle.band].push(puzzle);
+    }
+    for band in by_band.iter_mut() {
+        band.sort_unstable_by_key(|puzzle| puzzle.day);
+    }
+
+    let days = calendar_days(puzzles);
+    if days == 0 {
+        return Err("the bank is empty, so there is no calendar to write".into());
+    }
+    let epoch = date::days_from_civil(config.epoch);
+    let last_year = date::civil_from_days(epoch + days as i64 - 1).year;
+
+    let mut written: Vec<(i32, String)> = Vec::new();
+    for year in config.epoch.year..=last_year {
+        // Days of this year that the calendar actually covers: the first year starts at the
+        // epoch rather than in January, and the last one stops when the calendar does.
+        let january = date::days_from_civil(date::Date { year, month: 1, day: 1 });
+        let from = january.max(epoch);
+        let until = (january + date::days_in_year(year) as i64).min(epoch + days as i64);
+
+        let mut runs: Vec<String> = Vec::with_capacity(select::BANDS);
+        for band in 0..select::BANDS {
+            let list = &by_band[band];
+            let mut run = String::with_capacity(((until - from) as usize) * config.id_chars);
+            for at in from..until {
+                // Cycled, which is what fills a short band's share of a long calendar.
+                run.push_str(&list[((at - epoch) as usize) % list.len()].id);
+            }
+            runs.push(run);
+        }
+
+        let offset = date::day_of_year(date::civil_from_days(from));
+        let body = format!(
+            "{{\"year\":{year},\"from\":{offset},\"idChars\":{},\"bands\":[{}]}}",
+            config.id_chars,
+            runs.iter().map(|run| format!("\"{run}\"")).collect::<Vec<_>>().join(","),
+        );
+        written.push((year, body));
+    }
+    Ok(written)
 }
 
 /// The pars a band holds, from the cuts. Inclusive at both ends.
@@ -850,11 +1180,12 @@ fn band_pars(config: &Config, band: usize) -> (usize, usize) {
     }
 }
 
-/// Delete shards, and the pair index, left over from an earlier version.
+/// Delete shards, calendar years, and the pair index left over from an earlier version.
 ///
-/// Every rebuild renames all 257 of them, so without this the directory grows by 28MB a
-/// build and the old files ship. Only the names this function writes, at a *different*
-/// version, are removed — nothing else in the directory is ever touched.
+/// Every rebuild renames all of them, so without this the directory grows by 28MB a build and
+/// the old files ship. Only the names this function writes, at a *different* version, are
+/// removed — nothing else in the directory is ever touched, and `manifest.json` has no version
+/// in its name so it can never match.
 fn remove_stale_shards(dir: &Path, version: &str) -> Result<usize, String> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -863,17 +1194,24 @@ fn remove_stale_shards(dir: &Path, version: &str) -> Result<usize, String> {
     let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Some(rest) = name.strip_suffix(".tsv") else {
+        let Some((rest, shard)) = name
+            .strip_suffix(".tsv")
+            .map(|rest| (rest, true))
+            .or_else(|| name.strip_suffix(".json").map(|rest| (rest, false)))
+        else {
             continue;
         };
         let Some((index, found)) = rest.split_once('-') else {
             continue;
         };
-        // A shard, or the pair index, which is versioned the same way and would otherwise be
-        // the one file that accumulated a copy per build.
         let versioned = !found.is_empty() && found.chars().all(|c| c.is_ascii_hexdigit());
-        let ours = index == "pairs"
-            || (index.len() == 2 && index.chars().all(|c| c.is_ascii_hexdigit()));
+        // A shard or the pair index, both TSV and versioned the same way; or a calendar year,
+        // which is JSON named by the year itself.
+        let ours = if shard {
+            index == "pairs" || (index.len() == 2 && index.chars().all(|c| c.is_ascii_hexdigit()))
+        } else {
+            index.len() == 4 && index.chars().all(|c| c.is_ascii_digit())
+        };
         if versioned && ours && found != version && std::fs::remove_file(entry.path()).is_ok() {
             removed += 1;
         }
@@ -1002,7 +1340,7 @@ fn write_outputs(
     graph_json.push('}');
     words::write_file(&data.join("graph.json"), &graph_json)?;
 
-    write_puzzle_shards(data, config, &selection.puzzles, selection.aligned_days)?;
+    write_puzzle_shards(data, config, &selection.puzzles)?;
 
     // Which dictionary words are ordinary ones. The client draws the board from
     // these and no others: the whole 189k list is what a player may *guess*, but a

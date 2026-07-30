@@ -17,12 +17,15 @@ import { idFromPath } from './route';
 import type { Puzzle } from './types';
 
 /**
- * Day 0 of the game.
+ * Day 0 of the game, as a fallback for the handful of pure-arithmetic helpers below.
  *
- * Moving this reassigns every date, so it is set once, at launch, and then left
- * alone: a player's day number and their streak both count from here. It was a
- * placeholder in the past for a while, which meant the first two hundred puzzles
- * in the bank were spent on days nobody played.
+ * **The manifest is the real answer** — `RECURSE_EPOCH` in .env, shipped in
+ * `manifest.json`, because the builder names its calendar files by calendar year and so has
+ * to count from the same day the browser does. This constant is only the default for callers
+ * that have no manifest in hand, which is tests and nothing else.
+ *
+ * Moving it reassigns every date, so it is set once, at launch, and then left alone: a
+ * player's day number and their streak both count from here.
  */
 export const EPOCH = '2026-07-26';
 
@@ -57,6 +60,19 @@ export function dateForDay(day: number, epoch: string = EPOCH): string {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
 }
 
+/**
+ * Which day of a year a `YYYY-MM-DD` date is, counting from 0.
+ *
+ * Where a date sits inside its own calendar file. Built from the local calendar like everything
+ * else here, so it agrees with `dayNumber` across a DST boundary; the builder's `day_of_year`
+ * computes the same thing over civil dates, and the two meet in the year files.
+ */
+export function dayOfYear(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  const at = new Date(y!, (m ?? 1) - 1, d ?? 1).getTime();
+  return Math.round((at - new Date(y!, 0, 1).getTime()) / MS_PER_DAY);
+}
+
 export interface DailyPuzzle {
   puzzle: Puzzle;
   /** Days since epoch; the number shown to players and used for streaks. */
@@ -66,38 +82,17 @@ export interface DailyPuzzle {
 /**
  * Wrap a day number into the calendar. Works for negatives too, unlike a bare `%`.
  *
- * `days` is the manifest's calendar length rather than the number of puzzles loaded:
- * only one shard is in memory, so the bank's own size says nothing about the calendar.
- * This is the definition the builder's shard alignment is stated in, so it is also what
- * data.ts uses to decide which shard to fetch.
+ * `days` is the manifest's calendar length — one number now, for all three lengths, because
+ * every band runs the whole calendar. It used to be per band, and the shortest band's length
+ * was where the game started repeating itself; a band shorter than the calendar cycles inside
+ * it instead, which the builder does when it writes the year files.
+ *
+ * The wrap only matters at the far end: the builder writes a file per year up to the calendar's
+ * length, about forty-five of them, and a day past the last one comes round to the start.
  */
 export function dayIndex(day: number, days: number): number {
   if (days <= 0) throw new Error('the calendar is empty');
   return ((day % days) + days) % days;
-}
-
-/**
- * The puzzle for a band on a day, from the shard that band and day name.
- *
- * A puzzle carries its own day *and* its own band, assigned by the builder, so this is a
- * lookup rather than arithmetic over an array — `bank` holds the ~450 puzzles of one shard,
- * in no particular order, and 114,000 others are not in memory. Null when that day is not in
- * this shard, which means the wrong shard was fetched.
- *
- * `days` is the length of *that band's* calendar, not the bank's: every day offers one board
- * of each length and the three bands run out at different points, so each wraps on its own.
- */
-export function puzzleForDay(
-  bank: readonly Puzzle[],
-  band: number,
-  day: number,
-  days: number,
-): DailyPuzzle | null {
-  const wanted = dayIndex(day, days);
-  const puzzle = bank.find(
-    (candidate) => candidate.day === wanted && candidate.band === band,
-  );
-  return puzzle ? { puzzle, day: wanted } : null;
 }
 
 /** The puzzle with this id, or null when the loaded shard has no such puzzle. */
@@ -109,21 +104,20 @@ export function puzzleById(bank: readonly Puzzle[], id: string): DailyPuzzle | n
 /**
  * Which puzzle a URL is asking for: `path` is `window.location.pathname`.
  *
- * Today's, unless the path names a puzzle in the loaded shard. An id that names nothing
- * — a link shared before a rebuild changed that answer — gets today rather than an
- * error, and the caller rewrites the URL to say so.
+ * The one named by the path, or the one `today` names when the path names nothing the loaded
+ * shard holds. An id that resolves to nothing — a link shared before a rebuild changed that
+ * answer — falls back the same way, and the caller rewrites the URL to say so.
  *
- * `band` is which length "today" means, since a day offers three. It is the band the player
- * last chose; the fallback only reaches for it when the path names nothing.
+ * `today` is the id the calendar gives for the band and day being opened, looked up before
+ * this is called: a date is a file lookup now rather than arithmetic, so it cannot be done
+ * here without a fetch. See `idOnDay` in data.ts.
  */
 export function resolvePuzzle(
   bank: readonly Puzzle[],
   path: string,
-  band: number,
-  days: number,
-  now: Date = new Date(),
+  today: string | null,
 ): DailyPuzzle | null {
   const id = idFromPath(path);
   const asked = id === null ? null : puzzleById(bank, id);
-  return asked ?? puzzleForDay(bank, band, dayNumber(now), days);
+  return asked ?? (today === null ? null : puzzleById(bank, today));
 }

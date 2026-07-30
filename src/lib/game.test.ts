@@ -102,7 +102,86 @@ describe('applyGuess', () => {
 describe('select', () => {
   it('refuses to move to a word not yet found', () => {
     const state = newGame(puzzle);
-    expect(select(state, 'cannon').selected).toBe('base');
+    expect(select(state, 'cannonball').selected).toBe('base');
+  });
+
+  it('stands on the goal, which is a front from the first move', () => {
+    const state = select(newGame(puzzle), 'cannon');
+    expect(state.selected).toBe('cannon');
+    // Standing on it is not reaching it: the board draws those differently.
+    expect(state.revealed.has('cannon')).toBe(false);
+  });
+});
+
+/**
+ * Both ends at once, which is what the graph being undirected means for a player.
+ *
+ * The toy graph is one chain — `base baseball ball cannonball cannon` — so a game played
+ * from both ends has to meet in the middle, and the move that joins the halves lands on a
+ * word that is already named. That move is the whole of what these check: it costs a guess,
+ * it goes in the log so it can be drawn, and it is what ends the round.
+ */
+describe('working from the goal', () => {
+  it('guesses backwards from the goal', () => {
+    const outcome = applyGuess(select(newGame(puzzle), 'cannon'), graph, 'cannonball', dict);
+    expect(outcome.kind).toBe('revealed');
+    expect(outcome.state.guesses).toBe(1);
+    expect(outcome.state.revealed.get('cannonball')).toMatchObject({ via: 'cannon', order: 1 });
+    expect(outcome.state.solved).toBe(false);
+  });
+
+  it('ends the round when the two halves join, not when the goal is reached', () => {
+    // One move back from the goal, then two forward from the source.
+    let state = applyGuess(select(newGame(puzzle), 'cannon'), graph, 'cannonball', dict).state;
+    state = applyGuess(select(state, 'base'), graph, 'baseball', dict).state;
+    state = applyGuess(state, graph, 'ball', dict).state;
+    // Four words named, three of the four moves made, and the halves still apart.
+    expect(state.solved).toBe(false);
+    expect(state.guesses).toBe(3);
+
+    // The join: `cannonball` is already named, so this reveals nothing and is still a move.
+    const outcome = applyGuess(select(state, 'ball'), graph, 'cannonball', dict);
+    expect(outcome.kind).toBe('revealed');
+    expect(outcome.state.solved).toBe(true);
+    expect(outcome.state.guesses).toBe(puzzle.par);
+    // Logged, or the board could not draw the move that won the round.
+    expect(outcome.state.log.at(-1)).toMatchObject({ from: 'ball', to: 'cannonball' });
+    // And it did not overwrite how `cannonball` was first arrived at.
+    expect(outcome.state.revealed.get('cannonball')).toMatchObject({ via: 'cannon', order: 1 });
+  });
+
+  it('never charges twice for the same move', () => {
+    let state = applyGuess(newGame(puzzle), graph, 'baseball', dict).state;
+    state = applyGuess(select(state, 'base'), graph, 'baseball', dict).state;
+    state = applyGuess(select(state, 'baseball'), graph, 'base', dict).state;
+    expect(state.guesses).toBe(1);
+    expect(state.log).toHaveLength(1);
+  });
+
+  it('remembers a game played from both ends', () => {
+    let state = applyGuess(select(newGame(puzzle), 'cannon'), graph, 'cannonball', dict).state;
+    state = applyGuess(select(state, 'base'), graph, 'baseball', dict).state;
+    const back = restore(puzzle, snapshot(state));
+    expect(back.guesses).toBe(2);
+    expect(back.revealed.get('cannonball')).toMatchObject({ via: 'cannon' });
+    expect(back.solved).toBe(false);
+  });
+
+  it('sells no hint on the goal, because standing there says more', () => {
+    // The goal used to be the one word that sold the shape of a move without being
+    // reachable — the substitute for not being able to work from that end.
+    const state = newGame(puzzle);
+    expect(useHint(state, 'cannon')).toBe(state);
+    expect(useMoveHint(state, 'cannon', ['cannonball'])).toBe(state);
+  });
+
+  it('restores a game that was finished from both ends', () => {
+    let state = applyGuess(select(newGame(puzzle), 'cannon'), graph, 'cannonball', dict).state;
+    state = applyGuess(select(state, 'base'), graph, 'baseball', dict).state;
+    state = applyGuess(state, graph, 'ball', dict).state;
+    state = applyGuess(state, graph, 'cannonball', dict).state;
+    expect(state.solved).toBe(true);
+    expect(restore(puzzle, snapshot(state)).solved).toBe(true);
   });
 });
 
@@ -224,7 +303,7 @@ describe('hints', () => {
     });
 
     it('counts on the tally, and comes back from a snapshot', () => {
-      let state = useHint(newGame(puzzle), 'cannon');
+      let state = useHint(newGame(puzzle), 'ball');
       state = useMoveHint(state, 'cannonball', ['ball']);
       expect(hintCount(state)).toBe(2);
 
@@ -242,7 +321,7 @@ describe('hints', () => {
     let state = newGame(puzzle);
     state = useHint(state, 'cannonball');
     state = useHint(state, 'cannonball');
-    state = useHint(state, 'cannon');
+    state = useHint(state, 'ball');
     expect(hintCount(state)).toBe(3);
     expect(state.hints.get('cannonball')).toBe(2);
   });

@@ -17,15 +17,18 @@ import { dirname, join } from 'node:path';
 import {
   decodeGameData,
   decodeShard,
-  shardForDay,
   shardName,
+  calendarName,
+  idOnDay,
+  shardOf,
   type GameData,
   type RawCommon,
   type RawDictionary,
   type RawGraph,
+  type RawCalendar,
   type RawManifest,
 } from '../lib/data';
-import { dayNumber } from '../lib/daily';
+import { dateForDay, dayIndex, dayNumber, dayOfYear } from '../lib/daily';
 import type { Puzzle } from '../lib/types';
 import type { PlateOptions } from '../lib/plate';
 
@@ -60,6 +63,32 @@ export function shippedShard(index: number): Puzzle[] {
   return decodeShard(readFileSync(path, 'utf8'));
 }
 
+/** The manifest on its own, for tests that only want to know the shape of the calendar. */
+export function shippedManifest(): RawManifest {
+  return read<RawManifest>(join('puzzles', 'manifest.json'));
+}
+
+/** One calendar year, read off disk. See `RawCalendar`. */
+export function shippedCalendar(year: number): RawCalendar {
+  const manifest = shippedManifest();
+  return read<RawCalendar>(join('puzzles', calendarName(year, manifest.version)));
+}
+
+/**
+ * The id a band and day name, read off disk rather than fetched.
+ *
+ * `idForDay` in data.ts is the app's version and does the same arithmetic; it returns a promise
+ * because in a browser the year file is a request. Tests want it synchronously.
+ */
+export function shippedIdForDay(band: number, day: number): string | null {
+  const manifest = shippedManifest();
+  const wrapped = dayIndex(day, manifest.days);
+  const date = dateForDay(wrapped, manifest.epoch);
+  const year = Number(date.slice(0, 4));
+  if (year < manifest.years[0] || year > manifest.years[1]) return null;
+  return idOnDay(shippedCalendar(year), band, dayOfYear(date));
+}
+
 /**
  * The shipped graph, with one shard's puzzles: **the shard the app has in memory today**,
  * for the length a fresh visit opens.
@@ -82,7 +111,10 @@ export function shippedData(): GameData {
       join(
         dataDir,
         'puzzles',
-        shardName(shardForDay(DEFAULT_BAND, dayNumber(), manifest), manifest.version),
+        shardName(
+          shardOf(shippedIdForDay(DEFAULT_BAND, dayNumber(new Date(), manifest.epoch)) ?? ''),
+          manifest.version,
+        ),
       ),
       'utf8',
     );

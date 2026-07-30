@@ -33,7 +33,7 @@ use crate::select::{self, Rejections, Rule, Selection};
 /// halfway test, how much of an answer has to find a word inside a word — moves nothing in the
 /// key, and a cached bank chosen by the old rules would be read straight back and shipped.
 /// Adding or changing one of those means bumping this.
-const FORMAT: u32 = 6;
+const FORMAT: u32 = 11;
 
 /// Everything the search's result depends on, as one hex string.
 ///

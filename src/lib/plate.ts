@@ -68,6 +68,16 @@ export interface PlateOptions {
    */
   anchors?: ReadonlySet<string>;
   /**
+   * Every move the player has made, as pairs.
+   *
+   * `revealed` carries the move each word *arrived* by, which is one edge per word and
+   * therefore not every move: a move onto a word already named reveals nothing, so it leaves
+   * no trace there. Those are exactly the moves that join a game played from both ends — the
+   * winning move of such a round — and drawing the board from arrivals alone left it off the
+   * figure with the subword that names it. See `joins` in game.ts.
+   */
+  moves?: readonly { from: string; to: string }[];
+  /**
    * The words on a shortcut the player has found an end of, if they have.
    *
    * Drawn like a found word — every legal edge it has to the board — because a shortcut is
@@ -206,10 +216,10 @@ export function buildPlate(
   // The two words the puzzle is about, and everything the player has found: a player who
   // walked into a dead end must still see where they are standing.
   //
-  // The second way out of the source is *not* here. It used to be, worked out client-side and
-  // forced onto the board — but the builder declares the opening branch now, at the same reach
-  // the rule promises it at, so computing one here could only add words the puzzle never
-  // declared. Which is the whole failure mode this file was built to stop having.
+  // The second way out of an end is *not* here. It used to be, worked out client-side and
+  // forced onto the board — but the builder declares the opening branch at each end now, at the
+  // same reach the rule promises it at, so computing one here could only add words the puzzle
+  // never declared. Which is the whole failure mode this file was built to stop having.
   const protectedNodes = new Set<string>([source, target, ...named]);
 
   // Anchors: the source plus the named words that have been expanded, so naming
@@ -338,6 +348,14 @@ export function buildPlate(
     if (parentFromSource !== undefined && !distFromSource.has(entry.word)) {
       distFromSource.set(entry.word, parentFromSource + 1);
     }
+  }
+
+  // And the moves that revealed nothing, which the loop above cannot see: both ends were
+  // already named, so neither carries this edge as the one it arrived by. Both are on the
+  // board by construction — a named word is protected — so there is nothing to attach, only
+  // a line to draw.
+  for (const { from, to } of options.moves ?? []) {
+    if (live.has(from) && live.has(to)) addEdge(from, to);
   }
 
   // Moves that leave the board. Counted over the *legal* graph on purpose: the

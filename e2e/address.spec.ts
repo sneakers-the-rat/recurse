@@ -7,8 +7,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { board, boardOnDay, puzzleWithPar, today } from './fixtures';
-import { dayNumber } from '../src/lib/daily';
+import { board, boardOnDay, puzzleWithPar, today, todayNumber } from './fixtures';
 
 /** The id in the address bar, whatever the base happens to be. */
 const idInUrl = (url: string) => new URL(url).pathname.replace(/^\//, '').split('?')[0];
@@ -57,7 +56,7 @@ test('stepping the bank in dev mode moves through history by id', async ({ page 
   // Consecutive days, which are deliberately consecutive *shards* — so this walks the same
   // ground a player never does and the app has to fetch for: see `boardOnDay`.
   const here = today();
-  const next = boardOnDay(dayNumber() + 1);
+  const next = boardOnDay(todayNumber() + 1);
 
   await page.goto(board(here.puzzle, '?dev'));
   expect(idInUrl(page.url())).toBe(here.puzzle.id);
@@ -68,7 +67,7 @@ test('stepping the bank in dev mode moves through history by id', async ({ page 
   // `?dev` survives the step, or stepping would turn the instrument panel off.
   expect(page.url()).toContain('dev');
 
-  const after = boardOnDay(dayNumber() + 2);
+  const after = boardOnDay(todayNumber() + 2);
   await page.getByLabel('Next puzzle').click();
   await expect.poll(() => idInUrl(page.url())).toBe(after.puzzle.id);
 

@@ -6,6 +6,7 @@
 
 node_modules/
 dist/
+dist-e2e/
 
 # Rust builder
 tools/graphgen/target/

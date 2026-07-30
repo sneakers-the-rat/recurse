@@ -37,12 +37,36 @@ export function base(): string {
   return import.meta.env?.BASE_URL ?? '/';
 }
 
+/**
+ * The one path that is not a board: the archive of everything already played.
+ *
+ * A word rather than a digest, so it can never collide with an id — `ID` is hex only, and
+ * `puzzles` is not. That is also why it needs no special case in `idFromPath`: a path this
+ * does not recognise as an id already means "no board named here", and the archive is one of
+ * those.
+ */
+export const ARCHIVE = 'puzzles';
+
+/** The first segment of a path, with the base and any trailing segments taken off. */
+function segment(path: string, from: string): string {
+  const withoutBase = path.startsWith(from) ? path.slice(from.length) : path.replace(/^\//, '');
+  return withoutBase.split('/')[0]?.toLowerCase() ?? '';
+}
+
 /** The id a path names, or null if it names none. */
 export function idFromPath(path: string, from: string = base()): string | null {
-  const withoutBase = path.startsWith(from) ? path.slice(from.length) : path.replace(/^\//, '');
-  // First segment only, so a trailing slash or anything appended is ignored.
-  const first = withoutBase.split('/')[0]?.toLowerCase() ?? '';
+  const first = segment(path, from);
   return ID.test(first) ? first : null;
+}
+
+/** Is this the archive? */
+export function isArchive(path: string, from: string = base()): boolean {
+  return segment(path, from) === ARCHIVE;
+}
+
+/** Where the archive lives. `search` is carried through so `?dev` survives a visit to it. */
+export function archivePath(search: string = '', from: string = base()): string {
+  return `${from}${ARCHIVE}${search}`;
 }
 
 /**

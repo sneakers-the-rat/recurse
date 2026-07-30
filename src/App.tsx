@@ -22,6 +22,7 @@ import { GraphPlate } from './components/GraphPlate';
 import { GuessBar } from './components/GuessBar';
 import { Header } from './components/Header';
 import { HowTo } from './components/HowTo';
+import { Puzzles } from './components/Puzzles';
 import { Toast } from './components/Toast';
 import { shortestPath, shortestRoutes } from './lib/graph';
 import {
@@ -39,10 +40,12 @@ import {
 import {
   BANDS,
   bandOf,
+  idForDay,
+  loadCalendar,
   loadGameData,
   loadPairs,
   loadShard,
-  shardForDay,
+  type RawCalendar,
   shardOf,
   type GameData,
   type Pair,
@@ -52,11 +55,10 @@ import {
   dayIndex,
   dayNumber,
   puzzleById,
-  puzzleForDay,
   resolvePuzzle,
   type DailyPuzzle,
 } from './lib/daily';
-import { idFromPath, pathFor, shareUrl } from './lib/route';
+import { archivePath, idFromPath, isArchive, pathFor, shareUrl } from './lib/route';
 import { markGuesses, shareText } from './lib/share';
 import { gameKey, loadBand, loadGame, saveBand, saveGame } from './lib/storage';
 import { buildPlate } from './lib/plate';
@@ -264,6 +266,45 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
+  /**
+   * Whether the archive is up, and the calendar years it has fetched.
+   *
+   * `/puzzles` is the one path that is not a board, so it is tracked here rather than through
+   * `show` — which exists to put a *board* on screen and would have nothing to say about this
+   * one. Kept in sync with the URL both ways: the button pushes, the back button pops.
+   */
+  const [archive, setArchive] = useState(() => isArchive(window.location.pathname));
+  const [years, setYears] = useState<ReadonlyMap<number, RawCalendar>>(new Map());
+  const needYear = useCallback(
+    (year: number) => {
+      if (!data) return;
+      void loadCalendar(year, data.manifest.version)
+        .then((calendar) => setYears((had) => new Map(had).set(year, calendar)))
+        // A year that will not load costs that month's word pairs and nothing else.
+        .catch(() => undefined);
+    },
+    [data],
+  );
+
+  const openArchive = useCallback(() => {
+    window.history.pushState(null, '', archivePath(window.location.search));
+    setArchive(true);
+  }, []);
+
+  /**
+   * Out of the archive, to the board underneath.
+   *
+   * Not `history.back()`: the archive can be the first page of a visit — someone opened
+   * `/puzzles` directly — and then back leaves the site rather than the page. Replacing the
+   * address with the board's own is the same thing from either arrival.
+   */
+  const closeArchive = useCallback(() => {
+    setArchive(false);
+    if (state) {
+      window.history.replaceState(null, '', pathFor(state.puzzle.id, window.location.search));
+    }
+  }, [state]);
+
   const [devMode, toggleDev] = useDevMode();
 
   /**
@@ -291,6 +332,8 @@ export default function App() {
    * not put an entry in the history that goes straight back to `/`.
    */
   const show = useCallback((chosen: DailyPuzzle, how: 'push' | 'replace') => {
+    // Putting a board up takes the archive down: they are two paths and only one can be the URL.
+    setArchive(false);
     setAt({ day: chosen.day });
     // The length on screen is the one the player is on, and the one a bare visit will open
     // next time. Read off the puzzle rather than tracked separately: a board knows which of
@@ -336,23 +379,20 @@ export default function App() {
         // and the answer to that is today's board, from today's own shard.
         if (puzzleById(bank, asked)) return bank;
       }
-      const day = dayNumber();
-      return puzzleForDay(loaded.puzzles, band, day, bandOf(band, manifest).days)
-        ? loaded.puzzles
-        : loadShard(shardForDay(band, day, manifest), manifest.version);
+      const today = await idForDay(band, dayNumber(new Date(), manifest.epoch), manifest);
+      if (today !== null && puzzleById(loaded.puzzles, today)) return loaded.puzzles;
+      return today === null ? loaded.puzzles : loadShard(shardOf(today), manifest.version);
     },
     [],
   );
 
   /** Which board a path names, once the shard that can say is in hand. */
   const boardForPath = useCallback(
-    async (loaded: GameData, path: string, band: number) =>
-      resolvePuzzle(
-        await bankForPath(loaded, path, band),
-        path,
-        band,
-        bandOf(band, loaded.manifest).days,
-      ),
+    async (loaded: GameData, path: string, band: number) => {
+      const { manifest } = loaded;
+      const today = await idForDay(band, dayNumber(new Date(), manifest.epoch), manifest);
+      return resolvePuzzle(await bankForPath(loaded, path, band), path, today);
+    },
     [bankForPath],
   );
 
@@ -361,17 +401,25 @@ export default function App() {
     // rather than being asked for a board it did not bring. Failing an id, the band the
     // player last chose decides which of the day's three boards is fetched.
     const asked = idFromPath(window.location.pathname);
+    // Whether the URL asked for the archive, captured before `show` rewrites it to a board's id.
+    // A direct visit still needs a board resolved underneath — leaving the archive has to land
+    // somewhere — so the board is loaded and then the address put back.
+    const arrived = isArchive(window.location.pathname);
     loadGameData(asked === null ? { band: loadBand(BANDS) } : { id: asked })
       .then(async (loaded) => {
         setData(loaded);
         const chosen = await boardForPath(loaded, window.location.pathname, loadBand(BANDS));
         if (!chosen) {
-          // Today's own shard does not hold today, which means the client and the builder
-          // disagree about the shard arithmetic — see `shardForDay`.
+          // Today's own shard does not hold the id the calendar named for today, which means
+          // the year files and the shards are from different builds — see `idForDay`.
           setLoadError('the puzzle data is out of step with the app: rebuild it');
           return;
         }
         show(chosen, 'replace');
+        if (arrived) {
+          window.history.replaceState(null, '', archivePath(window.location.search));
+          setArchive(true);
+        }
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
   }, [show, boardForPath]);
@@ -386,6 +434,13 @@ export default function App() {
   useEffect(() => {
     if (!data) return;
     const onPop = () => {
+      // The archive is a path too, so going back to it — or out of it — is this and not a
+      // board lookup. Leaving it resolves the board underneath, which is what was on screen.
+      if (isArchive(window.location.pathname)) {
+        setArchive(true);
+        return;
+      }
+      setArchive(false);
       void boardForPath(data, window.location.pathname, band).then((chosen) => {
         if (chosen) show(chosen, 'replace');
       });
@@ -429,12 +484,19 @@ export default function App() {
   /**
    * What to draw. Grows as the player names words off the board — see plate.ts.
    *
-   * Memoised on the words found rather than on the game, because most of what happens
+   * Memoised on the moves made rather than on the game, because most of what happens
    * to a game does not change what is on the board: a hint, a tap to move the cursor, a
    * refused guess. Depending on `state` rebuilt the whole board — two graph searches,
    * forty-odd milliseconds — every time any of those happened.
+   *
+   * The words found are *not* enough on their own. A move onto a word already named adds no
+   * word and still has to be drawn, so the count of moves is part of the key: keyed on the
+   * words alone, the move that joins a game played from both ends changed nothing here and
+   * the winning move stayed off the figure.
    */
-  const revealedKey = state ? [...state.revealed.keys()].join(' ') : '';
+  const revealedKey = state
+    ? `${state.log.length} ${[...state.revealed.keys()].join(' ')}`
+    : '';
   // Which words are spelled out on the plate, and so how much room each one takes. Hints
   // and dev mode's reading-aloud both change it, and both are supposed to nudge the board.
   const labelKey = state
@@ -567,6 +629,7 @@ export default function App() {
     return buildPlate(data.graph, state.puzzle.source, state.puzzle.target, state.revealed.values(), {
       board: state.puzzle.board,
       anchors: expanded,
+      moves: state.log,
       ...(trail ? { secret: trail.nodes } : {}),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -791,18 +854,22 @@ export default function App() {
    *
    * The whole of how a board other than the one on screen is reached: the header's three-way
    * switch keeps the day and changes the length, dev mode's arrows keep the length and change
-   * the day. Neither can come up empty — `dayIndex` wraps a day into that band's own calendar,
-   * so a band that has run out loops. Pushed, so the back button undoes it.
+   * the day. Neither can come up empty — every band fills every day, and `idForDay` wraps a
+   * date past the last calendar year round to the start. Pushed, so the back button undoes it.
    */
   const openDay = useCallback(
     (day: number, wanted: number) => {
       if (!data) return;
       const { manifest } = data;
-      const days = bandOf(wanted, manifest).days;
-      const on = dayIndex(day, days);
-      void loadShard(shardForDay(wanted, on, manifest), manifest.version).then((bank) => {
-        const chosen = puzzleForDay(bank, wanted, on, days);
-        if (chosen) show(chosen, 'push');
+      const on = dayIndex(day, manifest.days);
+      void idForDay(wanted, on, manifest).then((id) => {
+        if (id === null) return;
+        void loadShard(shardOf(id), manifest.version).then((bank) => {
+          const chosen = puzzleById(bank, id);
+          // The day being opened, not the puzzle's own first day: a band shorter than the
+          // calendar cycles, so one puzzle answers to several dates.
+          if (chosen) show({ puzzle: chosen.puzzle, day: on }, 'push');
+        });
       });
     },
     [data, show],
@@ -813,10 +880,9 @@ export default function App() {
    * URL that results is still the puzzle's id — the day is how dev mode moves, never
    * how a board is addressed.
    *
-   * Asynchronous because consecutive days are deliberately in different shards: band `B` on
-   * day `N` lives in shard `(N * 3 + B) % 256`, which is what lets any day be found with one
-   * fetch and no index, and means every step of the arrows asks for another 140KB file. Cheap
-   * on a dev machine, and paid once per shard for the session.
+   * Asynchronous because a date is a lookup in that year's calendar file and the board is then
+   * in whichever shard its id names, so a step can cost two fetches. Both are cached for the
+   * session, and consecutive days are in unrelated shards by construction.
    *
    * Stepping stays in the length being played. Moving between lengths is the header's job.
    */
@@ -910,8 +976,8 @@ export default function App() {
    * What is left of the day: the other two lengths, unless they are finished.
    *
    * Worked out only once a round is over, because that is the only time it is shown and it
-   * costs two shard fetches — the day's three boards are in three different shards by
-   * construction (see `shardForDay`). Their progress comes from storage, keyed by word pair
+   * costs two lookups — the day's three boards have unrelated ids and so live in unrelated
+   * shards. Their progress comes from storage, keyed by word pair
    * like every other saved game, so "3 in" is the real count and a solved one drops off the
    * list rather than being offered again.
    */
@@ -926,10 +992,10 @@ export default function App() {
     const wanted = manifest.bands.map((_, index) => index).filter((index) => index !== band);
     void Promise.all(
       wanted.map(async (index) => {
-        const days = bandOf(index, manifest).days;
-        const on = dayIndex(at.day, days);
-        const bank = await loadShard(shardForDay(index, on, manifest), manifest.version);
-        const found = puzzleForDay(bank, index, on, days);
+        const id = await idForDay(index, dayIndex(at.day, manifest.days), manifest);
+        if (id === null) return null;
+        const bank = await loadShard(shardOf(id), manifest.version);
+        const found = puzzleById(bank, id);
         if (!found) return null;
         const saved = restore(found.puzzle, loadGame(gameKey(found.puzzle)));
         if (saved.solved) return null;
@@ -1045,6 +1111,30 @@ export default function App() {
     );
   }
 
+  /**
+   * The archive instead of the board, when the URL says so.
+   *
+   * Before the board's own return rather than beside it: everything below assumes a game on
+   * screen, and the archive is the one screen that is about the bank rather than about a board.
+   * The board's state is untouched while it is up, so leaving goes back to exactly what was
+   * being played.
+   */
+  if (archive) {
+    return (
+      <Puzzles
+        manifest={data.manifest}
+        today={dayNumber(new Date(), data.manifest.epoch)}
+        pairs={pairs}
+        onNeedPairs={needPairs}
+        years={years}
+        onNeedYear={needYear}
+        onOpen={openById}
+        onToday={() => openDay(dayNumber(new Date(), data.manifest.epoch), band)}
+        onClose={closeArchive}
+      />
+    );
+  }
+
   // The round is over *and* there is a result to show for it. Both, because `result` is
   // a second plate build and everything below keys off it existing.
   const finished = state.solved && result !== null;
@@ -1070,7 +1160,7 @@ export default function App() {
         {devMode && (
           <DevBar
             index={at.day}
-            total={bandOf(band, data.manifest).days}
+            total={data.manifest.days}
             puzzle={state.puzzle}
             drawn={plate.nodes.length}
             path={bestRoute}
@@ -1105,6 +1195,7 @@ export default function App() {
           finished={finished}
           beatPar={beatPar}
           onHelp={openHelp}
+          onPuzzles={openArchive}
         />
 
         {/* Above the board, so finishing is unmissable and the figure is untouched. */}

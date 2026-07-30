@@ -8,8 +8,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { board, boardOnDay, gameData, today } from './fixtures';
-import { dayNumber } from '../src/lib/daily';
+import { board, boardOnDay, gameData, today, todayNumber } from './fixtures';
 import { shortestPath } from '../src/lib/graph';
 
 /** The id in the address bar, whatever the base happens to be. */
@@ -38,7 +37,7 @@ test('switching length keeps the day and lands on that board', async ({ page }) 
   await expect(page.locator('main svg circle').first()).toBeVisible();
 
   for (const band of [1, 2]) {
-    const wanted = boardOnDay(dayNumber(), band);
+    const wanted = boardOnDay(todayNumber(), band);
     await page.getByRole('button', { name: new RegExp(`^${manifest.bands[band]!.name}`) }).click();
 
     // The board changes, and so does the address: the URL always names what is on screen.
@@ -52,14 +51,14 @@ test('switching length keeps the day and lands on that board', async ({ page }) 
 
   // Switching is navigation, so the back button undoes it one length at a time.
   await page.goBack();
-  await expect.poll(() => idInUrl(page.url())).toBe(boardOnDay(dayNumber(), 1).puzzle.id);
+  await expect.poll(() => idInUrl(page.url())).toBe(boardOnDay(todayNumber(), 1).puzzle.id);
 });
 
 test('a link opens its own length, whatever the switch was left on', async ({ page }) => {
   // The id is the whole address. A long board sent to somebody who last played short opens
   // long, and the switch follows the board rather than the other way round.
   const { manifest } = gameData();
-  const long = boardOnDay(dayNumber(), 2);
+  const long = boardOnDay(todayNumber(), 2);
 
   await page.goto('/');
   await expect(page.locator('main svg circle').first()).toBeVisible();
@@ -100,7 +99,7 @@ test('the day’s other lengths are offered once a round is finished', async ({ 
   }
 
   // And taking the offer opens that board.
-  const medium = boardOnDay(dayNumber(), 1);
+  const medium = boardOnDay(todayNumber(), 1);
   await result.getByRole('button', { name: new RegExp(`^${manifest.bands[1]!.name}`) }).click();
   await expect(page.locator('header')).toContainText(medium.puzzle.source);
 });

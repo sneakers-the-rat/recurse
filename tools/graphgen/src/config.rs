@@ -40,6 +40,9 @@ pub struct Config {
     /// Where the three lengths divide: the last par of the short band, then of the medium
     /// one. Long is everything above. See `band_of`.
     pub band_cuts: (u32, u32),
+    /// Day one of the calendar. Only the calendar depends on it, so it is deliberately not part
+    /// of the bank cache key — moving it re-dates every puzzle without re-searching anything.
+    pub epoch: crate::date::Date,
     pub seed: u64,
     /// Hex digits of a puzzle's digest that make up its public id. See id.rs.
     pub id_chars: usize,
@@ -138,6 +141,7 @@ impl Config {
             min_alt_nodes: num("RECURSE_MIN_ALT_NODES")?,
             min_gap: num("RECURSE_MIN_GAP")?,
             band_cuts: pair("RECURSE_BAND_CUTS")?,
+            epoch: crate::date::Date::parse(&get("RECURSE_EPOCH")?)?,
             seed: num("RECURSE_SEED")? as u64,
             id_chars: num("RECURSE_ID_CHARS")?,
             // Not in .env: a way of looking at the bank, not a property of it.

@@ -58,6 +58,36 @@ test('revisiting a word already found is free', async ({ page }) => {
   await expect(summary).toContainText(`${puzzle.par} / par ${puzzle.par}`);
 });
 
+/**
+ * Both ends, which is what the graph being undirected means for a player.
+ *
+ * A move is an insertion or a removal and the two are inverses, so the goal is somewhere to
+ * stand from the first move. The round is over when the moves made *join* the two ends — and
+ * on this route the join lands on a word the player already named, which is precisely the
+ * move a game scored by words rather than moves would have given away for nothing.
+ */
+test('plays backwards from the goal and joins in the middle', async ({ page }) => {
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle));
+
+  // The same tap that stands on any word a guess can be made from.
+  await page.locator(`[aria-label^="${puzzle.target}, the goal"]`).click();
+  await expect(page.getByLabel(/Your guess/)).toHaveAttribute(
+    'aria-label',
+    new RegExp(`from ${puzzle.target}`),
+  );
+
+  // One move back from the goal, then forward from the source until the halves meet.
+  await guess(page, path.at(-2)!);
+  await page.locator(`[aria-label^="${puzzle.source}"]`).click();
+  for (const word of path.slice(1, -1)) await guess(page, word);
+
+  // Par moves, and the round is over without the goal ever having been guessed.
+  const summary = result(page);
+  await expect(summary).toContainText('Perfect');
+  await expect(summary).toContainText(`${puzzle.par} / par ${puzzle.par}`);
+});
+
 test('a wrong turn costs a guess', async ({ page }) => {
   const { puzzle, path, wrongTurn } = puzzleWithPar(3);
   await page.goto(board(puzzle));

@@ -23,7 +23,7 @@
  * board that ships.
  */
 
-import { dayIndex, dayNumber } from './daily';
+import { dateForDay, dayIndex, dayNumber, dayOfYear } from './daily';
 import { buildGraph, type Rows } from './graph';
 import type { Graph, GraphParams, Puzzle } from './types';
 
@@ -73,18 +73,26 @@ export interface RawManifest {
   /**
    * The three lengths, in order: short, medium, long.
    *
-   * Each has its own calendar, so each has its own length — `days` is how far it can be
-   * reached by date before it wraps, and they differ by decades. The pars are what the band
-   * holds, which the header shows and which is `RECURSE_BAND_CUTS` rather than anything the
-   * client decides.
+   * The pars are what the band holds, which the header shows and which is
+   * `RECURSE_BAND_CUTS` rather than anything the client decides. There is no per-band length
+   * any more: every band runs the whole calendar, so the length is `days` below.
    */
   bands: {
     name: string;
-    days: number;
     minPar: number;
     maxPar: number;
   }[];
   puzzles: number;
+  /**
+   * Day 0, as `YYYY-MM-DD`. Written down once, in `RECURSE_EPOCH`, because the builder names
+   * its calendar files by calendar year and so counts days from the same place the browser
+   * does. The client used to hard-code it; see `EPOCH` in daily.ts.
+   */
+  epoch: string;
+  /** How many days the calendar runs. The longest band's length; every band fills all of it. */
+  days: number;
+  /** First and last calendar year on disk, inclusive. One file each. */
+  years: [number, number];
   params: {
     /** Selection's neighbourhood measure on the common graph. Not a draw budget. */
     slack: number;
@@ -126,31 +134,54 @@ export function shardOf(id: string): number {
  */
 export const BANDS = 3;
 
-/** How long a band's calendar is, and what it holds. */
+/** What a band is called and what pars it holds. */
 export function bandOf(band: number, manifest: RawManifest): RawManifest['bands'][number] {
   return (
-    manifest.bands[band] ??
-    manifest.bands[0] ?? { name: 'short', days: 1, minPar: 0, maxPar: 0 }
+    manifest.bands[band] ?? manifest.bands[0] ?? { name: 'short', minPar: 0, maxPar: 0 }
   );
 }
 
 /**
- * Which shard holds a band's board for a day.
+ * `puzzles/{year}-{version}.json`: which puzzles the days of one calendar year hold.
  *
- * Three steps, and leaving any of them out is a bug that waits:
+ * **This is what a date means.** It replaced arithmetic: a day used to name its own shard, so
+ * a date cost one fetch and no index — and the price was that a third of the bank had day
+ * numbers no shard would ever be asked for, so a third of the bank could not be reached at
+ * all. A file costs one more request than a formula and gives every puzzle a date.
  *
- * 1. The day is wrapped into *that band's* calendar, because each band has its own length
- *    and its own wrap — the short one runs out first.
- * 2. Then the band is folded in, because `spread` placed band `B` on day `N` in shard
- *    `(N * 3 + B) % 256`. Three bands share 256 shards, so a day's three boards are in
- *    three different shards and playing one costs one fetch.
- * 3. Then modulo the shard count. Without this the calendar's own day number was being used
- *    as a shard index — the same number for the first 256 days, and then a request for
- *    `puzzles/12c-<version>.tsv`, a file that has never existed.
+ * Keyed by the **real calendar year**, so it is the file a player's own date names and a year
+ * that has been and gone is never rewritten. That is what makes these worth caching forever.
+ *
+ * The ids are one fixed-width run per band rather than an array of strings: a day is a slice at
+ * `dayOfYear * idChars`, and a year is about 13 KB instead of 40 KB of commas and quotes. Same
+ * trade as the delta-encoded graph rows.
  */
-export function shardForDay(band: number, day: number, manifest: RawManifest): number {
-  const wrapped = dayIndex(day, bandOf(band, manifest).days);
-  return (wrapped * manifest.bands.length + band) % manifest.shards;
+export interface RawCalendar {
+  year: number;
+  /** Day of the year the file starts at — the first year begins at the epoch, not in January. */
+  from: number;
+  idChars: number;
+  /** One run of concatenated ids per band, in the same order as `manifest.bands`. */
+  bands: string[];
+}
+
+/**
+ * The id a band and day-of-year name, or null when this file does not cover that day.
+ *
+ * Null rather than a throw because the edges are ordinary: the epoch's own year starts in
+ * July, the last year stops when the calendar does, and asking either for a day outside that
+ * is what happens at the boundaries rather than a bug.
+ */
+export function idOnDay(
+  calendar: RawCalendar,
+  band: number,
+  dayOfYear: number,
+): string | null {
+  const run = calendar.bands[band];
+  if (run === undefined) return null;
+  const at = (dayOfYear - calendar.from) * calendar.idChars;
+  if (at < 0 || at + calendar.idChars > run.length) return null;
+  return run.slice(at, at + calendar.idChars);
 }
 
 /**
@@ -161,6 +192,11 @@ export function shardForDay(band: number, day: number, manifest: RawManifest): n
  */
 export function shardName(index: number, version: string): string {
   return `${index.toString(16).padStart(2, '0')}-${version}.tsv`;
+}
+
+/** Where a calendar year lives. Versioned like a shard, and cacheable for the same reason. */
+export function calendarName(year: number, version: string): string {
+  return `${year}-${version}.json`;
 }
 
 /**
@@ -362,6 +398,48 @@ export async function loadShard(index: number, version: string): Promise<Puzzle[
   return puzzles;
 }
 
+/**
+ * One calendar year, fetched and kept.
+ *
+ * Cached in memory per year and `force-cache` over the network, because a past year cannot
+ * change: its name carries the bank version, so a rebuilt bank asks at a new address.
+ */
+const calendars = new Map<number, Promise<RawCalendar>>();
+
+export function loadCalendar(year: number, version: string): Promise<RawCalendar> {
+  const cached = calendars.get(year);
+  if (cached) return cached;
+  const wanted = get(`puzzles/${calendarName(year, version)}`, true)
+    .then((response) => response.json() as Promise<RawCalendar>)
+    .catch((error: unknown) => {
+      // Not kept, so a failed fetch can be retried rather than remembered as a failure.
+      calendars.delete(year);
+      throw error;
+    });
+  calendars.set(year, wanted);
+  return wanted;
+}
+
+/**
+ * The id a band and day name, fetching that day's calendar year.
+ *
+ * The day is wrapped into the calendar first, so a date past the last year written comes round
+ * to the beginning rather than asking for a file that does not exist. Null when the calendar
+ * has no board there, which the caller turns into "show today's" rather than an error.
+ */
+export async function idForDay(
+  band: number,
+  day: number,
+  manifest: RawManifest,
+): Promise<string | null> {
+  const wrapped = dayIndex(day, manifest.days);
+  const date = dateForDay(wrapped, manifest.epoch);
+  const year = Number(date.slice(0, 4));
+  if (year < manifest.years[0] || year > manifest.years[1]) return null;
+  const calendar = await loadCalendar(year, manifest.version);
+  return idOnDay(calendar, band, dayOfYear(date));
+}
+
 /** One line of the pair index: which board the puzzle about two words is at. */
 export interface Pair {
   source: string;
@@ -372,11 +450,14 @@ export interface Pair {
 /**
  * Every pair in the bank and the address it lives at.
  *
- * **Dev mode only, and fetched only when asked for.** A shard is found from an id and an id is
- * a digest of an answer, so there is no way from "the puzzle about these two words" to a board
- * without an index — and the client holds one shard, not the bank. This is 3.7MB, which is why
- * nothing a player does touches it: it is what the instrument panel's lookup reads, once, when
- * somebody types into it.
+ * **Fetched only when asked for, and only two screens ask.** A shard is found from an id and an
+ * id is a digest of an answer, so there is no way from "the puzzle about these two words" to a
+ * board without an index — and the client holds one shard, not the bank.
+ *
+ * About a megabyte, so nothing on the way to playing today touches it. Dev mode's lookup asks on
+ * the first keystroke; the archive asks on arrival, because both halves of that page read it —
+ * the calendar to say which words a date holds as well as the search to find a date from words.
+ * Playing is unaffected either way.
  */
 let pairs: Promise<Pair[]> | null = null;
 
@@ -400,15 +481,21 @@ export function loadPairs(version: string): Promise<Pair[]> {
 async function fetchGameData(
   want?: { id?: string; day?: number; band?: number },
 ): Promise<GameData> {
-  // The manifest first and alone: it names the shard, and nothing else can be asked for
-  // until its version is known.
+  // The manifest first and alone: it names everything else, and nothing can be asked for until
+  // its version is known.
   const manifest = await getJson<RawManifest>('puzzles/manifest.json', false);
-  // Which shard holds the board being opened: an id names its own, a day and a band name one
-  // through the calendar. Both answers live above, in one place each, because this arithmetic
-  // has to agree with the builder's and with everywhere else that asks.
-  const day = want?.day ?? dayNumber();
-  const index =
-    want?.id !== undefined ? shardOf(want.id) : shardForDay(want?.band ?? 0, day, manifest);
+
+  // Which shard holds the board being opened. An id names its own, in one hop. A date needs the
+  // calendar year first — that is the one extra request a date costs, and what it buys is that
+  // every puzzle in the bank has a date at all. See `idForDay`.
+  const asked =
+    want?.id ??
+    (await idForDay(want?.band ?? 0, want?.day ?? dayNumber(new Date(), manifest.epoch), manifest));
+  // `shardOf` of nothing is shard 0, which is the right shape of failure: the caller looks the
+  // board up in what arrived and shows today's when it is not there. `idForDay` only comes back
+  // empty if the calendar files and the manifest disagree, which is a broken deploy rather than
+  // a state a player can reach.
+  const index = shardOf(asked ?? '');
 
   const [dictionary, graph, common, puzzles] = await Promise.all([
     getJson<RawDictionary>('dictionary.json'),

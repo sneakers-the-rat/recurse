@@ -43,6 +43,8 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
             <span className="text-gilt">add a word</span> into the one you have, or{' '}
             <span className="text-blood-lit">remove a word</span> from it. What you add or
             remove must be a real word, and so must what you end up with.
+            The added or removed word can be in any position - before, after,
+            and especially inside the other words.
           </p>
 
           <figure className="border-rule bg-noir-3 border p-3">
@@ -79,6 +81,13 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
             already found, not just the last one. So a wrong turn is not fatal — but every
             guess counts, and your score is how many you made. Match the number of moves shown
             and you played it perfectly.
+          </p>
+
+          <p>
+            That includes the second word: tap it and work <em className="text-bone not-italic">
+              backwards
+            </em>. Adding a word and removing one are opposites, so the two ends are the same
+            puzzle from either side. The round is over when your moves join one to the other.
           </p>
 
           <p className="text-ash-lit text-sm">

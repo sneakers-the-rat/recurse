@@ -5,59 +5,82 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { bandOf, decodeDeltas, decodeRows, decodeGameData, shardForDay, shardOf } from './data';
+import { decodeDeltas, decodeRows, decodeGameData, shardOf } from './data';
 import { DICTIONARY, EDGES, PARAMS } from '../test/fixture';
-import { shippedData, shippedShard } from '../test/shipped';
-import { puzzleForDay } from './daily';
+import {
+  shippedBank,
+  shippedCalendar,
+  shippedData,
+  shippedIdForDay,
+  shippedManifest,
+  shippedShard,
+} from '../test/shipped';
 
 /**
- * Which shard a board is in, which is the one piece of arithmetic the client and the builder
- * both have to get right and neither can check alone.
- *
- * It is also the arithmetic a bug hides in for months: shards are named by id prefix and
- * there are 256 of them, while the shortest band's calendar is 27,000 days long, so *any*
- * wrong answer here is right for the first 85 days of the bank.
+ * The calendar, which is the one thing the client and the builder both have to get right and
+ * neither can check alone. Read off the shipped files, so what is asserted is the deploy.
  */
-describe('shardForDay', () => {
-  const { manifest } = shippedData();
+describe('the calendar', () => {
+  const manifest = shippedManifest();
   const bands = manifest.bands.map((_, index) => index);
 
-  it('names a shard that exists, for any day of any length', () => {
-    // Including the days past the number of shards, which is where the day number was being
-    // used as a shard index and the game would have stopped loading altogether.
+  it('names a real board for every band on any day, including past the end', () => {
     for (const band of bands) {
-      const days = bandOf(band, manifest).days;
-      for (const day of [0, 1, 255, 256, 257, 999, days - 1, days, -1]) {
-        const index = shardForDay(band, day, manifest);
-        expect(index).toBeGreaterThanOrEqual(0);
-        expect(index).toBeLessThan(manifest.shards);
+      for (const day of [0, 1, 255, 256, 999, manifest.days - 1, manifest.days, -1]) {
+        const id = shippedIdForDay(band, day);
+        expect(id, `band ${band} day ${day}`).not.toBeNull();
+        expect(id).toHaveLength(12);
       }
     }
   });
 
-  it('names the shard that actually holds that board, in the bank that shipped', () => {
-    // The builder's promise, checked against the files: `spread` placed band B on day N in
-    // shard `(N * 3 + B) % SHARDS`, and a puzzle's id — hence its shard — is a digest of its
-    // own answer, so nothing but the builder's own placement makes these agree.
+  it('puts that board in the shard its own id names, with the band it was asked for', () => {
+    // The cross-language promise: the calendar file says which id, the id's first two hex digits
+    // say which shard, and the shard is the only place the band is written down. Nothing but the
+    // builder writing all three from the same bank makes these agree.
     for (const band of bands) {
-      const days = bandOf(band, manifest).days;
       for (const day of [0, 1, 3, 255, 256, 300, 1000]) {
-        const index = shardForDay(band, day, manifest);
-        const found = puzzleForDay(shippedShard(index), band, day, days);
-        expect(found, `band ${band} day ${day} should be in shard ${index}`).not.toBeNull();
-        expect(shardOf(found!.puzzle.id)).toBe(index);
-        expect(found!.puzzle.band).toBe(band);
+        const id = shippedIdForDay(band, day)!;
+        const found = shippedShard(shardOf(id)).find((puzzle) => puzzle.id === id);
+        expect(found, `band ${band} day ${day} id ${id}`).toBeDefined();
+        expect(found!.band).toBe(band);
       }
     }
   });
 
-  it('gives the three lengths of one day three different shards', () => {
-    // Which is what makes playing one length one fetch. Three bands over 256 shards, and 256
-    // is a power of two, so the stride of three never collides with itself.
+  it('gives the three lengths of one day three different boards', () => {
     for (const day of [0, 1, 85, 86, 1000]) {
-      const seen = bands.map((band) => shardForDay(band, day, manifest));
+      const seen = bands.map((band) => shippedIdForDay(day === 0 ? band : band, day));
       expect(new Set(seen).size).toBe(bands.length);
     }
+  });
+
+  /**
+   * **Every puzzle that ships is on the calendar.** The regression test for the bug this
+   * calendar replaced: days used to have to line up with shards, the round robin ran out of the
+   * thinnest shard long before the bank was empty, and 13,829 puzzles — 37% of them — shipped
+   * with day numbers nothing would ever ask for. They could only be opened by an id, and an id
+   * can only be had from somebody who already played the board, so they could not be opened at
+   * all.
+   *
+   * Reads all 46 year files and the whole bank, which is a few MB off a local disk.
+   */
+  it('leaves no puzzle unreachable', { timeout: 60_000 }, () => {
+    const onCalendar = new Set<string>();
+    for (let year = manifest.years[0]; year <= manifest.years[1]; year++) {
+      const calendar = shippedCalendar(year);
+      for (const run of calendar.bands) {
+        for (let at = 0; at + calendar.idChars <= run.length; at += calendar.idChars) {
+          onCalendar.add(run.slice(at, at + calendar.idChars));
+        }
+      }
+    }
+    const shipped = shippedBank().map((puzzle) => puzzle.id);
+    const orphans = shipped.filter((id) => !onCalendar.has(id));
+    expect(orphans.slice(0, 5)).toEqual([]);
+    expect(orphans).toHaveLength(0);
+    // And nothing on the calendar that is not in the bank.
+    expect(onCalendar.size).toBe(new Set(shipped).size);
   });
 });
 
@@ -116,11 +139,14 @@ describe('decodeGameData', () => {
       version: 'testtest',
       shards: 256,
       bands: [
-        { name: 'short', days: 1, minPar: 3, maxPar: 4 },
-        { name: 'medium', days: 1, minPar: 5, maxPar: 6 },
-        { name: 'long', days: 1, minPar: 7, maxPar: 10 },
+        { name: 'short', minPar: 3, maxPar: 4 },
+        { name: 'medium', minPar: 5, maxPar: 6 },
+        { name: 'long', minPar: 7, maxPar: 10 },
       ],
       puzzles: 0,
+      epoch: '2026-07-26',
+      days: 1,
+      years: [2026, 2026] as [number, number],
       params: { slack: 6, minPar: 3, maxPar: 5 },
     },
     puzzles: [],

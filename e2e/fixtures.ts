@@ -8,9 +8,9 @@
 
 import type { Locator, Page } from '@playwright/test';
 import { shortestPath, shortestPathNodes } from '../src/lib/graph';
-import { DEFAULT_BAND, shippedData, shippedShard } from '../src/test/shipped';
-import { bandOf, shardForDay } from '../src/lib/data';
-import { dayIndex, dayNumber, puzzleForDay, type DailyPuzzle } from '../src/lib/daily';
+import { DEFAULT_BAND, shippedData, shippedIdForDay, shippedShard } from '../src/test/shipped';
+import { shardOf } from '../src/lib/data';
+import { dayIndex, dayNumber, type DailyPuzzle } from '../src/lib/daily';
 import { pathFor } from '../src/lib/route';
 import type { Puzzle } from '../src/lib/types';
 
@@ -26,25 +26,34 @@ export const gameData = shippedData;
  * shard's array order for calendar order is how the stepping test came to expect an id from
  * the wrong shard entirely.
  *
- * Each band wraps into its own calendar, so any day names a board in every band.
+ * Every band fills every day, so any day names a board in every band.
  */
 export function boardOnDay(day: number, band: number = DEFAULT_BAND): DailyPuzzle {
   const { manifest } = gameData();
-  const days = bandOf(band, manifest).days;
-  const wanted = dayIndex(day, days);
-  const found = puzzleForDay(
-    shippedShard(shardForDay(band, wanted, manifest)),
-    band,
-    wanted,
-    days,
-  );
-  if (!found) throw new Error(`no puzzle on day ${wanted} in band ${band}: the shards disagree`);
-  return found;
+  const wanted = dayIndex(day, manifest.days);
+  const id = shippedIdForDay(band, wanted);
+  const puzzle = id === null ? undefined : shippedShard(shardOf(id)).find((p) => p.id === id);
+  if (!puzzle) {
+    throw new Error(`no puzzle on day ${wanted} in band ${band}: the calendar and shards disagree`);
+  }
+  return { puzzle, day: wanted };
+}
+
+/**
+ * Today, as the app counts it.
+ *
+ * From the **manifest's** epoch, never the `EPOCH` constant in daily.ts. That constant is only a
+ * fallback for arithmetic tests; the data ships its own, and the two are not the same date. When
+ * these read the constant instead, every fixture about "today" was off by the difference and
+ * four specs failed at once with the wrong board rather than a wrong-looking one.
+ */
+export function todayNumber(): number {
+  return dayNumber(new Date(), gameData().manifest.epoch);
 }
 
 /** Today's board, in the length a bare visit opens: short. */
 export function today(band: number = DEFAULT_BAND): DailyPuzzle {
-  return boardOnDay(dayNumber(), band);
+  return boardOnDay(todayNumber(), band);
 }
 
 /**

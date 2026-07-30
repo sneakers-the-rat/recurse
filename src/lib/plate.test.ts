@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { drawOptions, shippedData } from '../test/shipped';
 import { buildPlate } from './plate';
 import { shortestPath } from './graph';
-import { applyGuess, newGame } from './game';
+import { applyGuess, newGame, select } from './game';
 import type { Revealed } from './types';
 
 function real() {
@@ -181,16 +181,65 @@ describe('buildPlate', () => {
       const plate = buildPlate(graph, puzzle.source, puzzle.target, state.revealed.values(), {
         ...drawOptions(puzzle),
         anchors: new Set(state.revealed.keys()),
+        moves: state.log,
       });
       const drawn = new Set(plate.edges.map(({ a, b }) => `${a} ${b}`));
-      for (const entry of state.revealed.values()) {
-        if (entry.via === null) continue;
-        const [a, b] = [entry.via, entry.word].sort();
+      for (const { from, to } of state.log) {
+        const [a, b] = [from, to].sort();
         if (!drawn.has(`${a} ${b}`)) missing.push(`${puzzle.id}: ${a} ${b}`);
       }
     }
 
     expect(missing).toEqual([]);
+  });
+
+  /**
+   * The same promise, for the move a game played from both ends finishes on.
+   *
+   * That move lands on a word the player already named, so it is not the move *any* word
+   * arrived by and nothing in `revealed` remembers it. Drawn off arrivals alone the winning
+   * move of every such round was missing from the figure, along with the subword label that
+   * can only be written along an edge that exists. Asserted over the real bank, because
+   * whether a move between two drawn words comes out drawn depends on which of the two graphs
+   * has the edge.
+   */
+  it('draws the move that joins a game played from both ends', () => {
+    const { graph, puzzles } = real();
+    const missing: string[] = [];
+    let checked = 0;
+
+    for (const puzzle of puzzles.slice(0, 40)) {
+      const route = shortestPath(graph, puzzle.source, puzzle.target);
+      if (!route || route.length < 4) continue;
+      const mid = Math.floor(route.length / 2);
+
+      // Backwards from the goal first, so the join lands on a word already named.
+      let state = select(newGame(puzzle), puzzle.target);
+      for (const word of route.slice(mid, -1).reverse()) {
+        state = applyGuess(state, graph, word, graph.isWord).state;
+      }
+      state = select(state, puzzle.source);
+      for (const word of route.slice(1, mid + 1)) {
+        state = applyGuess(state, graph, word, graph.isWord).state;
+      }
+      // The halves met, in exactly as many moves as the route has.
+      expect(state.solved).toBe(true);
+      expect(state.guesses).toBe(route.length - 1);
+      checked += 1;
+
+      const plate = buildPlate(graph, puzzle.source, puzzle.target, state.revealed.values(), {
+        ...drawOptions(puzzle),
+        anchors: new Set(state.revealed.keys()),
+        moves: state.log,
+      });
+      const drawn = new Set(plate.edges.map(({ a, b }) => `${a} ${b}`));
+      const join = state.log.at(-1)!;
+      const [a, b] = [join.from, join.to].sort();
+      if (!drawn.has(`${a} ${b}`)) missing.push(`${puzzle.id}: ${a} ${b}`);
+    }
+
+    expect(missing).toEqual([]);
+    expect(checked).toBeGreaterThan(0);
   });
 
   /**
@@ -272,6 +321,14 @@ describe('buildPlate', () => {
    * puzzle, it is a corridor. Selection promises a branch at the root and a longer
    * way round; those promises are about the graph the board is *drawn* from, so
    * this checks them where the player meets them.
+   *
+   * Only the source is asserted, and that is not an oversight. `board_words` draws a second
+   * way out of *each* end now, because the goal is somewhere to guess from too — but only the
+   * source's branch is promised: `OpeningForced` asks for a choice at one end, and a pair whose
+   * goal has no second way out is still a puzzle. About 35% of the bank branches at both ends,
+   * so asserting it here would fail on most of it — and checking it properly would mean this
+   * file reimplementing the rule's reach-bounded reachability test, which is the one way two
+   * implementations of a rule are worse than one.
    */
   it('gives every board a branch at the root and a way round', { timeout: 60_000 }, () => {
     const { graph, puzzles } = real();

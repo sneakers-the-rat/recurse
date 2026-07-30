@@ -33,7 +33,7 @@
  */
 
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
-import { fullyHinted, hintLabel, moveHint, type GameState } from '../lib/game';
+import { fullyHinted, hintLabel, isFront, moveHint, type GameState } from '../lib/game';
 import type { PlateEdge } from '../lib/plate';
 import type { Point } from '../lib/types';
 
@@ -120,8 +120,16 @@ const SPUR_LEN = 9;
 /** Widest fan drawn, however many moves lead away. */
 const SPUR_SHOWN_MAX = 8;
 
-/** How far off the line a move's given-away sign sits. Perpendicular — see `beside`. */
-const MARK_OFF = 8;
+/**
+ * How far along the line a move's given-away sign sits, measured from the word it is about.
+ * Enough to clear that word's own ring and the sign's halo.
+ *
+ * The sign is placed *along* the line and nowhere else — no perpendicular offset. Offsetting it
+ * to one side was tried and reads as belonging to nothing: several moves leave the same word, so
+ * a sign floating between two lines can sit nearer the one it says nothing about. On the line and
+ * near its own end, a sign has exactly one edge and one word it can be about.
+ */
+const MARK_ALONG = NODE_R + 12;
 
 /** Where a pointer event happened, which is all of one that any of this needs. */
 type At = { clientX: number; clientY: number; currentTarget: Element };
@@ -397,10 +405,10 @@ const PlateNode = memo(function PlateNode({
         aria-label={
           isRevealed
             ? `${word}${isSelected ? ', selected' : ''}. Guess from here.`
-            : // The goal is named from the start, so nothing about it is unnamed — but the
-              // moves into it are still worth asking about.
+            : // The goal is somewhere to stand from the first move, not something to ask
+              // about: the moves into it are found by standing there and working backwards.
               isTarget
-              ? `${word}, the goal. Show which way a move into it goes.`
+              ? `${word}, the goal${isSelected ? ', selected' : ''}. Guess from here.`
               : onRoute
                 ? 'Unnamed word on the best route. Show which way one of its moves goes.'
                 : !hinted
@@ -495,8 +503,9 @@ export function GraphPlate({
    * words are named changes with every guess, so closing over any of it would mean a new
    * callback — and a full redraw of ninety words — each time.
    */
-  const live = useRef({ nodes, positions, view, revealed, onSelect, onHint, onSpell });
-  live.current = { nodes, positions, view, revealed, onSelect, onHint, onSpell };
+  const front = (word: string) => isFront(state, word);
+  const live = useRef({ nodes, positions, view, front, onSelect, onHint, onSpell });
+  live.current = { nodes, positions, view, front, onSelect, onHint, onSpell };
 
   /**
    * The word the pointer is really on: the nearest one within reach, or none.
@@ -556,12 +565,19 @@ export function GraphPlate({
     [lift, nearest],
   );
 
-  /** A tap or a click: the same nearest-word question, then hint it or stand on it. */
+  /**
+   * A tap or a click: the same nearest-word question, then hint it or stand on it.
+   *
+   * Somewhere you can guess from is somewhere you stand on, and that now includes the goal —
+   * so tapping the goal moves the cursor there rather than buying the shape of a move into
+   * it. Which is the better trade of the two: standing on the goal and guessing backwards
+   * says everything the mark did and costs no hint.
+   */
   const activate = useCallback(
     (word: string, at: At | null) => {
-      const { revealed: named, onSelect: select, onHint: hint } = live.current;
+      const { front, onSelect: select, onHint: hint } = live.current;
       const on = (at ? nearest(at) : null) ?? word;
-      if (named.has(on)) select(on);
+      if (front(on)) select(on);
       else hint(on);
     },
     [nearest],
@@ -660,18 +676,23 @@ export function GraphPlate({
     return angles;
   }, [nodes, edges, positions]);
 
-  /** Edges the player walked, keyed both ways, with the subword used. */
+  /**
+   * Edges the player walked, keyed both ways, with the subword used.
+   *
+   * Read off the **log**, not off how each word arrived. A word carries one arrival and a
+   * player can reach it more than one way, so arrivals are a subset of the moves made — and
+   * the move it leaves out is the one that joins a game played from both ends, which is the
+   * move that won the round.
+   */
   const walked = useMemo(() => {
     const map = new Map<string, { sub: string; kind: 'add' | 'remove' }>();
-    for (const entry of revealed.values()) {
-      if (entry.via && entry.move) {
-        const mark = { sub: entry.move.sub, kind: entry.move.kind };
-        map.set(`${entry.via} ${entry.word}`, mark);
-        map.set(`${entry.word} ${entry.via}`, mark);
-      }
+    for (const { from, to, move } of state.log) {
+      const mark = { sub: move.sub, kind: move.kind };
+      map.set(`${from} ${to}`, mark);
+      map.set(`${to} ${from}`, mark);
     }
     return map;
-  }, [revealed]);
+  }, [state.log]);
 
   return (
     <svg
@@ -720,28 +741,6 @@ export function GraphPlate({
           // `secretEdges` — and under the walked trail rather than over it, so a move they
           // have actually made still reads as theirs and keeps its subword.
           const shortcut = secretEdges?.has(key) ?? false;
-          // A move given away, drawn **beside the word it is about** — the one that was asked
-          // — saying whether you arrive there by adding letters or by taking them away. See
-          // `moveHint`: a sign in the middle of a line is a claim with no direction in it.
-          const marked = moveHint(state, a, b);
-          const beside = marked
-            ? (() => {
-                const at = marked.at === a ? pa : pb;
-                const away = marked.at === a ? pb : pa;
-                const span = Math.hypot(away.x - at.x, away.y - at.y) || 1;
-                const along = { x: (away.x - at.x) / span, y: (away.y - at.y) / span };
-                // Clear of its own word's mark, and never past the middle of the move: beyond
-                // that it starts reading as a label on the other word.
-                const down = Math.min(span / 2, 26);
-                // Then off the line *perpendicular*, not upward. Upward is beside the line on a
-                // diagonal move and directly on top of it on a vertical one — which is every
-                // move along the spine.
-                return {
-                  x: at.x + along.x * down + along.y * MARK_OFF,
-                  y: at.y + along.y * down - along.x * MARK_OFF,
-                };
-              })()
-            : null;
 
           return (
             <g key={key}>
@@ -814,24 +813,6 @@ export function GraphPlate({
                 onPointerEnter={() => setOverEdge(key)}
                 onPointerLeave={() => setOverEdge((at) => (at === key ? null : at))}
               />
-              {marked && beside && !trail && (
-                <text
-                  x={beside.x}
-                  y={beside.y}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  className="word"
-                  fontSize="12"
-                  fontWeight={600}
-                  fill={marked.kind === 'add' ? 'var(--color-gilt)' : 'var(--color-blood-lit)'}
-                  paintOrder="stroke"
-                  stroke="var(--color-noir)"
-                  strokeWidth="3"
-                  strokeLinejoin="round"
-                >
-                  {marked.kind === 'add' ? '+' : '−'}
-                </text>
-              )}
               {trail && (
                 /*
                   At the middle of the move, which clears the word it leads to: a name
@@ -861,6 +842,58 @@ export function GraphPlate({
                 </text>
               )}
             </g>
+          );
+        })}
+      </g>
+
+      {/*
+        The moves given away, in a layer of their own: above every line and below every word.
+
+        Above the lines because a sign drawn inside its own edge's group is only above *that*
+        line — the next edge in the list draws straight over it, and on a crowded board the
+        sign a player just paid for came out with a stroke through it. Below the words because
+        a sign is about a move; nothing about an edge may cover a name.
+      */}
+      <g>
+        {edges.map(({ a, b }) => {
+          const pa = positions.get(a);
+          const pb = positions.get(b);
+          if (!pa || !pb) return null;
+          // A move already made says what it was in full, and that reading wins: there is
+          // nothing left for a sign to give away.
+          if (walked.has(`${a} ${b}`)) return null;
+          const marked = moveHint(state, a, b);
+          if (!marked) return null;
+
+          const at = marked.at === a ? pa : pb;
+          const away = marked.at === a ? pb : pa;
+          const span = Math.hypot(away.x - at.x, away.y - at.y) || 1;
+          const along = { x: (away.x - at.x) / span, y: (away.y - at.y) / span };
+          // Never past the middle of a short move: beyond that the sign starts reading as a
+          // label on the word at the other end.
+          const down = Math.min(span / 2, MARK_ALONG);
+
+          return (
+            <text
+              key={`${a} ${b}`}
+              x={at.x + along.x * down}
+              y={at.y + along.y * down}
+              textAnchor="middle"
+              dominantBaseline="central"
+              className="word"
+              fontSize="12"
+              fontWeight={600}
+              fill={marked.kind === 'add' ? 'var(--color-gilt)' : 'var(--color-blood-lit)'}
+              // The halo is what makes a sign sitting *on* a line legible: it punches the
+              // line out from under the glyph, so the two read as one mark rather than as a
+              // character with a rule through it.
+              paintOrder="stroke"
+              stroke="var(--color-noir)"
+              strokeWidth="3.5"
+              strokeLinejoin="round"
+            >
+              {marked.kind === 'add' ? '+' : '−'}
+            </text>
           );
         })}
       </g>
