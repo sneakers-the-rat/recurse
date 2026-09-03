@@ -102,7 +102,8 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
           <h3 className="text-bone mb-1 text-xl font-semibold">Hints</h3>
           <p>
             Tap or click an undiscovered node to receive a <span className="text-bone">hint</span> for it.
-            You <emph>cannot</emph> get hints for words on the spine or on shortcuts.
+            You can't get length or letter hints for words on the spine or on shortcuts - 
+            only hints about whether the word can be reached by adding or removing a word.
             Hints are unlimited, and counted alongside your guesses.
             First you will see the number of letters in the word,
             and then each subsequent tap will reveal another letter.
@@ -120,7 +121,7 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
 
           <p>
             The ability to guess rare words means that some boards have <span className="text-gilt">shortcuts</span> - {' '}
-            paths between the two target words that are <emph>shorter</emph> than the par score,
+            paths between the two target words that are shorter than the par score,
             which is computed from the smaller word list.
           </p>
 
@@ -134,8 +135,8 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
           <p>
             Recurse uses two word lists from <a href="https://wordlist.aspell.net/scowl_v1-readme/">SCOWL/ESDB</a>:
             <ul>
-              <li><bold>SCOWL 35</bold> - A smaller list of more common used when constructing the puzzles, computing pars, and finding initial non-spine graph nodes.</li>
-              <li><bold>SCOWL 80</bold> - A much larger list of words that are valid as guesses.</li>
+              <li><span className="font-bold text-bone">SCOWL 35</span> - A smaller list of more common used when constructing the puzzles, computing pars, and finding initial non-spine graph nodes.</li>
+              <li><span className="font-bold text-bone">SCOWL 80</span> - A much larger list of words that are valid as guesses.</li>
             </ul>
           </p>
 

@@ -195,3 +195,104 @@ export function addCompletion(record: Completion): boolean {
   replaceStats([...records, record]);
   return true;
 }
+
+/**
+ * The walkthrough: where in it the player got to, and the board they got there on.
+ *
+ * **Its own key, and that is the whole point.** The tutorial is played on a real puzzle that
+ * somebody may want to play properly one day, and the game store is keyed by word pair — so
+ * writing the lesson's moves there would hand them that board three quarters solved. Nothing
+ * about the tutorial belongs in the record of play either. One slot, holding both halves of
+ * where the player is, and a button that empties it.
+ *
+ * The board it was taught on is stored with it, so a rebuild that changes the lesson's
+ * puzzle — or a lesson pointed somewhere new — discards a resume that would otherwise
+ * restore one board's moves onto another.
+ */
+const TUTORIAL_KEY = 'recurse.tutorial.v1';
+
+export interface TutorialSave {
+  /** The lesson's board, by id. A save for any other board is not this lesson's. */
+  puzzle: string;
+  /** Which card, and which beat of it. */
+  at: number;
+  beat: number;
+  /** Beats already answered, as `card#beat`. */
+  cleared: string[];
+  /** The board as it was left. Null before a move has been made. */
+  game: GameSnapshot | null;
+}
+
+/** Where the lesson was left, or null if it was not, or was left on another board. */
+export function loadTutorial(puzzle: string): TutorialSave | null {
+  try {
+    const raw = store()?.getItem(TUTORIAL_KEY);
+    if (!raw) return null;
+    const saved: unknown = JSON.parse(raw);
+    if (typeof saved !== 'object' || saved === null) return null;
+    const save = saved as Partial<TutorialSave>;
+    if (save.puzzle !== puzzle) return null;
+    return {
+      puzzle,
+      // Clamped to something sane rather than trusted: this has sat in a browser across
+      // releases, and a card index past the end of the lesson is a tutorial that will not
+      // open. Where it lands is bounded again by the lesson itself — see `startAt`.
+      at: Number.isInteger(save.at) && save.at! >= 0 ? save.at! : 0,
+      beat: Number.isInteger(save.beat) && save.beat! >= 0 ? save.beat! : 0,
+      cleared: Array.isArray(save.cleared)
+        ? save.cleared.filter((one): one is string => typeof one === 'string')
+        : [],
+      game: save.game ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveTutorial(save: TutorialSave): void {
+  try {
+    store()?.setItem(TUTORIAL_KEY, JSON.stringify(save));
+  } catch {
+    // Blocked or full storage means a lesson that starts over, never one that will not start.
+  }
+}
+
+/** Throw the lesson's progress away, which is what starting it again does. */
+export function clearTutorial(): void {
+  try {
+    store()?.removeItem(TUTORIAL_KEY);
+  } catch {
+    // See `saveTutorial`.
+  }
+}
+
+/**
+ * Has this browser been offered the tutorial yet?
+ *
+ * A first visit is greeted with the offer once, and never again whichever way it was
+ * answered — taking it and skipping it are both answers. Anyone with a game or a finished
+ * round already stored has plainly been here before and is not greeted at all, which is what
+ * keeps the prompt from appearing to every existing player the day it ships.
+ */
+const GREETED_KEY = 'recurse.greeted.v1';
+
+export function isNewcomer(): boolean {
+  try {
+    const at = store();
+    if (!at) return false;
+    if (at.getItem(GREETED_KEY)) return false;
+    return at.getItem(KEY) === null && at.getItem(STATS_KEY) === null;
+  } catch {
+    // No storage means no way to remember having asked, and a prompt on every single load
+    // is worse than never offering it.
+    return false;
+  }
+}
+
+export function markGreeted(): void {
+  try {
+    store()?.setItem(GREETED_KEY, '1');
+  } catch {
+    // See `saveBand`.
+  }
+}

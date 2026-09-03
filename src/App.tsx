@@ -26,6 +26,10 @@ import { Puzzles } from './components/Puzzles';
 import { ResetView } from './components/ResetView';
 import { Stats } from './components/Stats';
 import { Toast } from './components/Toast';
+import { Tutorial } from './components/Tutorial';
+import { Welcome } from './components/Welcome';
+import { LESSON } from './components/lessons';
+import type { Moment } from './lib/tutorial';
 import { shortestPath, shortestRoutes } from './lib/graph';
 import {
   applyGuess,
@@ -65,9 +69,12 @@ import { markGuesses, shareText } from './lib/share';
 import {
   addCompletion,
   gameKey,
+  isNewcomer,
   loadBand,
   loadGame,
   loadStats,
+  loadTutorial,
+  markGreeted,
   replaceStats,
   saveBand,
   saveGame,
@@ -409,26 +416,105 @@ export default function App() {
    * `replace` for arriving and for the back button, `push` for stepping: stepping
    * is navigation and should be undoable, while rewriting `/` to today's id must
    * not put an entry in the history that goes straight back to `/`.
+   *
+   * **The tutorial is the one board opened under another name.** It is a real puzzle,
+   * played by the real machinery, so it comes through here like any other — but it keeps
+   * `/tutorial` in the address bar rather than its own id, because what a player wants to
+   * link somebody to is the walkthrough and not the board it happens to be taught on. The
+   * three other differences are all consequences of it being a lesson rather than a round:
+   * it always starts from the beginning, it leaves nothing behind, and it does not change
+   * which length a bare visit opens.
    */
-  const show = useCallback((chosen: DailyPuzzle, how: 'push' | 'replace') => {
-    // Putting a board up takes any page down: they are separate paths and only one can be
-    // the URL.
-    setPage(null);
-    setAt({ day: chosen.day });
-    // The length on screen is the one the player is on, and the one a bare visit will open
-    // next time. Read off the puzzle rather than tracked separately: a board knows which of
-    // the three it is, including a board arrived at by link.
-    setBand(chosen.puzzle.band);
-    saveBand(chosen.puzzle.band);
-    // Pick up wherever this puzzle was left, which for a reload is normally
-    // mid-game. See storage.ts.
-    setState(restore(chosen.puzzle, loadGame(gameKey(chosen.puzzle))));
-    setError(null);
-    // The query string is carried over, because `?dev` has to survive a step.
-    const url = pathFor(chosen.puzzle.id, window.location.search);
-    if (how === 'push') window.history.pushState(null, '', url);
-    else window.history.replaceState(null, '', url);
+  const show = useCallback(
+    (chosen: DailyPuzzle, how: 'push' | 'replace', mode: 'play' | 'tutorial' = 'play') => {
+      const teaching = mode === 'tutorial';
+      // Putting a board up takes any page down: they are separate paths and only one can be
+      // the URL.
+      setPage(teaching ? 'tutorial' : null);
+      setAt({ day: chosen.day });
+      // The length on screen is the one the player is on, and the one a bare visit will open
+      // next time. Read off the puzzle rather than tracked separately: a board knows which of
+      // the three it is, including a board arrived at by link.
+      setBand(chosen.puzzle.band);
+      // Except the tutorial's, whose length is an accident of which puzzle teaches best and
+      // has nothing to say about what the player likes to play.
+      if (!teaching) saveBand(chosen.puzzle.band);
+      // Pick up wherever this puzzle was left, which for a reload is normally mid-game. See
+      // storage.ts. The lesson is picked up too, from **its own slot** — a card that says
+      // "now name rampaged" is nonsense against a board where nothing has been named, so
+      // the place in the lesson and the board it was reached on are one record, and the
+      // tutorial is the one writing it. What must never happen is the two getting mixed up:
+      // the game store is keyed by word pair, and the walkthrough's moves in that slot would
+      // hand somebody this board three quarters solved.
+      setState(
+        teaching
+          ? restore(chosen.puzzle, loadTutorial(chosen.puzzle.id)?.game ?? null)
+          : restore(chosen.puzzle, loadGame(gameKey(chosen.puzzle))),
+      );
+      setError(null);
+      // The query string is carried over, because `?dev` has to survive a step.
+      const url = teaching
+        ? pagePath('tutorial', window.location.search)
+        : pathFor(chosen.puzzle.id, window.location.search);
+      if (how === 'push') window.history.pushState(null, '', url);
+      else window.history.replaceState(null, '', url);
+    },
+    [],
+  );
+
+  /**
+   * The walkthrough, which is one particular board out of the bank with a lesson over it.
+   *
+   * Fetched by id like any shared link, because that is what the lesson names — see
+   * `LESSON.puzzle`. When the bank has no such board the page still opens, on whatever was
+   * already up, and the tutorial says why rather than teaching one board's words over
+   * another's.
+   */
+  const openTutorial = useCallback(
+    (how: 'push' | 'replace' = 'push') => {
+      if (!data) return;
+      const asPage = () => {
+        const url = pagePath('tutorial', window.location.search);
+        if (how === 'push') window.history.pushState(null, '', url);
+        else window.history.replaceState(null, '', url);
+        setPage('tutorial');
+      };
+      void loadShard(shardOf(LESSON.puzzle), data.manifest.version)
+        .then((bank) => {
+          const taught = puzzleById(bank, LESSON.puzzle);
+          if (taught) show(taught, how, 'tutorial');
+          else asPage();
+        })
+        .catch(asPage);
+    },
+    [data, show],
+  );
+
+  // A button hands its click event to whatever it is given, and `how` would swallow it —
+  // silently replacing the history entry instead of pushing one, so back left the site.
+  const goTutorial = useCallback(() => openTutorial('push'), [openTutorial]);
+
+  /**
+   * Whether this visit is offered the walkthrough.
+   *
+   * Read once, on the first render, because the answer is about the browser and not about
+   * anything on screen — and because both ways of answering it write the flag, so asking
+   * again later would find it already set and the dialog would vanish mid-sentence.
+   */
+  const [greet, setGreet] = useState(isNewcomer);
+
+  const answered = useCallback(() => {
+    markGreeted();
+    setGreet(false);
   }, []);
+
+  const takeTutorial = useCallback(() => {
+    answered();
+    openTutorial('push');
+  }, [answered, openTutorial]);
+
+  const skipTutorial = answered;
+
 
   /**
    * The shard that can answer a path, fetched if it is not the one already in hand.
@@ -480,14 +566,26 @@ export default function App() {
     // The path decides which shard is fetched, so the loader is told the id up front
     // rather than being asked for a board it did not bring. Failing an id, the band the
     // player last chose decides which of the day's three boards is fetched.
-    const asked = idFromPath(window.location.pathname);
     // Which page the URL asked for, captured before `show` rewrites it to a board's id. A
     // direct visit still needs a board resolved underneath — leaving a page has to land
     // somewhere — so the board is loaded and then the address put back.
     const arrived = pageFromPath(window.location.pathname);
+    // `/tutorial` is the one page that names a board: the lesson's, so the shard fetched
+    // with the graph is the one holding it rather than today's.
+    const asked = arrived === 'tutorial' ? LESSON.puzzle : idFromPath(window.location.pathname);
     loadGameData(asked === null ? { band: loadBand(BANDS) } : { id: asked })
       .then(async (loaded) => {
         setData(loaded);
+        if (arrived === 'tutorial') {
+          const taught = puzzleById(loaded.puzzles, LESSON.puzzle);
+          if (taught) {
+            show(taught, 'replace', 'tutorial');
+            return;
+          }
+          // The lesson's board is not in this bank. Fall through to today's, which the
+          // tutorial draws its refusal over rather than teaching one board's words on
+          // another — see `wrongBoard`.
+        }
         const chosen = await boardForPath(loaded, window.location.pathname, loadBand(BANDS));
         if (!chosen) {
           // Today's own shard does not hold the id the calendar named for today, which means
@@ -517,6 +615,13 @@ export default function App() {
       // The pages are paths too, so going back to one — or out of one — is this and not a
       // board lookup. Leaving one resolves the board underneath, which is what was on screen.
       const wanted = pageFromPath(window.location.pathname);
+      // Except the tutorial, which is a page *and* a particular board: coming back to it
+      // has to put that board up, and start the lesson over, rather than draw the steps
+      // across whatever was being played.
+      if (wanted === 'tutorial') {
+        openTutorial('replace');
+        return;
+      }
       if (wanted) {
         setPage(wanted);
         return;
@@ -528,7 +633,7 @@ export default function App() {
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [data, show, boardForPath, band]);
+  }, [data, show, boardForPath, band, openTutorial]);
 
   /**
    * Found words whose onward routes have been worked out.
@@ -985,11 +1090,16 @@ export default function App() {
    *
    * Finished games are kept as well as half-played ones — that is what makes the
    * completed view come back on a later visit rather than an empty guess bar.
+   *
+   * **A lesson is not a round and leaves nothing behind.** The tutorial's board is a real
+   * puzzle somebody may want to play properly one day, and writing the walkthrough's moves
+   * into its slot would hand them a board already three quarters solved. The store is keyed
+   * by word pair, so there is nowhere else to put it.
    */
   useEffect(() => {
-    if (!state) return;
+    if (!state || page === 'tutorial') return;
     saveGame(gameKey(state.puzzle), worthKeeping(state) ? snapshot(state) : null);
-  }, [state]);
+  }, [state, page]);
 
   /**
    * One day of one length, whichever shard it is in.
@@ -1029,6 +1139,23 @@ export default function App() {
    * Stepping stays in the length being played. Moving between lengths is the header's job.
    */
   const goToPuzzle = useCallback((next: number) => openDay(next, band), [openDay, band]);
+
+  /** Out of the lesson and on to the board the player actually came for. */
+  const leaveTutorial = useCallback(() => {
+    if (!data) return;
+    openDay(dayNumber(new Date(), data.manifest.epoch), band);
+  }, [data, openDay, band]);
+
+  /**
+   * The lesson taken again from the top: an empty board under a first card.
+   *
+   * The tutorial has already thrown its own record away by the time this runs; what is left
+   * is the board in memory, which only App holds.
+   */
+  const restartTutorial = useCallback(() => {
+    setState((s) => (s ? newGame(s.puzzle) : s));
+    setError(null);
+  }, []);
 
   /** Dev only: throw this board's saved progress away and start it again. */
   const resetPuzzle = useCallback(() => {
@@ -1252,6 +1379,10 @@ export default function App() {
    */
   useEffect(() => {
     if (!data || !state?.solved || !result || !at) return;
+    // Walking a board because a lesson told you to is not solving it, in exactly the way
+    // dev mode's solve button is not — so the tutorial is kept out of the history for the
+    // same reason and by the same rule.
+    if (page === 'tutorial') return;
     const key = gameKey(state.puzzle);
     if (devSolved.current.has(key)) return;
     const written = addCompletion(
@@ -1265,7 +1396,19 @@ export default function App() {
       }),
     );
     if (written) setHistoryAt((count) => count + 1);
-  }, [data, state, result, at]);
+  }, [data, state, result, at, page]);
+
+  /**
+   * The game, as the tutorial's questions get to see it.
+   *
+   * Everything a step may ask about, and nothing that changes when the board merely moves:
+   * keyed on the game and the plate, so a step's condition is tested when something has
+   * happened rather than sixty times a second while a word settles. See `Moment`.
+   */
+  const moment: Moment | null = useMemo(
+    () => (state ? { state, onShortcut: onSecret, drawn: new Set(plate?.nodes ?? []) } : null),
+    [state, onSecret, plate],
+  );
 
   /** Dev only: on to the next board, once this one is done with. */
   const playAgain = useCallback(() => {
@@ -1411,6 +1554,7 @@ export default function App() {
           onHelp={openHelp}
           onPuzzles={openArchive}
           onStats={openStats}
+          onTutorial={goTutorial}
         />
 
         {/* Above the board, so finishing is unmissable and the figure is untouched. */}
@@ -1432,6 +1576,7 @@ export default function App() {
         */}
         <main
           ref={plateRef}
+          data-tour="plate"
           className={`relative min-h-0 flex-1 border-y transition-colors ${
             engaged ? 'border-gilt-dim' : 'border-transparent'
           }`}
@@ -1500,6 +1645,39 @@ export default function App() {
       )}
 
       {toast !== null && <Toast message={toast} />}
+
+      {/*
+        The lesson, over the board rather than instead of it. Unlike the archive and the
+        record, `/tutorial` does not return early above: what it teaches is this game, on
+        this board, with every part of it live — so it is a layer, and everything under it
+        is the thing being taught.
+      */}
+      {page === 'tutorial' && moment && (
+        <Tutorial
+          lesson={LESSON}
+          board={state.puzzle.id}
+          moment={moment}
+          positions={laid.positions}
+          plate={plateSize}
+          play={play}
+          camera={camera}
+          onLook={moveTo}
+          // Nothing is pointed at until the title card is done and the board has stopped
+          // being introduced.
+          ready={opening === null}
+          onLeave={leaveTutorial}
+          onRestart={restartTutorial}
+        />
+      )}
+
+      {/*
+        The one thing a first visit is asked. After the opening, because the title card is
+        the game introducing itself and this is the offer to explain it — and over a board
+        that is settled, so declining lands on something finished rather than mid-animation.
+      */}
+      {greet && page === null && opening === null && (
+        <Welcome onTutorial={takeTutorial} onSkip={skipTutorial} />
+      )}
 
       {showHelp && (
         <HowTo

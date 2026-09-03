@@ -103,7 +103,7 @@ function Lengths({
   );
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} data-tour="length" className="relative">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -164,10 +164,12 @@ function Menu({
   onHelp,
   onPuzzles,
   onStats,
+  onTutorial,
 }: {
   onHelp: () => void;
   onPuzzles: () => void;
   onStats: () => void;
+  onTutorial: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const box = useDismiss(open, useCallback(() => setOpen(false), []));
@@ -187,7 +189,7 @@ function Menu({
   );
 
   return (
-    <div ref={box} className="relative sm:hidden">
+    <div ref={box} data-tour="menu" className="relative sm:hidden">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -210,6 +212,7 @@ function Menu({
         <div role="menu" aria-label="Menu" className={`${PANEL} right-0`}>
           {item('Puzzles', onPuzzles)}
           {item('Stats', onStats)}
+          {item('Tutorial', onTutorial)}
           {item('How to play', onHelp)}
         </div>
       )}
@@ -260,6 +263,8 @@ interface Props {
   onPuzzles: () => void;
   /** To the record of every round finished. See `Stats`. */
   onStats: () => void;
+  /** To the walkthrough, which is a real board with a lesson over it. See `Tutorial`. */
+  onTutorial: () => void;
 }
 
 export const Header = memo(function Header({
@@ -279,6 +284,7 @@ export const Header = memo(function Header({
   onHelp,
   onPuzzles,
   onStats,
+  onTutorial,
 }: Props) {
   /**
    * The bar's own colour, which is a statement about the round rather than decoration.
@@ -291,7 +297,7 @@ export const Header = memo(function Header({
   const rule = finished ? (beatPar ? 'border-gilt' : 'border-gilt-dim') : 'border-rule';
 
   return (
-    <header className={`border-b ${rule} ${finished ? 'bg-noir-2' : ''}`}>
+    <header data-tour="masthead" className={`border-b ${rule} ${finished ? 'bg-noir-2' : ''}`}>
       <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 py-2.5 sm:gap-x-4">
         {/*
           Title, day, length: one line, read left to right, because that is the order of the
@@ -321,11 +327,18 @@ export const Header = memo(function Header({
           <button onClick={onStats} className="label hover:text-gilt transition-colors" type="button">
             Stats
           </button>
+          <button
+            onClick={onTutorial}
+            className="label hover:text-gilt transition-colors"
+            type="button"
+          >
+            Tutorial
+          </button>
           <button onClick={onHelp} className="label hover:text-gilt transition-colors" type="button">
             How to play
           </button>
         </span>
-        <Menu onHelp={onHelp} onPuzzles={onPuzzles} onStats={onStats} />
+        <Menu onHelp={onHelp} onPuzzles={onPuzzles} onStats={onStats} onTutorial={onTutorial} />
       </div>
 
       {/* The statement, set like a Deco title page: rule, line, rule. */}
@@ -347,6 +360,7 @@ export const Header = memo(function Header({
             Hence `--chars`, which is all that rule needs to know about them.
           */}
           <p
+            data-tour="statement"
             className="statement flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-2xl sm:text-3xl"
             style={{ '--chars': Math.max(source.length, target.length) } as CSSProperties}
           >
@@ -356,7 +370,7 @@ export const Header = memo(function Header({
             </span>
             <span className="word text-bone">{target}</span>
           </p>
-          <p className="label mt-2.5">
+          <p data-tour="tally" className="label mt-2.5">
             par: {par} moves
             {shortcuts > 0 && (
               <>

@@ -188,6 +188,107 @@ svg :focus:not(:focus-visible) {
   }
 }
 
+/*
+ * The tutorial's spotlight, which is driver.js's overlay wearing this game's clothes.
+ *
+ * Two things are being overridden and both are decisions rather than taste.
+ *
+ * **The overlay is a picture and nothing else.** driver.js stops the whole page
+ * responding and re-enables only what it is pointing at, which is right for a tour over a
+ * form and wrong over a game: a player who wants to pan the board, ask about some other
+ * word, or type something the step never asked for must be able to. So pointer events go
+ * back to everything, and the overlay path gives them up — `!important` because the
+ * library sets that one inline.
+ *
+ * **The panel is the page's own furniture.** `.driver-popover` is `all: unset` followed by
+ * a white rounded box, which is a different piece of software sitting on top of this one.
+ * The doubled class beats the library's single one without `!important`.
+ */
+body.driver-active * {
+  pointer-events: auto;
+}
+
+body.driver-active .driver-overlay,
+body.driver-active .driver-overlay path {
+  pointer-events: none !important;
+}
+
+/*
+ * What the spotlight is pointed at: a box of the tutorial's own, over whatever the beat
+ * lights. See `frame` in Tutorial.tsx for why the library is given this rather than the
+ * thing itself.
+ *
+ * It is drawn as well as measured. A cutout in a dark overlay is a *slightly less dark*
+ * rectangle, and over a black board with a four-pixel dot on it that is not a spotlight —
+ * measured on the step that says "click this word", where the hole was there and nobody
+ * could see it. The hairline is what makes it a mark rather than an absence, so it sits
+ * exactly on the edge of the hole: `stagePadding` is zero and the air is in the box.
+ *
+ * Above the overlay and below the panel, and never in the way of a pointer — the thing it
+ * is over is the thing the player has been told to click.
+ */
+.recurse-stage {
+  position: fixed;
+  display: none;
+  z-index: 10001;
+  pointer-events: none !important;
+  border: 1px solid var(--color-gilt);
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px rgb(13 11 12 / 0.7),
+    0 0 22px rgb(191 159 96 / 0.22);
+}
+
+.driver-popover.recurse-tour {
+  background-color: var(--color-noir-2);
+  color: var(--color-bone-dim);
+  border: 1px solid var(--color-rule);
+  border-radius: 0;
+  box-shadow: 0 2px 24px rgb(0 0 0 / 0.6);
+  font-family: var(--font-display);
+  padding: 1rem 1.125rem;
+  min-width: 0;
+  /* Wide enough for a sentence to read as a sentence, and never wider than a phone. */
+  width: min(24rem, calc(100vw - 1.5rem));
+  max-width: none;
+}
+
+/* The arrow is a solid triangle of the popover's own colour; only the fill is ours. */
+.driver-popover.recurse-tour .driver-popover-arrow {
+  border-color: var(--color-noir-2);
+}
+
+.driver-popover.recurse-tour .driver-popover-arrow-side-left {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-right-color: transparent;
+}
+
+.driver-popover.recurse-tour .driver-popover-arrow-side-right {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+}
+
+.driver-popover.recurse-tour .driver-popover-arrow-side-top {
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+  border-right-color: transparent;
+}
+
+.driver-popover.recurse-tour .driver-popover-arrow-side-bottom {
+  border-top-color: transparent;
+  border-left-color: transparent;
+  border-right-color: transparent;
+}
+
+/* The React panel is portalled in here, so the library's own type scale is in the way. */
+.driver-popover.recurse-tour .driver-popover-description {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 #how-to {
   a {
     color: var(--color-gilt);

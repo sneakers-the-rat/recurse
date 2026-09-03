@@ -27,7 +27,10 @@ export const gameData = shippedData;
  * Behind the hamburger they are `menuitem`s and written out they are buttons, which is the
  * accessibility tree saying the same thing: one is a menu and the other is a row of links.
  */
-export async function masthead(page: Page, name: 'Puzzles' | 'Stats' | 'How to play') {
+export async function masthead(
+  page: Page,
+  name: 'Puzzles' | 'Stats' | 'Tutorial' | 'How to play',
+) {
   // Which shape the masthead is in cannot be asked until there is one: `isVisible` answers
   // now rather than waiting, so on a page still loading it said "not folded" and then spent
   // the whole timeout waiting for a written-out menu that a phone never shows.

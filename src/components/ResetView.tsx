@@ -27,6 +27,7 @@ export const ResetView = memo(function ResetView({ onReset }: { onReset: () => v
       // The name says what it does; the word on it is what there is room for.
       aria-label="Show the whole puzzle"
       title="Show the whole puzzle"
+      data-tour="reset-view"
       // Padded past what the label needs, because this is a thumb's target on the screen
       // it matters on and the rest of the chrome is sized for a pointer.
       className="label bg-noir/80 border-rule hover:border-gilt-dim hover:text-gilt absolute right-2 bottom-2 z-10 border px-3 py-2.5 leading-none whitespace-nowrap transition-colors"

@@ -102,6 +102,7 @@ export const GuessBar = memo(function GuessBar({
   return (
     <form
       onSubmit={submit}
+      data-tour="guess"
       className="border-rule bg-noir-2/95 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur"
     >
       <div className="mx-auto max-w-2xl">
@@ -123,6 +124,7 @@ export const GuessBar = memo(function GuessBar({
         <div className="flex gap-2">
           <input
             ref={inputRef}
+            data-tour="field"
             value={value}
             onChange={(e) => {
               setValue(e.target.value);
@@ -149,7 +151,7 @@ export const GuessBar = memo(function GuessBar({
               disabled:text-ash-lit rounded-sm border px-4 transition-colors
               disabled:cursor-not-allowed disabled:hover:border-rule"
           >
-            Name it
+            Guess
           </button>
         </div>
 

@@ -40,17 +40,24 @@ export function base(): string {
 /**
  * The paths that are not boards.
  *
- * Two of them: the archive of everything already played, and the record of how the player
- * has done. Words rather than digests, so neither can ever collide with an id — `ID` is hex
- * only, and `puzzles` and `stats` are not. That is also why they need no special case in
- * `idFromPath`: a path this does not recognise as an id already means "no board named here",
- * and these are two of those.
+ * Three of them: the archive of everything already played, the record of how the player
+ * has done, and the walkthrough. Words rather than digests, so none can ever collide with
+ * an id — `ID` is hex only, and `puzzles`, `stats` and `tutorial` are not. That is also why
+ * they need no special case in `idFromPath`: a path this does not recognise as an id
+ * already means "no board named here", and these are three of those.
+ *
+ * **The tutorial is the odd one of the three.** The other two replace the board; the
+ * tutorial *is* a board — one particular puzzle, played for real, with a lesson over it —
+ * so its path stays in the address bar rather than being rewritten to that puzzle's id.
+ * Which board it teaches on is the lesson's business and not this module's; see
+ * `lib/tutorial.ts`.
  */
-export type Page = 'archive' | 'stats';
+export type Page = 'archive' | 'stats' | 'tutorial';
 
 const PAGES: Record<Page, string> = {
   archive: 'puzzles',
   stats: 'stats',
+  tutorial: 'tutorial',
 };
 
 /** The first segment of a path, with the base and any trailing segments taken off. */

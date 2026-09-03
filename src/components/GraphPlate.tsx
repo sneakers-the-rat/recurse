@@ -743,7 +743,10 @@ export function GraphPlate({
           const shortcut = secretEdges?.has(key) ?? false;
 
           return (
-            <g key={key}>
+            // `data-edge` is how the tutorial points at one move; see selectorFor in
+            // tutorial.ts. Alphabetical, which is the order plate.ts emits pairs in, so
+            // either way of naming a move finds the same line.
+            <g key={key} data-edge={key}>
               {shortcut && (
                 <line
                   x1={pa.x}
@@ -876,6 +879,9 @@ export function GraphPlate({
           return (
             <text
               key={`${a} ${b}`}
+              // The sign a step can point at, once it has been bought — until then this
+              // element does not exist and the spotlight has nothing to find.
+              data-mark={`${a} ${b}`}
               x={at.x + along.x * down}
               y={at.y + along.y * down}
               textAnchor="middle"
@@ -908,7 +914,12 @@ export function GraphPlate({
             // The group carries the position and nothing else, so a frame of the
             // layout moving touches one attribute per word. Everything else is in
             // PlateNode, which is memoised on values a frame does not change.
-            <g key={word} transform={`translate(${p.x} ${p.y})`}>
+            //
+            // `data-word` rides along because it is the only stable handle a word has:
+            // the tutorial points at words, and a word's position is exactly what will
+            // not hold still. It is constant per word, so it costs the memoisation
+            // nothing.
+            <g key={word} data-word={word} transform={`translate(${p.x} ${p.y})`}>
               <PlateNode
                 word={word}
                 isRevealed={isRevealed}

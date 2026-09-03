@@ -74,6 +74,26 @@ export default defineConfig({
     // a test-only switch, and it keeps ninety page loads from each sitting through two
     // seconds of title card. `opening.spec.ts` opts back in.
     contextOptions: { reducedMotion: 'reduce' },
+    /**
+     * Every test arrives as somebody who has been here before.
+     *
+     * A first visit is offered the walkthrough, over the board, once — see `isNewcomer`.
+     * Which is right for a player and wrong for a suite of a hundred and fifty tests about
+     * everything else, all of which start in a browser with nothing stored and would each
+     * have to dismiss it first. So the flag both answers set is seeded here, and
+     * `welcome.spec.ts` — the one spec that *is* about the offer — clears it again.
+     *
+     * `origins` is matched on the origin, so this has to follow `baseURL`.
+     */
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: DEV ? 'http://localhost:5173' : 'http://localhost:4173',
+          localStorage: [{ name: 'recurse.greeted.v1', value: '1' }],
+        },
+      ],
+    },
   },
   projects: [
     // Chromium-based so a plain `playwright install chromium` is enough. The
