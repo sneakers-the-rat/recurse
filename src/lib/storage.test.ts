@@ -8,7 +8,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { GameSnapshot } from './game';
-import { KEY, gameKey, loadGame, saveGame } from './storage';
+import type { Completion } from './stats';
+import { KEY, addCompletion, gameKey, loadGame, loadStats, replaceStats, saveGame } from './storage';
 import type { Puzzle } from './types';
 
 const puzzle: Puzzle = {
@@ -133,5 +134,67 @@ describe('saveGame', () => {
   it('ignores entries of the wrong shape inside a valid array', () => {
     localStorage.setItem(KEY, JSON.stringify([null, 7, { key: 'a' }, 'x']));
     expect(loadGame('a')).toBeNull();
+  });
+});
+
+const done = (over: Partial<Completion> = {}): Completion => ({
+  key: 'base>cannon',
+  id: 'aaaa1111',
+  day: 0,
+  date: '2026-07-26',
+  band: 0,
+  par: 4,
+  secret: 0,
+  guesses: 4,
+  misses: 0,
+  letters: 0,
+  shapes: 0,
+  marks: 'gggg',
+  words: [],
+  backfilled: false,
+  ...over,
+});
+
+describe('the finished rounds', () => {
+  it('keeps a round, and keeps them in the order they were finished', () => {
+    addCompletion(done({ key: 'a>b' }));
+    addCompletion(done({ key: 'c>d' }));
+    expect(loadStats().map((one) => one.key)).toEqual(['a>b', 'c>d']);
+  });
+
+  it('keeps the first round a pair had, since reopening a board offers it again', () => {
+    expect(addCompletion(done({ key: 'a>b', guesses: 4 }))).toBe(true);
+    expect(addCompletion(done({ key: 'a>b', guesses: 99 }))).toBe(false);
+    expect(loadStats()).toHaveLength(1);
+    expect(loadStats()[0]!.guesses).toBe(4);
+  });
+
+  it('is not evicted the way games are: a history that ends ten days ago is not one', () => {
+    for (let i = 0; i < 60; i++) addCompletion(done({ key: `k${i}`, day: i }));
+    expect(loadStats()).toHaveLength(60);
+    expect(loadStats()[0]!.key).toBe('k0');
+  });
+
+  it('gives nothing back rather than throwing when there is no storage', () => {
+    install(undefined);
+    expect(() => addCompletion(done())).not.toThrow();
+    expect(loadStats()).toEqual([]);
+  });
+
+  it('survives a store that throws on every write', () => {
+    install(
+      fakeStorage(() => {
+        throw new Error('QuotaExceededError');
+      }),
+    );
+    expect(() => replaceStats([done()])).not.toThrow();
+    expect(loadStats()).toEqual([]);
+  });
+
+  it('recovers from rubbish in the key rather than refusing to open', () => {
+    localStorage.setItem('recurse.stats.v1', '{ this is not json');
+    expect(loadStats()).toEqual([]);
+    addCompletion(done({ key: 'a>b' }));
+    expect(loadStats()).toHaveLength(1);
   });
 });

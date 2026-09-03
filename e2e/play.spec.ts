@@ -4,7 +4,15 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { board, gameData, inShot, puzzleWithPar, puzzleWithSecret, result } from './fixtures';
+import {
+  board,
+  gameData,
+  inShot,
+  masthead,
+  puzzleWithPar,
+  puzzleWithSecret,
+  result,
+} from './fixtures';
 
 async function guess(page: Page, word: string) {
   const input = page.getByLabel(/Your guess/);
@@ -185,7 +193,7 @@ test('typing does not hijack the other places text can go', async ({ page }) => 
   await expect(page.getByLabel(/Your guess/)).toHaveValue('');
 
   // While the rules are open, focus belongs to the dialog.
-  await page.getByRole('button', { name: 'How to play' }).click();
+  await masthead(page, 'How to play');
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.keyboard.type('base');
   await expect(page.getByLabel(/Your guess/)).toHaveValue('');

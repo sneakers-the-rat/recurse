@@ -38,14 +38,20 @@ export function base(): string {
 }
 
 /**
- * The one path that is not a board: the archive of everything already played.
+ * The paths that are not boards.
  *
- * A word rather than a digest, so it can never collide with an id — `ID` is hex only, and
- * `puzzles` is not. That is also why it needs no special case in `idFromPath`: a path this
- * does not recognise as an id already means "no board named here", and the archive is one of
- * those.
+ * Two of them: the archive of everything already played, and the record of how the player
+ * has done. Words rather than digests, so neither can ever collide with an id — `ID` is hex
+ * only, and `puzzles` and `stats` are not. That is also why they need no special case in
+ * `idFromPath`: a path this does not recognise as an id already means "no board named here",
+ * and these are two of those.
  */
-export const ARCHIVE = 'puzzles';
+export type Page = 'archive' | 'stats';
+
+const PAGES: Record<Page, string> = {
+  archive: 'puzzles',
+  stats: 'stats',
+};
 
 /** The first segment of a path, with the base and any trailing segments taken off. */
 function segment(path: string, from: string): string {
@@ -59,14 +65,16 @@ export function idFromPath(path: string, from: string = base()): string | null {
   return ID.test(first) ? first : null;
 }
 
-/** Is this the archive? */
-export function isArchive(path: string, from: string = base()): boolean {
-  return segment(path, from) === ARCHIVE;
+/** Which page a path names, or null when it names a board or nothing at all. */
+export function pageFromPath(path: string, from: string = base()): Page | null {
+  const first = segment(path, from);
+  const found = (Object.keys(PAGES) as Page[]).find((page) => PAGES[page] === first);
+  return found ?? null;
 }
 
-/** Where the archive lives. `search` is carried through so `?dev` survives a visit to it. */
-export function archivePath(search: string = '', from: string = base()): string {
-  return `${from}${ARCHIVE}${search}`;
+/** Where a page lives. `search` is carried through so `?dev` survives a visit to it. */
+export function pagePath(page: Page, search: string = '', from: string = base()): string {
+  return `${from}${PAGES[page]}${search}`;
 }
 
 /**

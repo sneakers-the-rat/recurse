@@ -1,0 +1,72 @@
+/*
+ * The two faces the game is set in, served from this app and not from anyone else.
+ *
+ * Space Grotesk for the chrome and Spline Sans Mono for the words: a grotesque with
+ * drawn-on quirks against a monospace built from the same temperament, so the labels and
+ * the material they describe are relatives rather than strangers. Both are variable over
+ * 300–700, which covers the two weights the chrome asks for — 400 running text, 600 in
+ * the labels — with real weights rather than a browser's imitation of one. See
+ * `font-synthesis-weight` in index.css for why that matters.
+ *
+ * Vendored rather than linked: a font on someone else's CDN is a request that can be
+ * slow, blocked, or watched, and a game this small has no reason to make one. The files
+ * are Google's own woff2 builds, unmodified; both faces are under the SIL Open Font
+ * License, whose terms are in `public/fonts/OFL-*.txt` beside them because redistributing
+ * them is what this is.
+ *
+ * Two files per face, split the way Google splits them, so the accented half is only
+ * fetched by a page that shows an accented letter. The `unicode-range` declarations are
+ * theirs verbatim; changing one to something tidier means the browser guesses wrong about
+ * which file holds which letter and downloads both, or neither.
+ *
+ * The vietnamese subset of Space Grotesk is deliberately absent. Its range is not in any
+ * word the game can draw, and the file is only ever a download nobody reads.
+ */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('/fonts/space-grotesk-latin.woff2') format('woff2');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('/fonts/space-grotesk-latin-ext.woff2') format('woff2');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Spline Sans Mono';
+  src: url('/fonts/spline-sans-mono-latin.woff2') format('woff2');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Spline Sans Mono';
+  src: url('/fonts/spline-sans-mono-latin-ext.woff2') format('woff2');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}

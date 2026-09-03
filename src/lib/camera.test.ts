@@ -9,8 +9,11 @@ import {
   MAX_SCALE,
   MIN_SCALE,
   between,
+  bringInto,
   clampCamera,
   fitCamera,
+  inView,
+  lookAt,
   openingCamera,
   panBy,
   playCamera,
@@ -108,6 +111,21 @@ describe('openingCamera', () => {
     expect(view.x).toBeLessThanOrEqual(-900);
     expect(view.x + view.width).toBeGreaterThanOrEqual(900);
   });
+
+  it('looks where the playing view looks, however lopsided the figure', () => {
+    // A board with four times as much of itself on one side as the other, which is an
+    // ordinary board: framing on the middle of those bounds put the source and the target
+    // three quarters of the way across the plate for the whole of the title card.
+    const play = playCamera(390, phone);
+    const lopsided = { minX: -400, maxX: 100, minY: -60, maxY: 450 };
+    const opening = openingCamera(lopsided, 390, phone);
+    expect(opening.cx).toBe(play.cx);
+    expect(opening.cy).toBe(play.cy);
+    // And still shows it: the wider side is what decides how far back to go.
+    const view = viewOf(opening, phone);
+    expect(view.x).toBeLessThanOrEqual(-400);
+    expect(view.x + view.width).toBeGreaterThanOrEqual(100);
+  });
 });
 
 describe('zoomAround', () => {
@@ -154,6 +172,61 @@ describe('clampCamera', () => {
     // Something is still in shot: the view's near edge has not passed the figure.
     expect(view.x).toBeLessThan(box.maxX);
     expect(view.y).toBeLessThan(box.maxY);
+  });
+});
+
+describe('bringInto', () => {
+  const camera = { cx: 0, cy: 200, scale: 1 };
+
+  it('does nothing at all for a word already in shot', () => {
+    // The conservative half: on a screen holding the whole board this is every guess,
+    // and a camera that moved anyway would be motion the player did not ask for.
+    expect(bringInto(camera, { x: 0, y: 200 }, desktop)).toEqual(camera);
+    expect(inView(camera, { x: 0, y: 200 }, desktop)).toBe(true);
+  });
+
+  it('moves the least it can, and brings the word inside with room for its name', () => {
+    const point = { x: 900, y: 200 };
+    expect(inView(camera, point, desktop)).toBe(false);
+    const moved = bringInto(camera, point, desktop);
+    // Sideways only: nothing was wrong with the height.
+    expect(moved.cy).toBe(camera.cy);
+    expect(moved.scale).toBe(camera.scale);
+    // Just inside, not centred — the least that puts it in shot.
+    expect(moved.cx).toBeLessThan(point.x);
+    expect(moved.cx).toBeGreaterThan(camera.cx);
+    const view = viewOf(moved, desktop);
+    expect(point.x).toBeGreaterThan(view.x + 40);
+    expect(point.x).toBeLessThan(view.x + view.width - 40);
+    expect(inView(moved, point, desktop)).toBe(true);
+  });
+
+  it('is idempotent, so following a word twice moves once', () => {
+    const point = { x: -700, y: 640 };
+    const once = bringInto(camera, point, phone);
+    expect(bringInto(once, point, phone)).toEqual(once);
+  });
+
+  it('centres a word on an axis with no room for its margins', () => {
+    // A phone pinched right in is 103 units wide, which is narrower than the two margins
+    // a name wants either side of it — there is no centre that satisfies them, and the
+    // word itself is the only honest answer. The height still has room, so it is clamped
+    // as usual and the two axes disagree, which is what this is checking.
+    const near = { cx: 0, cy: 0, scale: MAX_SCALE };
+    const moved = bringInto(near, { x: 30, y: 400 }, phone);
+    expect(moved.cx).toBe(30);
+    expect(moved.cy).toBeLessThan(400);
+    expect(inView(moved, { x: 30, y: 400 }, phone)).toBe(true);
+  });
+});
+
+describe('lookAt', () => {
+  it('puts the word in the middle without changing how big it is drawn', () => {
+    // What a phone does after every guess: the board is played zoomed in, and most of it
+    // is off the edges, so the word just landed on is what the plate should be showing.
+    const camera = { cx: 0, cy: 200, scale: 1.2 };
+    const moved = lookAt(camera, { x: 140, y: 480 });
+    expect(moved).toEqual({ cx: 140, cy: 480, scale: 1.2 });
   });
 });
 

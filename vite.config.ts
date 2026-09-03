@@ -15,11 +15,20 @@ import tailwindcss from '@tailwindcss/vite';
  * ever needed for the deployed build.
  */
 function pagesFallback(): Plugin {
+  /*
+   * Wherever this build is actually writing, which is not always `dist`: the end-to-end
+   * suite builds to `dist-e2e`. Hard-coding `dist` here wrote that build's index.html over
+   * the *deploy* build's 404.html, and failed outright when there was no `dist` to write
+   * into — so a clean checkout could not run the tests at all.
+   */
+  let out = 'dist';
   return {
     name: 'recurse-pages-fallback',
     apply: 'build',
+    configResolved(config) {
+      out = join(config.root, config.build.outDir);
+    },
     closeBundle() {
-      const out = join(process.cwd(), 'dist');
       writeFileSync(join(out, '404.html'), readFileSync(join(out, 'index.html')));
     },
   };

@@ -19,6 +19,74 @@ async function view(page: Page): Promise<number[]> {
   return (box ?? '').split(' ').map(Number);
 }
 
+/** Where the camera is looking, in graph units — the middle of the viewBox. */
+async function looking(page: Page): Promise<[number, number]> {
+  const [x, y, w, h] = await view(page);
+  return [x! + w! / 2, y! + h! / 2];
+}
+
+/**
+ * Where a word is drawn, in graph units, read off the group the plate places it with.
+ *
+ * Graph units and not pixels, because that is what the camera is in: a claim about what is
+ * in shot is a claim about a point against the viewBox, and going through the screen would
+ * be asking the same question twice with a scale factor in between.
+ */
+async function spot(page: Page, word: string): Promise<[number, number] | null> {
+  return page.evaluate((wanted) => {
+    for (const g of document.querySelectorAll('main svg g[transform]')) {
+      if (g.querySelector('text')?.textContent !== wanted) continue;
+      const m = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(g.getAttribute('transform') ?? '');
+      if (m) return [Number(m[1]), Number(m[2])] as [number, number];
+    }
+    return null;
+  }, word);
+}
+
+/** Is that point in shot? */
+async function shows(page: Page, word: string): Promise<boolean> {
+  const at = await spot(page, word);
+  if (!at) return false;
+  const [x, y, w, h] = await view(page);
+  return at[0] >= x! && at[0] <= x! + w! && at[1] >= y! && at[1] <= y! + h!;
+}
+
+async function guess(page: Page, word: string) {
+  await page.getByLabel(/Your guess/).fill(word);
+  await page.getByRole('button', { name: 'Name it' }).click();
+}
+
+/**
+ * Drag the board sideways by `dx` pixels, along the bottom of the plate.
+ *
+ * Along the bottom because that is reliably empty board; a drag that starts on a word is
+ * still a drag — the click is swallowed — but a test should not be leaning on that.
+ */
+async function drag(page: Page, dx: number) {
+  const box = (await page.locator('main svg').boundingBox())!;
+  const y = box.y + box.height - 30;
+  const from = dx > 0 ? box.x + 20 : box.x + box.width - 20;
+  await page.mouse.move(from, y);
+  await page.mouse.down();
+  await page.mouse.move(from + dx, y, { steps: 8 });
+  await page.mouse.up();
+}
+
+/** One sweep of the whole plate. */
+async function sweep(page: Page) {
+  const box = (await page.locator('main svg').boundingBox())!;
+  await drag(page, box.width - 40);
+}
+
+/** Sweep until the board has been dragged clear off the plate, or give up saying so. */
+async function panAway(page: Page, word: string): Promise<boolean> {
+  for (let i = 0; i < 5; i++) {
+    if (!(await shows(page, word))) return true;
+    await sweep(page);
+  }
+  return !(await shows(page, word));
+}
+
 test('the board opens framed on the answer', async ({ page }) => {
   const puzzle = puzzles[4]!;
   await page.goto(board(puzzle, '?dev=0'));
@@ -135,6 +203,89 @@ test('a wheel is the page’s until the board is asked for', async ({ page }) =>
   await page.mouse.wheel(0, -300);
   await expect.poll(width).toBeLessThan(rested.width);
   expect(await scrollY()).toBe(rested.y);
+});
+
+test('a guess brings the word it landed on back into shot', async ({ page }) => {
+  // The conservative half of following, and the one both viewports do. The game is played
+  // by typing, so a player can be looking anywhere on the board when they name a word —
+  // and a move that lands off the plate leaves them to go and find their own move with a
+  // thumb before they can make the next one.
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev=0'));
+  await expect(page.locator('main svg circle').first()).toBeVisible();
+
+  // Drag until the source is off the plate. The next word sprouts from it, so it lands off
+  // the plate too — which is the state this is about.
+  test.skip(!(await panAway(page, puzzle.source)), 'the board would not drag clear');
+
+  await guess(page, path[1]!);
+  await expect(
+    page.locator('main svg text', { hasText: new RegExp(`^${path[1]}$`) }).first(),
+  ).toBeVisible();
+  await expect.poll(() => shows(page, path[1]!)).toBe(true);
+});
+
+test('a phone follows every guess and a wider screen holds still', async ({ page }) => {
+  // The other half, and the one that differs by width — the same 40rem the masthead folds
+  // its menus at. On a phone the board is played zoomed in with most of it off the edges,
+  // so the word just named is brought to the middle whether or not it was already in shot.
+  // On a screen holding the whole figure there is nothing to fetch, and a board that moved
+  // anyway would be motion the player did not ask for.
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev=0'));
+  await expect(page.locator('main svg circle').first()).toBeVisible();
+
+  // Nudged off centre, but not far: the word about to be named is still going to be in
+  // shot, so nothing here is about rescuing it. That is the whole question — what the
+  // camera does when it does not *have* to do anything.
+  await drag(page, 110);
+  const before = await looking(page);
+
+  await guess(page, path[1]!);
+  await expect(
+    page.locator('main svg text', { hasText: new RegExp(`^${path[1]}$`) }).first(),
+  ).toBeVisible();
+  // Words on the answer are pinned to the centre line, so this one is exactly where the
+  // spine put it and both halves below can be tight about where the camera ends up.
+  const at = (await spot(page, path[1]!))!;
+
+  if ((page.viewportSize()?.width ?? 0) < 640) {
+    await expect.poll(async () => (await looking(page))[0]).toBeCloseTo(at[0], 0);
+    expect((await looking(page))[1]).toBeCloseTo(at[1], 0);
+    // And it really did have to move to get there.
+    expect(Math.abs(before[0] - at[0])).toBeGreaterThan(20);
+  } else {
+    // The word was in shot already, so the camera has no business moving at all. Where it
+    // is looking, not the whole viewBox: the plate itself resizes during ordinary play.
+    await page.waitForTimeout(600);
+    expect(await shows(page, path[1]!)).toBe(true);
+    const after = await looking(page);
+    expect(after[0]).toBeCloseTo(before[0]!, 1);
+    expect(after[1]).toBeCloseTo(before[1]!, 1);
+  }
+});
+
+test('the reset button puts the whole puzzle back in shot', async ({ page }) => {
+  const { puzzle } = puzzleWithPar(4);
+  await page.goto(board(puzzle, '?dev=0'));
+  await expect(page.locator('main svg circle').first()).toBeVisible();
+
+  const opened = await looking(page);
+  test.skip(!(await panAway(page, puzzle.source)), 'the board would not drag clear');
+
+  await page.getByRole('button', { name: 'Show the whole puzzle' }).click();
+
+  // Both of the puzzle's own words, which is what the playing view promises.
+  await expect.poll(() => shows(page, puzzle.source)).toBe(true);
+  expect(await shows(page, puzzle.target)).toBe(true);
+  const back = await looking(page);
+  expect(back[0]).toBeCloseTo(opened[0]!, 1);
+  expect(back[1]).toBeCloseTo(opened[1]!, 1);
+
+  // And it did not take the typing with it: a tap on the board must never cost the player
+  // the guess field, which is the whole reason focus is not moved on click.
+  await page.keyboard.type('bat');
+  await expect(page.getByLabel(/Your guess/)).toHaveValue('bat');
 });
 
 test('the figure reads as a graph', async ({ page }) => {

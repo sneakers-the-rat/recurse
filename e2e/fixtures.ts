@@ -17,6 +17,29 @@ import type { Puzzle } from '../src/lib/types';
 export const gameData = shippedData;
 
 /**
+ * Take one of the masthead menus — the archive, the stats, or the rules.
+ *
+ * A phone keeps them behind the hamburger and a wider screen writes them out, and both are
+ * in the DOM at every width — so which one a test can click is a question about the
+ * viewport. Every spec that leaves the board goes through here rather than clicking a name
+ * that exists twice.
+ *
+ * Behind the hamburger they are `menuitem`s and written out they are buttons, which is the
+ * accessibility tree saying the same thing: one is a menu and the other is a row of links.
+ */
+export async function masthead(page: Page, name: 'Puzzles' | 'Stats' | 'How to play') {
+  // Which shape the masthead is in cannot be asked until there is one: `isVisible` answers
+  // now rather than waiting, so on a page still loading it said "not folded" and then spent
+  // the whole timeout waiting for a written-out menu that a phone never shows.
+  await page.locator('header').waitFor();
+
+  const hamburger = page.getByRole('button', { name: 'Menu' });
+  const folded = await hamburger.isVisible();
+  if (folded) await hamburger.click();
+  await page.getByRole(folded ? 'menuitem' : 'button', { name, exact: true }).click();
+}
+
+/**
  * The board a day falls on in one of the three lengths, from the shard that band and day name.
  *
  * Consecutive days are deliberately in different shards — band `B` on day `N` is in shard

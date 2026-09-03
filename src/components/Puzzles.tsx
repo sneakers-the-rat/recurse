@@ -35,6 +35,8 @@ interface Props {
   onNeedYear: (year: number) => void;
   onOpen: (id: string) => void;
   onToday: () => void;
+  /** To the record of how it has been going. The two pages are each other's neighbours. */
+  onStats: () => void;
   onClose: () => void;
 }
 
@@ -47,6 +49,7 @@ export const Puzzles = memo(function Puzzles({
   onNeedYear,
   onOpen,
   onToday,
+  onStats,
   onClose,
 }: Props) {
   const range = useMemo(() => archiveRange(manifest.epoch, today), [manifest.epoch, today]);
@@ -81,11 +84,18 @@ export const Puzzles = memo(function Puzzles({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-16">
-      <div className="border-rule flex items-baseline justify-between border-b py-4">
+      <div className="border-rule flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b py-4">
         <h1 className="text-bone text-2xl font-semibold">Puzzles</h1>
-        <button onClick={onClose} className="label text-ash-lit hover:text-gilt" type="button">
-          back to the board
-        </button>
+        <span className="flex items-baseline gap-4">
+          {/* The other page that is not a board. Each links to the other, so neither is
+              reachable only through the masthead. */}
+          <button onClick={onStats} className="label text-ash-lit hover:text-gilt" type="button">
+            Stats
+          </button>
+          <button onClick={onClose} className="label text-ash-lit hover:text-gilt" type="button">
+            back to the board
+          </button>
+        </span>
       </div>
 
       {/* Today first, because it is what most visits are looking for. */}

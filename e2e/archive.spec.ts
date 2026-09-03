@@ -11,14 +11,14 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { boardOnDay, todayNumber } from './fixtures';
+import { boardOnDay, masthead, todayNumber } from './fixtures';
 
 /** The path in the address bar, whatever the base happens to be. */
 const pathOf = (url: string) => new URL(url).pathname.replace(/^\//, '').split('?')[0];
 
 const openArchive = async (page: import('@playwright/test').Page) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Puzzles', exact: true }).click();
+  await masthead(page, 'Puzzles');
   await expect(page.getByRole('heading', { name: 'Puzzles' })).toBeVisible();
 };
 

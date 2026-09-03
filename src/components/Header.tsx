@@ -11,7 +11,211 @@
  * the same two words and the same two numbers.
  */
 
-import { memo } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+
+interface Band {
+  name: string;
+  minPar: number;
+  maxPar: number;
+}
+
+/**
+ * Shut on Escape, or on a pointer going down anywhere else.
+ *
+ * `pointerdown` rather than `click`, because a menu left standing behind whatever the
+ * player went on to do is worse than one that closes too eagerly — it should be gone
+ * before the thing underneath it happens, not after.
+ *
+ * Both masthead menus use this, and the ref goes on whatever counts as "inside".
+ */
+function useDismiss(open: boolean, shut: () => void) {
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: Event) => {
+      if (!box.current?.contains(event.target as Node)) shut();
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') shut();
+    };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [open, shut]);
+
+  return box;
+}
+
+/** The chrome both masthead menus are drawn in: a hairline box, gilt when it is open. */
+const CONTROL =
+  'label border-rule hover:border-gilt-dim hover:text-gilt flex items-center border px-1.5 py-1 leading-none transition-colors sm:px-2';
+
+/** And the panel each one drops, on the page's own surface rather than the platform's. */
+const PANEL =
+  'border-rule bg-noir-2 absolute top-full z-20 mt-1 border shadow-lg shadow-black/50';
+
+/** One choice in such a panel. */
+const CHOICE = 'label hover:bg-noir-3 w-full px-3 py-2 text-left whitespace-nowrap transition-colors';
+
+/**
+ * The three lengths a day offers, on the masthead line next to the day number, so what a
+ * player reads across the top is one sentence: ReCurse, № 12, medium.
+ *
+ * They were three tabs in a row of their own under the title, which spent a whole band of
+ * vertical space saying three words — on a phone, where the board is the thing actually
+ * short of room. Hence one line: the name, and beside it what the length holds, which is
+ * smaller and dimmer because a name alone is a promise the player cannot check but the
+ * name is what they are choosing between.
+ *
+ * Drawn rather than a native `<select>`, whose menu is the operating system's and arrives
+ * in the operating system's type, colour and corner radius — a grey rounded box in the
+ * middle of a black Deco masthead. Only the closed state of a select can be styled, and the
+ * closed state is the half that was already fine.
+ *
+ * Ruled on all four sides, which nothing else in the chrome is. Quiet caps beside a day
+ * number read as a caption, and nobody clicks a caption; the box and the caret together
+ * are the whole of what says otherwise.
+ */
+function Lengths({
+  bands,
+  band,
+  onBand,
+}: {
+  bands: readonly Band[];
+  band: number;
+  onBand: (band: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useDismiss(open, useCallback(() => setOpen(false), []));
+  const here = bands[band];
+
+  if (!here) return null;
+
+  /** What a length holds, in the smaller hand the tabs used for it. */
+  const holds = (it: Band) => (
+    <span className="text-[0.5625rem] tracking-[0.18em] normal-case opacity-70">
+      par {it.minPar}–{it.maxPar}
+    </span>
+  );
+
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Choose a length"
+        className={`${CONTROL} gap-1 sm:gap-1.5 ${
+          open ? 'border-gilt-dim text-gilt' : 'text-bone-dim'
+        }`}
+      >
+        {here.name}
+        {/* Not on a phone, where the masthead is already three things wide. */}
+        <span className="hidden sm:inline">{holds(here)}</span>
+        <span aria-hidden className="text-gilt-dim text-[0.5rem]">
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div role="listbox" aria-label="Length" className={`${PANEL} left-0`}>
+          {bands.map((it, index) => (
+            <button
+              key={it.name}
+              type="button"
+              role="option"
+              aria-selected={index === band}
+              onClick={() => {
+                setOpen(false);
+                if (index !== band) onBand(index);
+              }}
+              className={`${CHOICE} flex items-baseline gap-2 ${
+                index === band ? 'text-gilt' : 'text-ash-lit hover:text-bone-dim'
+              }`}
+            >
+              {it.name}
+              {holds(it)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The ways off this board — the archive, the record, and the rules — behind one button on a
+ * phone.
+ *
+ * Written out, they are most of the masthead's width, which left no room for the day and the
+ * length beside them and wrapped the row onto a second line. They are also the things a
+ * player wants least often: the board is what they came for.
+ *
+ * Three hairlines rather than a `☰`, which is not in either of the two subsets the faces
+ * ship and would arrive in whatever the system fell back to. Rules are what this chrome is
+ * drawn in anyway.
+ */
+function Menu({
+  onHelp,
+  onPuzzles,
+  onStats,
+}: {
+  onHelp: () => void;
+  onPuzzles: () => void;
+  onStats: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useDismiss(open, useCallback(() => setOpen(false), []));
+
+  const item = (name: string, go: () => void) => (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setOpen(false);
+        go();
+      }}
+      className={`${CHOICE} text-ash-lit hover:text-bone-dim block`}
+    >
+      {name}
+    </button>
+  );
+
+  return (
+    <div ref={box} className="relative sm:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Menu"
+        className={`${CONTROL} justify-center ${
+          open ? 'border-gilt-dim text-gilt' : 'text-bone-dim'
+        }`}
+      >
+        {/* As tall as the caps beside it, so the two masthead controls are the same box. */}
+        <span aria-hidden className="flex h-[0.6875rem] w-3.5 flex-col justify-between">
+          <span className="h-px w-full bg-current" />
+          <span className="h-px w-full bg-current" />
+          <span className="h-px w-full bg-current" />
+        </span>
+      </button>
+
+      {open && (
+        <div role="menu" aria-label="Menu" className={`${PANEL} right-0`}>
+          {item('Puzzles', onPuzzles)}
+          {item('Stats', onStats)}
+          {item('How to play', onHelp)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   source: string;
@@ -30,7 +234,7 @@ interface Props {
    * anything decided here. The switch is the only way between them on a phone: the band is
    * deliberately not in the URL — a board is addressed by its id and nothing else.
    */
-  bands: readonly { name: string; minPar: number; maxPar: number }[];
+  bands: readonly Band[];
   band: number;
   onBand: (band: number) => void;
   day: number;
@@ -54,6 +258,8 @@ interface Props {
   onHelp: () => void;
   /** To the archive of everything already played. See `Puzzles`. */
   onPuzzles: () => void;
+  /** To the record of every round finished. See `Stats`. */
+  onStats: () => void;
 }
 
 export const Header = memo(function Header({
@@ -72,6 +278,7 @@ export const Header = memo(function Header({
   beatPar = false,
   onHelp,
   onPuzzles,
+  onStats,
 }: Props) {
   /**
    * The bar's own colour, which is a statement about the round rather than decoration.
@@ -85,14 +292,25 @@ export const Header = memo(function Header({
 
   return (
     <header className={`border-b ${rule} ${finished ? 'bg-noir-2' : ''}`}>
-      <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-4 py-2.5">
-        <h1 className="flex items-baseline gap-2">
-          <span className="text-bone text-xl leading-none font-semibold tracking-tight">
-            Re<span className="text-blood-lit italic">Curse</span>
-          </span>
-          <span className="label text-ash-lit">№ {day}</span>
-        </h1>
-        <span className="flex items-baseline gap-4">
+      <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 py-2.5 sm:gap-x-4">
+        {/*
+          Title, day, length: one line, read left to right, because that is the order of the
+          questions — which game, which day, which length. The length is grouped with the day
+          rather than with the two menus, since it is a fact about the board on screen and
+          they are ways off it.
+        */}
+        <span className="flex items-center gap-2 sm:gap-3">
+          <h1 className="flex items-baseline gap-2">
+            <span className="text-bone text-xl leading-none font-semibold tracking-tight">
+              Re<span className="text-blood-lit italic">Curse</span>
+            </span>
+            <span className="label text-ash-lit">№ {day}</span>
+          </h1>
+          <Lengths bands={bands} band={band} onBand={onBand} />
+        </span>
+
+        {/* Written out where there is room for them, and behind the button where there is not. */}
+        <span className="hidden items-center gap-4 sm:flex">
           <button
             onClick={onPuzzles}
             className="label hover:text-gilt transition-colors"
@@ -100,46 +318,15 @@ export const Header = memo(function Header({
           >
             Puzzles
           </button>
+          <button onClick={onStats} className="label hover:text-gilt transition-colors" type="button">
+            Stats
+          </button>
           <button onClick={onHelp} className="label hover:text-gilt transition-colors" type="button">
             How to play
           </button>
         </span>
+        <Menu onHelp={onHelp} onPuzzles={onPuzzles} onStats={onStats} />
       </div>
-
-      {/*
-        The three lengths, which is the other thing a day offers besides the board itself.
-        Between the masthead and the statement because that is the order of the questions:
-        which game, which length, which words.
-
-        Each says what it holds — "short (par 3-4)" — because a name alone is a promise the
-        player has no way to check, and the pars are what the length actually is.
-      */}
-      <nav
-        className={`border-t ${rule} flex justify-center`}
-        aria-label="Choose a length"
-      >
-        {bands.map((it, index) => {
-          const here = index === band;
-          return (
-            <button
-              key={it.name}
-              type="button"
-              onClick={() => onBand(index)}
-              aria-current={here ? 'page' : undefined}
-              className={`label flex-1 border-b-2 px-3 py-2 text-center transition-colors sm:flex-none sm:px-8 ${
-                here
-                  ? 'border-gilt text-gilt'
-                  : 'text-ash-lit hover:text-bone-dim border-transparent'
-              }`}
-            >
-              {it.name}
-              <span className="mt-0.5 block text-[0.5625rem] tracking-[0.18em] normal-case opacity-70">
-                par {it.minPar}–{it.maxPar}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
 
       {/* The statement, set like a Deco title page: rule, line, rule. */}
       {/*
@@ -153,12 +340,21 @@ export const Header = memo(function Header({
         }`}
       >
         <div className="mx-auto max-w-2xl px-4 py-4 text-center">
-          <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
-            <span className="word text-bone text-2xl sm:text-3xl">{source}</span>
+          {/*
+            The size on this line is the ceiling, not the size: `.statement` in index.css
+            shrinks the two words from here until the longer of them fits the measure on
+            one line, which the longest words in the bank do not do at 3xl on a phone.
+            Hence `--chars`, which is all that rule needs to know about them.
+          */}
+          <p
+            className="statement flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-2xl sm:text-3xl"
+            style={{ '--chars': Math.max(source.length, target.length) } as CSSProperties}
+          >
+            <span className="word text-bone">{source}</span>
             <span aria-hidden className="text-gilt text-xs">
               ◆
             </span>
-            <span className="word text-bone text-2xl sm:text-3xl">{target}</span>
+            <span className="word text-bone">{target}</span>
           </p>
           <p className="label mt-2.5">
             par: {par} moves

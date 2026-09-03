@@ -14,21 +14,29 @@ import { shortestPath } from '../src/lib/graph';
 /** The id in the address bar, whatever the base happens to be. */
 const idInUrl = (url: string) => new URL(url).pathname.replace(/^\//, '').split('?')[0];
 
+/** The switch itself: the masthead button that opens the three lengths. */
 const current = (page: import('@playwright/test').Page) =>
-  page.locator('nav[aria-label="Choose a length"] button[aria-current="page"]');
+  page.getByRole('button', { name: 'Choose a length' });
+
+/** Open it and take one, which is the only way to a different length in the chrome. */
+async function choose(page: import('@playwright/test').Page, name: string) {
+  await current(page).click();
+  await page.getByRole('option', { name: new RegExp(`^${name}`) }).click();
+}
 
 test('a bare visit opens the short board, and says so', async ({ page }) => {
   const { manifest } = gameData();
   const short = today(0);
+  const band = manifest.bands[0]!;
 
   await page.goto('/');
   await expect(page.locator('header')).toContainText(short.puzzle.source);
   await expect.poll(() => idInUrl(page.url())).toBe(short.puzzle.id);
 
-  // The switch says which length is on screen and what each one holds — a name alone is a
-  // promise the player has no way to check.
-  await expect(current(page)).toContainText(manifest.bands[0]!.name);
-  await expect(current(page)).toContainText(`par ${manifest.bands[0]!.minPar}`);
+  // The switch says which length is on screen, and what that length holds — a name alone is
+  // a promise the player has no way to check.
+  await expect(current(page)).toContainText(band.name);
+  await expect(current(page)).toContainText(`par ${band.minPar}`);
 });
 
 test('switching length keeps the day and lands on that board', async ({ page }) => {
@@ -38,7 +46,7 @@ test('switching length keeps the day and lands on that board', async ({ page }) 
 
   for (const band of [1, 2]) {
     const wanted = boardOnDay(todayNumber(), band);
-    await page.getByRole('button', { name: new RegExp(`^${manifest.bands[band]!.name}`) }).click();
+    await choose(page, manifest.bands[band]!.name);
 
     // The board changes, and so does the address: the URL always names what is on screen.
     await expect(page.locator('header')).toContainText(wanted.puzzle.source);

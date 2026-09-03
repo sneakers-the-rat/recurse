@@ -12,9 +12,11 @@
  *   starts on one used to select it as the finger came up. Anything that moved more
  *   than a few pixels swallows the click that follows it, in the capture phase, before
  *   the node ever hears about it.
- * - **The camera is only moved by the player, or by the opening.** `jumpTo` and
- *   `glideTo` exist for the intro; nothing else here moves the view, so a word
- *   arriving never yanks the board out from under a thumb.
+ * - **Nothing in here moves the camera on its own.** `jumpTo` and `glideTo` are how the
+ *   game asks — the opening, following a guess onto the board, the button that puts the
+ *   whole puzzle back in shot — and every one of those is an answer to something the
+ *   player just did. A board that is merely re-rendering, or a word settling into place,
+ *   never yanks the view out from under a thumb.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

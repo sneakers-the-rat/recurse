@@ -87,6 +87,16 @@ export const MAX_SCALE = 4;
  */
 const SPINE_MARGIN = 52;
 
+/**
+ * Room a word needs around its own point before it counts as being in shot.
+ *
+ * The same reasoning as SPINE_MARGIN and the same number: a word is a mark with its name
+ * standing twenty-odd units above it in type about twelve tall, so a point exactly on the
+ * edge of the view has its label off it — and a word whose name cannot be read is not a
+ * word the player can see.
+ */
+const WORD_MARGIN = SPINE_MARGIN;
+
 export function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(value, low), high);
 }
@@ -115,17 +125,48 @@ export function playCamera(spineHeight: number, plate: Plate): Camera {
 }
 
 /**
- * The view a round opens on: the whole board, pulled back.
+ * The view a round opens on: the whole board, pulled back — looking where the playing
+ * view looks.
  *
  * Not simply "fit the figure": a compact board fits inside the playing view already, so
  * fitting it *zoomed in* and the opening closed on nothing. This is never nearer than
  * the playing view and always a little further out than it, so the close is a move you
  * can see on any board.
+ *
+ * **Centred on the puzzle, which is not the middle of the figure's own bounds.** A word
+ * off the answer finds its place by force and there is nothing making the two sides come
+ * out the same width, so the box is lopsided — measured over the bank, half again to four
+ * times as much board on one side as on the other. Framing on the middle of it stood the
+ * source and the target three quarters of the way across the plate for the whole of the
+ * title card, and the close was then a sideways drift as much as a zoom.
+ *
+ * It is worse than the settled figure suggests, because the camera is fixed once, when the
+ * board is created, and a board that grows on screen has not moved a word at that point:
+ * the box being handed here is the *seeding*, and the seeding leans further than the layout
+ * it becomes.
+ *
+ * So the extent is measured **about the puzzle's own centre**, widest side either way, and
+ * the opening is the playing view pulled back from the same point. The whole board is still
+ * in shot, and the close is a zoom and nothing else.
  */
 export function openingCamera(box: Box, spineHeight: number, plate: Plate): Camera {
-  const fit = fitCamera(box, plate);
   const play = playCamera(spineHeight, plate);
-  return { ...fit, scale: Math.max(Math.min(fit.scale, play.scale) * 0.85, MIN_SCALE) };
+  const halfWidth = Math.max(Math.abs(box.minX - play.cx), Math.abs(box.maxX - play.cx));
+  const halfHeight = Math.max(Math.abs(box.minY - play.cy), Math.abs(box.maxY - play.cy));
+  const fit = fitCamera(
+    {
+      minX: play.cx - halfWidth,
+      maxX: play.cx + halfWidth,
+      minY: play.cy - halfHeight,
+      maxY: play.cy + halfHeight,
+    },
+    plate,
+  );
+  return {
+    cx: play.cx,
+    cy: play.cy,
+    scale: Math.max(Math.min(fit.scale, play.scale) * 0.85, MIN_SCALE),
+  };
 }
 
 /** The view that shows all of something, with a little air around it. */
@@ -190,6 +231,66 @@ export function clampCamera(camera: Camera, box: Box, plate: Plate): Camera {
     cx: clamp(camera.cx, box.minX - slackX, box.maxX + slackX),
     cy: clamp(camera.cy, box.minY - slackY, box.maxY + slackY),
   };
+}
+
+/**
+ * Following the word the next guess comes from.
+ *
+ * The game is played by typing, and at playing scale most of the board is off the edges —
+ * so a guess that lands somewhere out of shot leaves the player to go and find their own
+ * move with a thumb. The word to follow is the one a guess would now be made *from*, which
+ * after a guess is whatever it landed on: one node, whichever end of the puzzle the player
+ * is working from, since the goal is somewhere to stand like anywhere else they have been.
+ *
+ * Two strengths, because the two viewports want different amounts of help. `bringInto`
+ * moves as little as it can and does nothing at all when the word is already in shot, which
+ * on a screen holding the whole board is almost always. `lookAt` puts the word in the middle
+ * whatever was in shot before, which is what a board played zoomed in on a phone wants.
+ *
+ * Neither touches the scale. A camera that zoomed to follow would be answering a question
+ * about how big a word should be, and that one is settled by `playCamera`.
+ */
+export function bringInto(
+  camera: Camera,
+  point: { x: number; y: number },
+  plate: Plate,
+  margin = WORD_MARGIN,
+): Camera {
+  const view = viewOf(camera, plate);
+  return {
+    ...camera,
+    cx: nearest(camera.cx, point.x, view.width, margin),
+    cy: nearest(camera.cy, point.y, view.height, margin),
+  };
+}
+
+/**
+ * The nearest centre to `centre` that holds `point` inside a span of `span`, keeping
+ * `margin` clear of the edge.
+ *
+ * A view narrower than two margins has no such centre — a board pinched right in, where
+ * every word is against an edge — and then the point itself is the only honest answer.
+ */
+function nearest(centre: number, point: number, span: number, margin: number): number {
+  const room = span / 2 - margin;
+  if (room <= 0) return point;
+  return clamp(centre, point - room, point + room);
+}
+
+/** Is this point in shot, with room for its name? True exactly when `bringInto` does nothing. */
+export function inView(
+  camera: Camera,
+  point: { x: number; y: number },
+  plate: Plate,
+  margin = WORD_MARGIN,
+): boolean {
+  const next = bringInto(camera, point, plate, margin);
+  return next.cx === camera.cx && next.cy === camera.cy;
+}
+
+/** Look straight at a point, from wherever we were and at the scale we were already at. */
+export function lookAt(camera: Camera, point: { x: number; y: number }): Camera {
+  return { ...camera, cx: point.x, cy: point.y };
 }
 
 /** Somewhere between two cameras. `t` runs 0 to 1; scale moves geometrically. */

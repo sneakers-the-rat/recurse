@@ -1,37 +1,7 @@
 @import 'tailwindcss';
 
-/*
- * ReCurse — an elegant, cursed thing.
- *
- * The project named itself: "ReCurse is a Cursed Game". So the register is a
- * refined vampire story rather than occult clutter — near-black, blood red, bone
- * ivory, antique gilt, and Deco geometry held to hairlines and double rules.
- * Restraint is the point: one accent doing real work, ornament only where it
- * marks structure.
- *
- * The dark ground is functional, not atmospheric. Most nodes on screen are
- * deliberately anonymous, and the game needs four legible steps of presence —
- * barely there, hinted, revealed, on the route. Grading dim-to-bright on black
- * gives usable range where grading toward muddy on cream does not.
- *
- * The two accents map to the two things a move can do, so colour is never
- * decorative: letters that ARRIVE are gilt, letters that LEAVE are blood.
- */
-
-@font-face {
-  font-family: 'Bodoni Moda';
-  src: url('/fonts/bodoni.woff2') format('woff2-variations');
-  font-weight: 400 900;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Bodoni Moda';
-  src: url('/fonts/bodoni-italic.woff2') format('woff2-variations');
-  font-weight: 400 900;
-  font-style: italic;
-  font-display: swap;
-}
+/* The faces themselves, vendored. Everything about which file is which lives there. */
+@import './fonts.css';
 
 @theme {
   --color-noir: #0d0b0c;
@@ -48,8 +18,8 @@
   --color-gilt: #bf9f60;
   --color-gilt-dim: #7d6844;
 
-  --font-display: 'Bodoni Moda', 'Didot', 'Hoefler Text', Georgia, serif;
-  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
 }
 
 :root {
@@ -68,13 +38,15 @@ body {
   font-family: var(--font-display);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  font-synthesis-weight: none;
   /* The plate is pannable; stop the page rubber-banding behind it on iOS. */
   overscroll-behavior: none;
 }
 
 /*
- * Marginalia. Letter-spaced Didone caps, the way a Deco title page sets its
- * secondary lines. Used for every label, count and caption.
+ * Marginalia. Letter-spaced caps, the way a title page sets its secondary lines,
+ * and the one place the display face is asked for a weight above the text around
+ * it. Used for every label, count and caption.
  */
 .label {
   font-family: var(--font-display);
@@ -94,6 +66,44 @@ body {
   font-family: var(--font-mono);
   font-variant-ligatures: none;
   letter-spacing: 0.04em;
+}
+
+/*
+ * The puzzle statement — the two words the header states the round as — set as
+ * large as it can be without either word wrapping.
+ *
+ * A word broken across two lines is a different word, and this game is about
+ * where one word sits inside another, so that is the one thing this line may
+ * never do. It is a real constraint: the longest endpoint in the bank is
+ * eighteen letters (`misrepresentations`), which at the display size is wider
+ * than a phone.
+ *
+ * The size is arithmetic and not a measurement, because a word set in mono is
+ * exactly as wide as it is long. Spline Sans Mono advances 0.6em per character
+ * at every weight it ships, and `.word` letter-spaces each by a further 0.04em,
+ * so a word of `--chars` letters occupies 0.64em × chars — and the size at which
+ * it exactly fills the measure is that divided out of the measure. `100cqi` is
+ * the measure, which is what the container declaration is for: reading the width
+ * in JS instead would mean re-measuring on every resize and being wrong for a
+ * frame each time.
+ *
+ * `1em` is the ceiling, and inside a font-size it means this element's own size —
+ * so how big the statement *wants* to be is set in the header with the rest of
+ * the type scale, and only the shrinking is decided here.
+ *
+ * `--chars` is the longer of the two words, not each word's own length: two
+ * halves of one statement set at two different sizes read as a mistake rather
+ * than as a fit.
+ */
+.statement {
+  container-type: inline-size;
+}
+
+.statement .word {
+  font-size: min(1em, calc(100cqi / (var(--chars) * 0.64)));
+  /* At the floor of the face's 300–700 range, so it is a weight the file holds
+     rather than one the browser would have to invent — see `font-synthesis-weight`. */
+  font-weight: 300;
 }
 
 *:focus-visible {
@@ -175,5 +185,24 @@ svg :focus:not(:focus-visible) {
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+  }
+}
+
+#how-to {
+  a {
+    color: var(--color-gilt);
+    text-decoration: underline;
+
+    &:hover {
+      color: var(--color-bone);
+    }
+  }
+  h3 {
+    margin-top: 1.5em;
+  }
+  li {
+    list-style-type: disc;
+    list-style-position: outside;
+    margin-left: 1.1em;
   }
 }

@@ -5,7 +5,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { inShot } from './fixtures';
+import { inShot, masthead } from './fixtures';
 
 test('renders the plate and the puzzle statement', async ({ page }) => {
   await page.goto('/');
@@ -51,7 +51,7 @@ test('hovering a word lifts its moves out of the background', async ({ page }) =
 
 test('opens the rules', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'How to play' }).click();
+  await masthead(page, 'How to play');
   await expect(page.getByRole('dialog')).toContainText('add a word');
   await page.screenshot({ path: 'e2e/shots/howto.png' });
 });

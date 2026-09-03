@@ -23,6 +23,8 @@ import { GuessBar } from './components/GuessBar';
 import { Header } from './components/Header';
 import { HowTo } from './components/HowTo';
 import { Puzzles } from './components/Puzzles';
+import { ResetView } from './components/ResetView';
+import { Stats } from './components/Stats';
 import { Toast } from './components/Toast';
 import { shortestPath, shortestRoutes } from './lib/graph';
 import {
@@ -58,12 +60,30 @@ import {
   resolvePuzzle,
   type DailyPuzzle,
 } from './lib/daily';
-import { archivePath, idFromPath, isArchive, pathFor, shareUrl } from './lib/route';
+import { idFromPath, pageFromPath, pagePath, pathFor, shareUrl, type Page } from './lib/route';
 import { markGuesses, shareText } from './lib/share';
-import { gameKey, loadBand, loadGame, saveBand, saveGame } from './lib/storage';
+import {
+  addCompletion,
+  gameKey,
+  loadBand,
+  loadGame,
+  loadStats,
+  replaceStats,
+  saveBand,
+  saveGame,
+} from './lib/storage';
+import { recordOf, type Completion } from './lib/stats';
 import { buildPlate } from './lib/plate';
 import { useBoardLayout, type BoardSpec } from './lib/useBoardLayout';
-import { openingCamera, playCamera, viewOf, type Camera, type Plate } from './lib/camera';
+import {
+  bringInto,
+  lookAt,
+  openingCamera,
+  playCamera,
+  viewOf,
+  type Camera,
+  type Plate,
+} from './lib/camera';
 import { usePanZoom } from './lib/usePanZoom';
 import type { Puzzle } from './lib/types';
 
@@ -172,6 +192,40 @@ const OPENING_HOLD = 1100;
 const OPENING_CLOSE = 900;
 
 /**
+ * How long the camera takes when the game moves it during a round.
+ *
+ * Shorter than the opening's close, which is a title sequence and meant to be watched.
+ * This is the board keeping up with a guess, so it wants to be over by the time the
+ * player has read what they landed on.
+ */
+const FOLLOW_MS = 380;
+
+/**
+ * The narrow layout — a phone, as far as anything here is concerned.
+ *
+ * The one width the app already divides at: `sm`, 40rem, where the masthead folds its two
+ * menus into a hamburger. This is that query written out, so there is one breakpoint in the
+ * game and not two that could drift apart.
+ *
+ * It is a width and not `(pointer: coarse)` because what the answer is *for* is a width:
+ * on a small screen the play view is most of the plate and the rest of the board is off the
+ * edges, so a guess that lands off screen has to be followed. A big screen holding the whole
+ * figure has nothing to follow, whatever is being pointed with.
+ */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia?.('(min-width: 40rem)');
+    if (!query) return;
+    const read = () => setNarrow(!query.matches);
+    read();
+    query.addEventListener('change', read);
+    return () => query.removeEventListener('change', read);
+  }, []);
+  return narrow;
+}
+
+/**
  * The opening sequence, as a phase and a camera.
  *
  * Three states: `wide` while the whole puzzle is in shot under its title card,
@@ -267,13 +321,14 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
 
   /**
-   * Whether the archive is up, and the calendar years it has fetched.
+   * Which page is up instead of a board, and the calendar years the archive has fetched.
    *
-   * `/puzzles` is the one path that is not a board, so it is tracked here rather than through
-   * `show` — which exists to put a *board* on screen and would have nothing to say about this
-   * one. Kept in sync with the URL both ways: the button pushes, the back button pops.
+   * `/puzzles` and `/stats` are the two paths that are not boards, so they are tracked here
+   * rather than through `show` — which exists to put a *board* on screen and would have
+   * nothing to say about either. Kept in sync with the URL both ways: a button pushes, the
+   * back button pops. Null is the board.
    */
-  const [archive, setArchive] = useState(() => isArchive(window.location.pathname));
+  const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname));
   const [years, setYears] = useState<ReadonlyMap<number, RawCalendar>>(new Map());
   const needYear = useCallback(
     (year: number) => {
@@ -286,20 +341,44 @@ export default function App() {
     [data],
   );
 
-  const openArchive = useCallback(() => {
-    window.history.pushState(null, '', archivePath(window.location.search));
-    setArchive(true);
+  /**
+   * The rounds already finished, read when the stats screen wants them and not before.
+   *
+   * Kept out of state deliberately: `localStorage` is the record, and a copy of it in a
+   * `useState` is a second answer to the same question that has to be kept in step with the
+   * first. So the history is read on demand, and `historyAt` is bumped by anything that
+   * writes to it — a round recorded, an import, a clear — which is what makes the screen
+   * re-read rather than what tells it what to show.
+   */
+  const [historyAt, setHistoryAt] = useState(0);
+  const stats = useMemo(
+    () => (page === 'stats' ? loadStats() : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [page, historyAt],
+  );
+
+  const replaceHistory = useCallback((records: readonly Completion[]) => {
+    replaceStats(records);
+    setHistoryAt((count) => count + 1);
   }, []);
 
+  const openPage = useCallback((wanted: Page) => {
+    window.history.pushState(null, '', pagePath(wanted, window.location.search));
+    setPage(wanted);
+  }, []);
+
+  const openArchive = useCallback(() => openPage('archive'), [openPage]);
+  const openStats = useCallback(() => openPage('stats'), [openPage]);
+
   /**
-   * Out of the archive, to the board underneath.
+   * Off a page, to the board underneath.
    *
-   * Not `history.back()`: the archive can be the first page of a visit — someone opened
+   * Not `history.back()`: a page can be the first thing a visit sees — somebody opened
    * `/puzzles` directly — and then back leaves the site rather than the page. Replacing the
    * address with the board's own is the same thing from either arrival.
    */
-  const closeArchive = useCallback(() => {
-    setArchive(false);
+  const closePage = useCallback(() => {
+    setPage(null);
     if (state) {
       window.history.replaceState(null, '', pathFor(state.puzzle.id, window.location.search));
     }
@@ -332,8 +411,9 @@ export default function App() {
    * not put an entry in the history that goes straight back to `/`.
    */
   const show = useCallback((chosen: DailyPuzzle, how: 'push' | 'replace') => {
-    // Putting a board up takes the archive down: they are two paths and only one can be the URL.
-    setArchive(false);
+    // Putting a board up takes any page down: they are separate paths and only one can be
+    // the URL.
+    setPage(null);
     setAt({ day: chosen.day });
     // The length on screen is the one the player is on, and the one a bare visit will open
     // next time. Read off the puzzle rather than tracked separately: a board knows which of
@@ -401,10 +481,10 @@ export default function App() {
     // rather than being asked for a board it did not bring. Failing an id, the band the
     // player last chose decides which of the day's three boards is fetched.
     const asked = idFromPath(window.location.pathname);
-    // Whether the URL asked for the archive, captured before `show` rewrites it to a board's id.
-    // A direct visit still needs a board resolved underneath — leaving the archive has to land
+    // Which page the URL asked for, captured before `show` rewrites it to a board's id. A
+    // direct visit still needs a board resolved underneath — leaving a page has to land
     // somewhere — so the board is loaded and then the address put back.
-    const arrived = isArchive(window.location.pathname);
+    const arrived = pageFromPath(window.location.pathname);
     loadGameData(asked === null ? { band: loadBand(BANDS) } : { id: asked })
       .then(async (loaded) => {
         setData(loaded);
@@ -417,8 +497,8 @@ export default function App() {
         }
         show(chosen, 'replace');
         if (arrived) {
-          window.history.replaceState(null, '', archivePath(window.location.search));
-          setArchive(true);
+          window.history.replaceState(null, '', pagePath(arrived, window.location.search));
+          setPage(arrived);
         }
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
@@ -434,13 +514,14 @@ export default function App() {
   useEffect(() => {
     if (!data) return;
     const onPop = () => {
-      // The archive is a path too, so going back to it — or out of it — is this and not a
-      // board lookup. Leaving it resolves the board underneath, which is what was on screen.
-      if (isArchive(window.location.pathname)) {
-        setArchive(true);
+      // The pages are paths too, so going back to one — or out of one — is this and not a
+      // board lookup. Leaving one resolves the board underneath, which is what was on screen.
+      const wanted = pageFromPath(window.location.pathname);
+      if (wanted) {
+        setPage(wanted);
         return;
       }
-      setArchive(false);
+      setPage(null);
       void boardForPath(data, window.location.pathname, band).then((chosen) => {
         if (chosen) show(chosen, 'replace');
       });
@@ -702,9 +783,10 @@ export default function App() {
   /**
    * Frame the board when it changes, and only then.
    *
-   * A new puzzle, or the plate being measured for the first time, is the game setting
-   * up; everything after that is the player's, so nothing here recentres a board
-   * somebody has panned away from — a word arriving must never tug the view.
+   * A new puzzle, or the plate being measured for the first time, is the game setting up.
+   * Nothing after that belongs here: a board that has merely re-rendered, or a word
+   * settling into place, must never tug the view. The other times the camera moves during
+   * a round are answers to something the player just did — see `follow` and `resetView`.
    *
    * A board nobody has touched yet opens on the whole puzzle and closes on the answer,
    * with a title card over it; anything else — a game in progress, a finished one, a
@@ -723,6 +805,62 @@ export default function App() {
 
   const view = useMemo(() => viewOf(camera, plateSize), [camera, plateSize]);
 
+  /**
+   * Moving the camera on the player's behalf.
+   *
+   * Gliding, unless stillness was asked for: `prefers-reduced-motion` is a request, and
+   * the view ends up in the same place either way — it just arrives without the journey.
+   */
+  const moveTo = useCallback(
+    (next: Camera) => {
+      const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      if (still) jumpTo(next);
+      else glideTo(next, FOLLOW_MS);
+    },
+    [jumpTo, glideTo],
+  );
+
+  /** Back to the whole puzzle, at the size the game chose to play it: the view it opened on. */
+  const resetView = useCallback(() => moveTo(play), [moveTo, play]);
+
+  const narrow = useNarrow();
+
+  /**
+   * Following the player's own move onto the board.
+   *
+   * The word to follow is the one the next guess will be made *from*, which after a guess
+   * is whatever it landed on. That is one node whichever end of the puzzle is being worked
+   * from — the goal is somewhere to stand like anywhere else, so a guess made backwards
+   * from it lands on a word and stands there in exactly the same way — and it is the word
+   * the player has to be able to see in order to type the next one.
+   *
+   * How far the camera goes depends on the screen. On a phone the board is played zoomed
+   * in and most of it is off the edges, so the word just landed on is brought to the middle
+   * whether or not it was already in shot: the alternative is a game of typing a word and
+   * then hunting for it with a thumb. On a wider screen the whole figure is usually in view
+   * and moving it would be motion for nothing, so the camera only ever does the least that
+   * puts the word in shot, and normally does nothing at all.
+   *
+   * Set when the guess is made and acted on when the word has somewhere to be: a word named
+   * this instant reaches the layout on the next tick, and the camera cannot follow something
+   * that has no position yet. Guesses only — a tap on a word is a tap on something already
+   * on screen, and answering it by moving the board would slide the figure out from under
+   * the finger that did it.
+   */
+  const [follow, setFollow] = useState<{ word: string; centre: boolean } | null>(null);
+  useEffect(() => setFollow(null), [state?.puzzle]);
+
+  useEffect(() => {
+    if (!follow) return;
+    const at = laid?.positions.get(follow.word);
+    if (!at) return;
+    setFollow(null);
+    const next = follow.centre ? lookAt(camera, at) : bringInto(camera, at, plateSize);
+    // Nothing to do is the ordinary answer on a wide screen, and doing nothing is how it
+    // is said: a glide to where the camera already is would be a stutter every guess.
+    if (next.cx !== camera.cx || next.cy !== camera.cy) moveTo(next);
+  }, [follow, laid, camera, plateSize, moveTo]);
+
   const clearError = useCallback(() => setError(null), []);
 
   /**
@@ -740,8 +878,12 @@ export default function App() {
       const outcome = applyGuess(state, data.graph, raw, isWord);
       setState(outcome.state);
       setError(outcome.kind === 'rejected' ? outcome.judgement.message : null);
+      // A refused guess moved nobody, so there is nothing to follow. Anything else left the
+      // player standing on the word it named — including a move back onto a word they
+      // already had, which is navigation and every bit as much a reason to look there.
+      if (outcome.kind !== 'rejected') setFollow({ word: outcome.word, centre: narrow });
     },
-    [data, state, isWord],
+    [data, state, isWord, narrow],
   );
 
   const selectWord = useCallback((word: string) => {
@@ -1075,14 +1217,71 @@ export default function App() {
     };
   }, [data, state, at, shortcut]);
 
+  /**
+   * Boards this session has seen unfinished, and boards dev mode finished for us.
+   *
+   * Refs rather than state, because neither is anything to draw: they only decide what gets
+   * written down. The first is how a round finished here is told from a round recovered — a
+   * board that was already solved when it was opened was never in it — and the second is the
+   * guard that keeps dev mode's solve button out of the history entirely. **Spelling a board
+   * out is not playing it**, and neither is walking it with one click.
+   */
+  const seenUnfinished = useRef(new Set<string>());
+  const devSolved = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (state && !state.solved) seenUnfinished.current.add(gameKey(state.puzzle));
+  }, [state]);
+
+  /**
+   * Write a finished round down.
+   *
+   * In an effect and not in the `result` memo, which recomputes every time the board is
+   * reopened: a memo with a side effect in it is a bug waiting for a reason to happen.
+   *
+   * Every finished board is recorded, including one that was already finished when it was
+   * opened — a player who works through the archive should see those rounds in their stats,
+   * and the word table is only interesting if it covers everything they have actually solved.
+   * What keeps that honest is that the round is dated by **the puzzle's own day**, never by
+   * the clock: a board from last week lands on last week wherever it was recorded. Rounds
+   * recovered that way are marked, because they are not evidence of anyone turning up on the
+   * day — see `streaks`.
+   *
+   * `addCompletion` keeps the first record a pair ever had, so reopening a board offers the
+   * same round again and again and changes nothing.
+   */
+  useEffect(() => {
+    if (!data || !state?.solved || !result || !at) return;
+    const key = gameKey(state.puzzle);
+    if (devSolved.current.has(key)) return;
+    const written = addCompletion(
+      recordOf(key, state, {
+        day: at.day,
+        // The manifest's epoch, never the constant: they are different dates, and a record
+        // dated from the wrong one puts the whole timeline a year and a half out.
+        date: dateForDay(at.day, data.manifest.epoch),
+        marks: result.marks,
+        backfilled: !seenUnfinished.current.has(key),
+      }),
+    );
+    if (written) setHistoryAt((count) => count + 1);
+  }, [data, state, result, at]);
+
   /** Dev only: on to the next board, once this one is done with. */
   const playAgain = useCallback(() => {
     if (at) goToPuzzle(at.day + 1);
   }, [at, goToPuzzle]);
 
-  /** Dev helper: walk a shortest path so a board can be seen in its solved state. */
+  /**
+   * Dev helper: walk a shortest path so a board can be seen in its solved state.
+   *
+   * Marked, so the round it produces is never written down. Solving a board with one click
+   * is inspection, in the same way dev mode's spelling a word out is inspection — it is not
+   * a hint, it is not a score, and it has no business in anybody's history.
+   */
   const solveIt = useCallback(() => {
     if (!data || !state || bestRoute.length === 0) return;
+    devSolved.current.add(gameKey(state.puzzle));
     let next = newGame(state.puzzle);
     for (const word of bestRoute.slice(1)) {
       next = applyGuess(next, data.graph, word, null).state;
@@ -1112,14 +1311,14 @@ export default function App() {
   }
 
   /**
-   * The archive instead of the board, when the URL says so.
+   * A page instead of the board, when the URL says so.
    *
    * Before the board's own return rather than beside it: everything below assumes a game on
-   * screen, and the archive is the one screen that is about the bank rather than about a board.
-   * The board's state is untouched while it is up, so leaving goes back to exactly what was
-   * being played.
+   * screen, and these are the two screens that are about the bank and about the run of play
+   * rather than about a board. The board's state is untouched while one is up, so leaving
+   * goes back to exactly what was being played.
    */
-  if (archive) {
+  if (page === 'archive') {
     return (
       <Puzzles
         manifest={data.manifest}
@@ -1130,7 +1329,22 @@ export default function App() {
         onNeedYear={needYear}
         onOpen={openById}
         onToday={() => openDay(dayNumber(new Date(), data.manifest.epoch), band)}
-        onClose={closeArchive}
+        onStats={openStats}
+        onClose={closePage}
+      />
+    );
+  }
+
+  if (page === 'stats') {
+    return (
+      <Stats
+        manifest={data.manifest}
+        today={dayNumber(new Date(), data.manifest.epoch)}
+        records={stats}
+        onReplace={replaceHistory}
+        onOpen={openById}
+        onPuzzles={openArchive}
+        onClose={closePage}
       />
     );
   }
@@ -1196,6 +1410,7 @@ export default function App() {
           beatPar={beatPar}
           onHelp={openHelp}
           onPuzzles={openArchive}
+          onStats={openStats}
         />
 
         {/* Above the board, so finishing is unmissable and the figure is untouched. */}
@@ -1243,6 +1458,13 @@ export default function App() {
             onHint={hintWord}
             onSpell={spellWord}
           />
+
+          {/*
+            Outside the SVG, so a tap on it is never a tap on the board: the gestures are
+            spread on the plate itself, and a drag that crosses a word deliberately
+            swallows the click that follows it (see usePanZoom).
+          */}
+          <ResetView onReset={resetView} />
 
           {opening && result === null && (
             <Opening

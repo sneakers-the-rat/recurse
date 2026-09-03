@@ -25,6 +25,7 @@
  */
 
 import type { GameSnapshot } from './game';
+import { readCompletions, type Completion } from './stats';
 import type { Puzzle } from './types';
 
 /**
@@ -141,4 +142,56 @@ export function saveBand(band: number): void {
     // Blocked or full storage means a preference that is not remembered, never a
     // preference that throws. See the note on `write`.
   }
+}
+
+/**
+ * Every round finished, in the order they were written down.
+ *
+ * A third key, and a third kind of thing: games are progress, the band is a preference, and
+ * this is history. Its own key because it outlives both — the game store keeps thirty
+ * entries and evicts the rest, which is about ten days, and a history that ended ten days
+ * ago is not a history. See stats.ts for why none of it can be derived from the games.
+ *
+ * **Nothing is evicted.** A record is a little over a hundred bytes and three boards a day
+ * is under a tenth of a megabyte a year, so the quota is not the constraint here; losing the
+ * oldest rounds is exactly the failure this store exists to avoid. A player who wants it
+ * gone has the clear button, and the export beside it.
+ */
+const STATS_KEY = 'recurse.stats.v1';
+
+export function loadStats(): Completion[] {
+  try {
+    const raw = store()?.getItem(STATS_KEY);
+    return raw ? readCompletions(JSON.parse(raw)) : [];
+  } catch {
+    // Unparseable, or storage that threw on being read. An empty history reads as a
+    // player who has not played yet, which is wrong but harmless; a screen that will
+    // not open is neither.
+    return [];
+  }
+}
+
+export function replaceStats(records: readonly Completion[]): void {
+  try {
+    store()?.setItem(STATS_KEY, JSON.stringify(records));
+  } catch {
+    // Out of quota, or no storage at all. The stats are what they were.
+  }
+}
+
+/**
+ * Write a finished round down, unless that puzzle already has one.
+ *
+ * **First write per pair wins.** A board can be opened again after it is finished — to read
+ * the result, to copy the share text — and every one of those visits offers the same round
+ * again. Keeping the first is what makes the history a log of rounds rather than of visits,
+ * and it is the same rule the import uses, for the same reason.
+ *
+ * Returns whether anything was written, so a caller can tell "recorded" from "already had it".
+ */
+export function addCompletion(record: Completion): boolean {
+  const records = loadStats();
+  if (records.some((one) => one.key === record.key)) return false;
+  replaceStats([...records, record]);
+  return true;
 }
