@@ -12,9 +12,12 @@
  */
 
 import { memo } from 'react';
+import { FormattedMessage } from 'react-intl';
 
+import { guess as says } from '../i18n/messages/guess';
 import { analyzeEdit, bestReading } from '../lib/moves';
 import type { Graph } from '../lib/types';
+import { Diamond, MoveSign } from './marks';
 
 interface Props {
   from: string;
@@ -52,12 +55,9 @@ function Marked({
   );
 }
 
+/** The same ornament the statement sets between the two words, in the readout's ink. */
 function Arrow() {
-  return (
-    <span aria-hidden className="text-ash-lit mx-2 shrink-0 text-xs tracking-widest">
-      ◆
-    </span>
-  );
+  return <Diamond className="text-ash-lit mx-2 shrink-0 text-xs tracking-widest" />;
 }
 
 export const MoveReadout = memo(function MoveReadout({
@@ -72,7 +72,7 @@ export const MoveReadout = memo(function MoveReadout({
   if (!word || word === from) {
     return (
       <p className="label" aria-live="polite">
-        {word === from && word ? 'unchanged' : 'add or remove a word'}
+        <FormattedMessage {...(word === from && word ? says.unchanged : says.prompt)} />
       </p>
     );
   }
@@ -110,7 +110,7 @@ export const MoveReadout = memo(function MoveReadout({
           </>
         )}
         <span className={`label ml-3 ${adding ? 'text-gilt' : 'text-blood-lit'}`}>
-          {adding ? '+' : '−'}
+          <MoveSign kind={adding ? 'add' : 'remove'} />
           {sub}
         </span>
       </p>
@@ -123,7 +123,9 @@ export const MoveReadout = memo(function MoveReadout({
         <span className="word">{from}</span>
         <Arrow />
         <span className="word">{word}</span>
-        <span className="label text-blood-lit ml-3">same length</span>
+        <span className="label text-blood-lit ml-3">
+          <FormattedMessage {...says.sameLength} />
+        </span>
       </p>
     );
   }
@@ -134,7 +136,9 @@ export const MoveReadout = memo(function MoveReadout({
       <span className="word">{from}</span>
       <Arrow />
       <span className="word">{word}</span>
-      <span className="label text-blood-lit ml-3">not one run</span>
+      <span className="label text-blood-lit ml-3">
+        <FormattedMessage {...says.notOneRun} />
+      </span>
     </p>
   );
 });

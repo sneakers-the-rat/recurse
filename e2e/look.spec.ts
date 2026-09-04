@@ -52,6 +52,10 @@ test('hovering a word lifts its moves out of the background', async ({ page }) =
 test('opens the rules', async ({ page }) => {
   await page.goto('/');
   await masthead(page, 'How to play');
-  await expect(page.getByRole('dialog')).toContainText('add a word');
+  // The dialog's own heading, not a sentence out of the body. This asserted on the phrase
+  // "add a word", which the rules stopped saying the moment they were rewritten — and what
+  // this test is actually for is that the masthead opens the dialog and the shot gets taken.
+  // What the rules *say* is content, and content is not the scaffold's business.
+  await expect(page.getByRole('dialog')).toContainText('How to play');
   await page.screenshot({ path: 'e2e/shots/howto.png' });
 });

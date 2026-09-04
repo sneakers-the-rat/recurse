@@ -24,6 +24,8 @@
  */
 
 import { memo, useEffect, useState } from 'react';
+import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
+import { stats as says } from '../i18n/messages/stats';
 import {
   histogramChart,
   hintChart,
@@ -32,6 +34,17 @@ import {
   type Frame,
 } from '../lib/chart';
 import { parBuckets, type Completion } from '../lib/stats';
+
+/**
+ * An axis tick, signed.
+ *
+ * A number rather than a word, so it is not in the catalog — but written inline it is a
+ * template literal sitting in JSX, which is the shape the linter watches for and cannot
+ * tell from a sentence. `chart.ts` builds the same string for the other axis.
+ */
+function signedTick(diff: number): string {
+  return diff > 0 ? `+${diff}` : String(diff);
+}
 
 /**
  * The width a chart has been given, once it is on screen.
@@ -112,26 +125,26 @@ function Figure({
   children,
   onMeasure,
   empty,
-  nothing = 'nothing yet',
+  nothing,
 }: {
-  title: string;
-  note?: string | undefined;
+  title: MessageDescriptor;
+  note?: React.ReactNode;
   children: React.ReactNode;
   onMeasure: (element: HTMLElement | null) => void;
   empty: boolean;
   /** What to say instead of the figure, when there is no figure. */
-  nothing?: string;
+  nothing?: MessageDescriptor;
 }) {
   return (
     <figure className="border-rule bg-noir-2/40 min-w-0 border p-3">
       <figcaption className="label text-ash-lit mb-2 flex flex-wrap items-baseline gap-x-2">
-        {title}
+        <FormattedMessage {...title} />
         {note && <span className="text-ash normal-case">{note}</span>}
       </figcaption>
       <div ref={onMeasure} className="w-full">
         {empty ? (
           <p className="label text-ash flex items-center" style={{ height: HEIGHT }}>
-            {nothing}
+            <FormattedMessage {...(nothing ?? says.chartEmpty)} />
           </p>
         ) : (
           children
@@ -156,13 +169,21 @@ export const ScorePlot = memo(function ScorePlot({
   records: readonly Completion[];
   bands: readonly string[];
 }) {
+  const intl = useIntl();
   const [measure, width] = useWidth();
   const chart = width > 0 ? scoreChart(records, frameOf(width)) : null;
 
   return (
     <Figure
-      title="Vs. Par History"
-      note={chart ? `mean ${chart.mean > 0 ? '+' : ''}${chart.mean.toFixed(1)}` : undefined}
+      title={says.scoreTitle}
+      note={
+        chart ? (
+          <FormattedMessage
+            {...says.scoreMean}
+            values={{ mean: `${chart.mean > 0 ? '+' : ''}${chart.mean.toFixed(1)}` }}
+          />
+        ) : undefined
+      }
       onMeasure={measure}
       empty={records.length === 0}
     >
@@ -172,7 +193,7 @@ export const ScorePlot = memo(function ScorePlot({
             width={width}
             height={HEIGHT}
             role="img"
-            aria-label="Guesses against par, one mark per round"
+            aria-label={intl.formatMessage(says.scoreLabel)}
           >
             {chart.ticks.map((tick) => (
               <g key={tick.diff}>
@@ -238,19 +259,29 @@ export const ParHistogram = memo(function ParHistogram({
 }: {
   records: readonly Completion[];
 }) {
+  const intl = useIntl();
   const [measure, width] = useWidth();
   const buckets = parBuckets(records);
   const chart = width > 0 ? histogramChart(buckets, frameOf(width)) : null;
 
   return (
     <Figure
-      title="Vs. Par Distribution"
-      note={chart ? `${records.length} ${records.length === 1 ? 'round' : 'rounds'}` : undefined}
+      title={says.histogramTitle}
+      note={
+        chart ? (
+          <FormattedMessage {...says.roundsAt} values={{ count: records.length }} />
+        ) : undefined
+      }
       onMeasure={measure}
       empty={records.length === 0}
     >
       {chart && (
-        <svg width={width} height={HEIGHT} role="img" aria-label="How many rounds came in at each score against par">
+        <svg
+          width={width}
+          height={HEIGHT}
+          role="img"
+          aria-label={intl.formatMessage(says.histogramLabel)}
+        >
           <line
             x1={chart.area.left}
             x2={chart.area.right}
@@ -279,7 +310,7 @@ export const ParHistogram = memo(function ParHistogram({
                 fontSize={LABEL}
                 fill={bar.diff === 0 ? 'var(--color-bone-dim)' : 'var(--color-ash-lit)'}
               >
-                {bar.diff > 0 ? `+${bar.diff}` : bar.diff}
+                {signedTick(bar.diff)}
               </text>
             </g>
           ))}
@@ -298,6 +329,7 @@ export const ParHistogram = memo(function ParHistogram({
  * paints an edge with; dim bone for the letters, which are only ever a word.
  */
 export const HintPlot = memo(function HintPlot({ records }: { records: readonly Completion[] }) {
+  const intl = useIntl();
   const [measure, width] = useWidth();
   // Nothing bought is nothing to draw, and an axis reading "most 1" over a floor of empty
   // columns says the opposite of the truth about a player who has never asked for help.
@@ -306,15 +338,15 @@ export const HintPlot = memo(function HintPlot({ records }: { records: readonly 
 
   return (
     <Figure
-      title="Hints per round"
-      note={chart ? `most ${chart.most}` : undefined}
+      title={says.hintTitle}
+      note={chart ? <FormattedMessage {...says.hintMost} values={{ most: chart.most }} /> : undefined}
       onMeasure={measure}
       empty={!any}
-      nothing={records.length === 0 ? 'nothing yet' : 'no hints asked for'}
+      nothing={records.length === 0 ? says.chartEmpty : says.noHintsAsked}
     >
       {chart && (
         <>
-          <svg width={width} height={HEIGHT} role="img" aria-label="Hints bought per round">
+          <svg width={width} height={HEIGHT} role="img" aria-label={intl.formatMessage(says.hintLabel)}>
             <line
               x1={chart.area.left}
               x2={chart.area.right}
@@ -356,18 +388,18 @@ export const HintPlot = memo(function HintPlot({ records }: { records: readonly 
               fontSize={LABEL}
               fill="var(--color-ash-lit)"
             >
-              0
+              {0}
             </text>
           </svg>
 
           <p className="label text-ash-lit mt-1 flex flex-wrap gap-x-3 text-[0.55rem]">
             <span className="flex items-center gap-1">
               <span className="inline-block h-2 w-2" style={{ background: 'var(--color-bone-dim)' }} />
-              letters
+              <FormattedMessage {...says.hintLetters} />
             </span>
             <span className="flex items-center gap-1">
               <span className="inline-block h-2 w-2" style={{ background: 'var(--color-gilt)' }} />
-              move shapes
+              <FormattedMessage {...says.hintShapes} />
             </span>
           </p>
         </>

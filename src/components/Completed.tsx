@@ -29,8 +29,11 @@
  */
 
 import { memo, useEffect, useState } from 'react';
+import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
+import { round as says } from '../i18n/messages/round';
 import { hintCount, type GameState } from '../lib/game';
 import { emojiTrail, type Mark } from '../lib/share';
+import { Dot, MoveSign, Space } from './marks';
 
 /**
  * `name value`, inline.
@@ -40,10 +43,11 @@ import { emojiTrail, type Mark } from '../lib/share';
  * The value keeps its own case and size inside the label, so the figures still read as
  * figures.
  */
-function Stat({ name, children }: { name: string; children: React.ReactNode }) {
+function Stat({ name, children }: { name: MessageDescriptor; children: React.ReactNode }) {
   return (
     <span className="label text-ash-lit whitespace-nowrap">
-      {name}{' '}
+      <FormattedMessage {...name} />
+      <Space />
       <span className="text-bone ml-0.5 text-base tracking-normal normal-case">{children}</span>
     </span>
   );
@@ -56,7 +60,10 @@ function verdictOf(state: GameState) {
   // best route through ordinary words, not a floor, so this is the best thing that can
   // happen in a round and it gets the loudest heading in the game.
   const secret = guesses < puzzle.par;
-  return { secret, title: secret ? 'A secret way through' : guesses === puzzle.par ? 'Perfect' : 'Found it' };
+  return {
+    secret,
+    title: secret ? says.secret : guesses === puzzle.par ? says.perfect : says.found,
+  };
 }
 
 /**
@@ -89,6 +96,7 @@ export const Result = memo(function Result({
   others?: readonly { band: number; name: string; guesses: number }[];
   onBand?: (band: number) => void;
 }) {
+  const intl = useIntl();
   const { guesses, misses, puzzle } = state;
   const hints = hintCount(state);
   const { secret, title } = verdictOf(state);
@@ -122,24 +130,27 @@ export const Result = memo(function Result({
       // Named, so a test can ask for the result rather than for the last `<section>` on
       // the page — which is what they used to do, and what broke the moment the finished
       // round was arranged in two parts.
-      aria-label="Result"
+      aria-label={intl.formatMessage(says.result)}
       aria-live="polite"
       className={`bg-noir-2 border-b ${secret ? 'border-gilt' : 'border-gilt-dim'}`}
     >
       <div className="mx-auto max-w-2xl px-4 py-2">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <h2 className={`text-lg leading-none font-semibold ${secret ? 'text-gilt' : 'text-bone'}`}>
-            {title}
+            <FormattedMessage {...title} />
           </h2>
 
-          <Stat name="guesses">
+          <Stat name={says.guessesStat}>
             {guesses}
-            <span className="text-ash-lit text-sm"> / par {puzzle.par}</span>
+            <span className="text-ash-lit text-sm">
+              <Space />
+              <FormattedMessage {...says.parStat} values={{ par: puzzle.par }} />
+            </span>
           </Stat>
-          <Stat name="hints">{hints}</Stat>
-          {misses > 0 && <Stat name="refused">{misses}</Stat>}
+          <Stat name={says.hintsStat}>{hints}</Stat>
+          {misses > 0 && <Stat name={says.refusedStat}>{misses}</Stat>}
           {secret && (
-            <Stat name="under par">
+            <Stat name={says.underParStat}>
               <span className="text-gilt">{puzzle.par - guesses}</span>
             </Stat>
           )}
@@ -155,7 +166,10 @@ export const Result = memo(function Result({
           <div className="ml-auto flex items-center gap-3">
             {/* Letter-spaced so the squares do not fuse into one bar. */}
             {marks.length > 0 && (
-              <p className="text-base tracking-[0.15em]" aria-label="Your route, as marks">
+              <p
+                className="text-base tracking-[0.15em]"
+                aria-label={intl.formatMessage(says.trail)}
+              >
                 {emojiTrail(marks)}
               </p>
             )}
@@ -170,7 +184,7 @@ export const Result = memo(function Result({
               className="label border-rule text-bone hover:border-gilt hover:text-gilt shrink-0 border px-3 py-1.5 transition-colors"
               type="button"
             >
-              {copied ? 'Copied' : 'Copy result'}
+              <FormattedMessage {...(copied ? says.copied : says.copy)} />
             </button>
           </div>
         </div>
@@ -185,7 +199,9 @@ export const Result = memo(function Result({
         */}
         {others.length > 0 && (
           <p className="label text-ash-lit mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span>Also today</span>
+            <span>
+              <FormattedMessage {...says.alsoToday} />
+            </span>
             {others.map((other) => (
               <button
                 key={other.band}
@@ -195,7 +211,10 @@ export const Result = memo(function Result({
               >
                 {other.name}
                 {other.guesses > 0 && (
-                  <span className="text-ash-lit"> · {other.guesses} in</span>
+                  <span className="text-ash-lit">
+                    <Space />
+                    <FormattedMessage {...says.partway} values={{ count: other.guesses }} />
+                  </span>
                 )}
               </button>
             ))}
@@ -208,7 +227,9 @@ export const Result = memo(function Result({
           {text}
         </pre>
         {failed && (
-          <p className="label text-blood-lit mt-1.5">Copying was blocked — select the text above</p>
+          <p className="label text-blood-lit mt-1.5">
+            <FormattedMessage {...says.copyBlocked} />
+          </p>
         )}
       </div>
     </section>
@@ -233,18 +254,23 @@ export const Round = memo(function Round({
   date: string;
   onPlayAgain?: (() => void) | undefined;
 }) {
+  const intl = useIntl();
   const { log } = state;
 
   return (
     <section
-      aria-label="The round"
+      aria-label={intl.formatMessage(says.theRound)}
       className="border-rule bg-noir-2/40 border-t px-4 pt-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
     >
       <div className="mx-auto max-w-2xl">
         <div className="flex items-baseline justify-between gap-3">
-          <h3 className="label">The round</h3>
+          <h3 className="label">
+            <FormattedMessage {...says.theRound} />
+          </h3>
           <p className="label text-ash-lit">
-            Day {day} <span className="mx-1">·</span> {date}
+            <FormattedMessage {...says.day} values={{ day }} />
+            <Dot />
+            {date}
           </p>
         </div>
 
@@ -258,7 +284,7 @@ export const Round = memo(function Round({
                   entry.move.kind === 'add' ? 'text-gilt' : 'text-blood-lit'
                 }`}
               >
-                {entry.move.kind === 'add' ? '+' : '−'}
+                <MoveSign kind={entry.move.kind} />
                 {entry.move.sub}
               </span>
               <span className="word text-bone ml-auto text-sm">{entry.to}</span>
@@ -272,7 +298,7 @@ export const Round = memo(function Round({
             className="label border-rule text-bone hover:border-gilt hover:text-gilt mt-4 w-full border py-2.5 transition-colors"
             type="button"
           >
-            Another puzzle
+            <FormattedMessage {...says.playAgain} />
           </button>
         )}
       </div>

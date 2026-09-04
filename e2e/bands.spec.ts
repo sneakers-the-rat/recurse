@@ -94,7 +94,7 @@ test('the day’s other lengths are offered once a round is finished', async ({ 
   await expect(page.locator('main svg circle').first()).toBeVisible();
   for (const word of route!.slice(1)) {
     await page.getByLabel(/Your guess/).fill(word);
-    await page.getByRole('button', { name: 'Name it' }).click();
+    await page.getByRole('button', { name: 'Guess', exact: true }).click();
   }
   const result = page.getByRole('region', { name: 'Result' });
   await expect(result).toBeVisible();

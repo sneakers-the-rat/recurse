@@ -14,6 +14,9 @@
  */
 
 import { memo, useMemo, useState } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { dev as says } from '../i18n/messages/dev';
+import { Arrow, Space, TrackBack, TrackOn } from './marks';
 import type { Pair } from '../lib/data';
 import type { Puzzle } from '../lib/types';
 
@@ -74,10 +77,16 @@ function Key({
 }
 
 /** `name value`, the only other shape in the bar. */
-function Stat({ name, children }: { name: string; children: React.ReactNode }) {
+function Stat({
+  name,
+  children,
+}: {
+  name: (typeof says)[keyof typeof says];
+  children: React.ReactNode;
+}) {
   return (
     <span>
-      {name} <span className="text-neutral-200">{children}</span>
+      <FormattedMessage {...name} /> <span className="text-neutral-200">{children}</span>
     </span>
   );
 }
@@ -105,6 +114,7 @@ function FindPair({
   onNeed: (() => void) | undefined;
   onOpen: ((id: string) => void) | undefined;
 }) {
+  const intl = useIntl();
   const [source, setSource] = useState('');
   const [target, setTarget] = useState('');
 
@@ -138,7 +148,7 @@ function FindPair({
     value: string,
     set: (next: string) => void,
     list: string,
-    label: string,
+    which: 'source' | 'target',
     options: readonly string[],
   ) => (
     <>
@@ -147,8 +157,10 @@ function FindPair({
         onChange={(e) => set(e.target.value)}
         onFocus={() => !pairs && onNeed?.()}
         list={list}
-        placeholder={pairs ? label : '…'}
-        aria-label={`Find a puzzle by its ${label} word`}
+        placeholder={intl.formatMessage(
+          pairs ? (which === 'source' ? says.findSource : says.findTarget) : says.findWaiting,
+        )}
+        aria-label={intl.formatMessage(says.findLabel, { which })}
         autoComplete="off"
         className="w-24 border border-neutral-700 bg-transparent px-1.5 py-0.5 outline-none focus:border-neutral-500"
       />
@@ -169,15 +181,15 @@ function FindPair({
       }}
     >
       {field(source, setSource, 'dev-sources', 'source', sources)}
-      <span className="text-neutral-600">→</span>
+      <Arrow className="text-neutral-600" />
       {field(target, setTarget, 'dev-targets', 'target', targets)}
       <Key
         onClick={() => {
           if (found) onOpen?.(found.id);
         }}
-        label="Open the puzzle about these two words"
+        label={intl.formatMessage(says.openPair)}
       >
-        {found ? 'open' : pairs ? 'no pair' : 'find'}
+        <FormattedMessage {...(found ? says.open : pairs ? says.noPair : says.find)} />
       </Key>
     </form>
   );
@@ -202,6 +214,7 @@ export const DevBar = memo(function DevBar({
   onReset,
   onHide,
 }: Props) {
+  const intl = useIntl();
   const [jump, setJump] = useState('');
 
   const step = (delta: number) => onGo((index + delta + total) % total);
@@ -209,19 +222,21 @@ export const DevBar = memo(function DevBar({
   return (
     <div className="border-rule bg-noir-3 border-b font-mono text-[11px] text-neutral-400">
       <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
-        <span className="font-semibold tracking-wider text-neutral-500">DEV</span>
+        <span className="font-semibold tracking-wider text-neutral-500">
+          <FormattedMessage {...says.bar} />
+        </span>
 
         <span className="flex items-center gap-1">
-          <Key onClick={() => step(-1)} label="Previous puzzle">
-            ◀
+          <Key onClick={() => step(-1)} label={intl.formatMessage(says.prev)}>
+            <TrackBack />
           </Key>
-          <Key onClick={() => step(1)} label="Next puzzle">
-            ▶
+          <Key onClick={() => step(1)} label={intl.formatMessage(says.next)}>
+            <TrackOn />
           </Key>
         </span>
 
         <span className="text-neutral-200">
-          {index + 1}/{total}
+          <FormattedMessage {...says.position} values={{ index: index + 1, total }} />
         </span>
 
         <form
@@ -235,8 +250,8 @@ export const DevBar = memo(function DevBar({
           <input
             value={jump}
             onChange={(e) => setJump(e.target.value)}
-            placeholder="go to"
-            aria-label="Jump to puzzle number"
+            placeholder={intl.formatMessage(says.goTo)}
+            aria-label={intl.formatMessage(says.goToLabel)}
             className="w-16 border border-neutral-700 bg-transparent px-1.5 py-0.5 outline-none focus:border-neutral-500"
           />
         </form>
@@ -244,24 +259,39 @@ export const DevBar = memo(function DevBar({
         <FindPair pairs={pairs} onNeed={onNeedPairs} onOpen={onOpenId} />
 
         {/* The address of the board on screen, which is what the survey quotes. */}
-        <Stat name="id">{puzzle.id}</Stat>
-        <Stat name="par">{puzzle.par}</Stat>
-        <Stat name="routes">{puzzle.shortestPaths}</Stat>
+        <Stat name={says.id}>{puzzle.id}</Stat>
+        <Stat name={says.par}>{puzzle.par}</Stat>
+        <Stat name={says.routes}>{puzzle.shortestPaths}</Stat>
         <span>
-          corridor <span className="text-neutral-200">{puzzle.corridorSize}</span>
-          {drawn !== puzzle.corridorSize && <span className="text-neutral-500"> → {drawn}</span>}
+          <FormattedMessage {...says.corridor} />
+          <Space />
+          <span className="text-neutral-200">{puzzle.corridorSize}</span>
+          {drawn !== puzzle.corridorSize && (
+            <span className="text-neutral-500">
+              <Space />
+              <Arrow className="text-neutral-600" />
+              <Space />
+              {drawn}
+            </span>
+          )}
         </span>
-        <Stat name="alt">{puzzle.altNodes}</Stat>
-        <Stat name="rank">{puzzle.maxRank}</Stat>
-        <Stat name="guessed">{guesses}</Stat>
+        <Stat name={says.alt}>{puzzle.altNodes}</Stat>
+        <Stat name={says.rank}>{puzzle.maxRank}</Stat>
+        <Stat name={says.guessed}>{guesses}</Stat>
 
         <span className="ml-auto flex items-center gap-1.5">
-          <Key onClick={onNameAll}>name all</Key>
-          <Key onClick={onSolve}>solve</Key>
-          <Key onClick={onReset}>reset</Key>
+          <Key onClick={onNameAll}>
+            <FormattedMessage {...says.nameAll} />
+          </Key>
+          <Key onClick={onSolve}>
+            <FormattedMessage {...says.solve} />
+          </Key>
+          <Key onClick={onReset}>
+            <FormattedMessage {...says.reset} />
+          </Key>
           {/* Says the key as well, because with the bar gone it is the only way back. */}
-          <Key onClick={onHide} label="Hide dev mode">
-            hide ⌃D
+          <Key onClick={onHide} label={intl.formatMessage(says.hideLabel)}>
+            <FormattedMessage {...says.hide} />
           </Key>
         </span>
 
@@ -271,12 +301,21 @@ export const DevBar = memo(function DevBar({
           it is showing.
         */}
         <p className="w-full break-words text-neutral-500">
-          <span className="text-neutral-600">answer </span>
-          {path.length ? path.join(' → ') : 'no path'}
+          <span className="text-neutral-600">
+            <FormattedMessage {...says.answer} />
+            <Space />
+          </span>
+          {path.length ? path.join(' → ') : intl.formatMessage(says.noPath)}
         </p>
         {secrets.map((route, i) => (
           <p key={route.join(' ')} className="w-full break-words text-neutral-500">
-            <span className="text-gilt-dim">secret{secrets.length > 1 ? ` ${i + 1}` : ''} </span>
+            <span className="text-gilt-dim">
+              <FormattedMessage
+                {...says.secret}
+                values={{ n: secrets.length > 1 ? String(i + 1) : 'none' }}
+              />
+              <Space />
+            </span>
             <span className="text-neutral-400">{route.join(' → ')}</span>
           </p>
         ))}

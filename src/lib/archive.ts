@@ -64,24 +64,17 @@ export function clampMonth(at: Month, first: Month, last: Month): Month {
   return at;
 }
 
-export const MONTH_NAMES = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
-
-export function monthName(at: Month): string {
-  return `${MONTH_NAMES[at.month - 1] ?? '?'} ${at.year}`;
-}
+/**
+ * The twelve months, as the numbers a person writes them with.
+ *
+ * Numbers rather than names, because this module is arithmetic over dates and a month's
+ * *name* is language. What a month is called lives in the catalog — `archive.monthName`
+ * and `archive.monthShort` — where a translator can reach it and where the year can go
+ * before the month if that is what the language does. This used to be a list of English
+ * strings and a `monthName` that glued the year onto the end of one, which is the one
+ * shape of sentence some languages cannot be written in.
+ */
+export const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 /** Days in a month, from the local calendar rather than a table with a leap-year rule in it. */
 export function daysInMonth(at: Month): number {

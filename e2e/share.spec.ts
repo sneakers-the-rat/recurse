@@ -15,7 +15,7 @@ test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 async function guess(page: Page, word: string) {
   await page.getByLabel(/Your guess/).fill(word);
-  await page.getByRole('button', { name: 'Name it' }).click();
+  await page.getByRole('button', { name: 'Guess', exact: true }).click();
 }
 
 /** Every unnamed word on the board, in the order the plate draws them. */

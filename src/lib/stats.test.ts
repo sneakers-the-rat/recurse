@@ -321,7 +321,10 @@ describe('parseStats', () => {
     const found = parseStats({ ...file, version: EXPORT_VERSION + 1 });
     expect(found.ok).toBe(false);
     if (found.ok) return;
-    expect(found.reason).toContain('newer version');
+    // The message it would be refused in, not the sentence: what English makes of it is
+    // the catalog's business, and the version numbers are what has to survive the trip.
+    expect(found.reason.message.id).toBe('stats.tooNew');
+    expect(found.reason.values).toMatchObject({ version: String(EXPORT_VERSION + 1) });
   });
 
   it('accepts an older version, which is what a version number is for', () => {

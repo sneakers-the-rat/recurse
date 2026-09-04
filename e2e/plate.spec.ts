@@ -53,7 +53,7 @@ async function shows(page: Page, word: string): Promise<boolean> {
 
 async function guess(page: Page, word: string) {
   await page.getByLabel(/Your guess/).fill(word);
-  await page.getByRole('button', { name: 'Name it' }).click();
+  await page.getByRole('button', { name: 'Guess', exact: true }).click();
 }
 
 /**
@@ -100,17 +100,37 @@ test('the board opens framed on the answer', async ({ page }) => {
 });
 
 test('a word is the same size on a crowded board as on a bare one', async ({ page }) => {
-  // What the camera is *for*. Both of these have the same par, so the same spine, so
-  // the same scale — however many words each of them draws.
-  const same = puzzles.filter((p) => p.par === puzzles[0]!.par).slice(0, 2);
-  const scales: number[] = [];
-  for (const puzzle of same) {
-    await page.goto(board(puzzle, '?dev=0'));
-    await expect(page.locator('main svg circle').first()).toBeVisible();
-    const [, , width] = await view(page);
-    scales.push(width!);
-  }
-  expect(scales[0]).toBeCloseTo(scales[1]!, 1);
+  // What the camera is *for*: the scale is fixed by the spine, never by how much else
+  // there is to draw. So crowd one board and check it did not budge.
+  //
+  // This used to load two *different* puzzles of the same par and compare their viewBox
+  // widths, which does not isolate crowdedness. `playCamera` divides the *plate's* height
+  // by the spine, and the plate gets whatever the chrome leaves it — the statement shrinks
+  // to fit the longer of the two words on one line, so a puzzle with longer words has a
+  // taller header and a shorter plate. The two boards came out half a pixel apart on every
+  // run, which is a true fact about their word lengths and nothing to do with the promise
+  // being tested. One board, before and after, has no such confound.
+  const { puzzle } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev=0'));
+  const nodes = () => page.locator('main svg circle[role="button"]');
+  await expect(nodes().first()).toBeVisible();
+
+  const before = await nodes().count();
+  const [, , wide] = await view(page);
+
+  // A legal move off the intended route, which draws its own neighbourhood too — this is
+  // the board growing under the player, which is exactly the thing that must not rescale.
+  const { graph } = gameData();
+  const stray = graph.neighbors(puzzle.source).find((w) => w !== puzzle.target);
+  test.skip(!stray, 'no stray move available');
+  await guess(page, stray!);
+
+  await expect.poll(() => nodes().count()).toBeGreaterThan(before);
+
+  // Width, not the whole viewBox: the camera is allowed to *move* to bring the new word
+  // into shot, and on a phone it does. What it may not do is change the scale.
+  const [, , afterwards] = await view(page);
+  expect(afterwards).toBeCloseTo(wide!, 1);
 });
 
 test('the board can be dragged and zoomed', async ({ page }) => {
@@ -156,7 +176,7 @@ test('a wheel is the page’s until the board is asked for', async ({ page }) =>
   await page.goto(board(puzzle, '?dev=0'));
   for (const word of path.slice(1)) {
     await page.getByLabel(/Your guess/).fill(word);
-    await page.getByRole('button', { name: 'Name it' }).click();
+    await page.getByRole('button', { name: 'Guess', exact: true }).click();
   }
   await expect(page.getByRole('region', { name: 'Result' })).toBeVisible();
 
@@ -405,9 +425,14 @@ test('hovering a word shows the way on from it', async ({ page }) => {
     );
   expect(await gilt()).toBe(0);
 
-  // A word part-way down the board that is in shot, so there is a route ahead of it to
-  // draw and a pointer can reach it.
-  await (await inShot(page, 'main svg circle[role="button"]')).hover();
+  // The source, by name.
+  //
+  // This used to hover whichever circle happened to be first in shot, and what gets drawn
+  // is a route *from the hovered word to the target* — so on a board whose first drawn
+  // circle was the goal there was nothing ahead to draw and the count stayed at nought.
+  // The source is the one word guaranteed a whole route ahead of it, which is what makes
+  // this deterministic rather than a question about node order.
+  await page.locator(`[data-word="${puzzles[0]!.source}"] circle[role="button"]`).hover();
   await expect.poll(gilt).toBeGreaterThan(0);
   await page.screenshot({ path: 'e2e/shots/hover.png' });
 
@@ -440,7 +465,7 @@ test('the board holds still for anything that is not a new word', async ({ page 
 
   // A refused guess.
   await page.getByLabel(/Your guess/).fill('qwertzxcv');
-  await page.getByRole('button', { name: 'Name it' }).click();
+  await page.getByRole('button', { name: 'Guess', exact: true }).click();
   await expect(page.locator('#guess-error')).not.toHaveText('');
   expect(await places()).toEqual(before);
 });

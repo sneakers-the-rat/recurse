@@ -31,6 +31,11 @@
  */
 
 import { memo, useMemo, useRef, useState } from 'react';
+import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
+import { bandName } from '../i18n/bands';
+import { say, type Phrase } from '../i18n/format';
+import { archive as archiveSays } from '../i18n/messages/archive';
+import { stats as says } from '../i18n/messages/stats';
 import type { RawManifest } from '../lib/data';
 import { emojiTrail } from '../lib/share';
 import {
@@ -50,6 +55,7 @@ import {
 } from '../lib/stats';
 import { HintPlot, ParHistogram, ScorePlot } from './Chart';
 import { PuzzleCard } from './PuzzleCard';
+import { Slash, Space } from './marks';
 
 interface Props {
   manifest: RawManifest;
@@ -69,10 +75,36 @@ interface Props {
  * The number first and large, the name under it in the marginal hand — a stats screen is
  * read by scanning the numbers and only then finding out what they were.
  */
-function Figure({ name, value, note }: { name: string; value: string; note?: string }) {
+function Figure({
+  name,
+  value,
+  note,
+}: {
+  name: MessageDescriptor;
+  value: string;
+  note?: React.ReactNode;
+}) {
+  const intl = useIntl();
+  const said = intl.formatMessage(name);
   return (
     // Named, so the figure can be asked for by what it is rather than found by reading the
     // grid it happens to sit in — which is what a test would otherwise have to do.
+    <div aria-label={said} className="border-rule bg-noir-2/40 border p-3">
+      <p className="text-bone text-2xl leading-none font-semibold">{value}</p>
+      <p className="label text-ash-lit mt-1.5 text-[0.55rem]">{said}</p>
+      {note && <p className="label text-ash mt-0.5 text-[0.55rem] normal-case">{note}</p>}
+    </div>
+  );
+}
+
+/**
+ * A figure named by a band rather than by a message: the lengths come from the manifest.
+ *
+ * See `bands.ts` — the builder writes "short", "medium", "long" and the client translates
+ * them if it has words for them, falling back to whatever the data said.
+ */
+function BandFigure({ name, value, note }: { name: string; value: string; note?: React.ReactNode }) {
+  return (
     <div aria-label={name} className="border-rule bg-noir-2/40 border p-3">
       <p className="text-bone text-2xl leading-none font-semibold">{value}</p>
       <p className="label text-ash-lit mt-1.5 text-[0.55rem]">{name}</p>
@@ -87,10 +119,12 @@ function signed(value: number): string {
   return value > 0 ? `+${rounded}` : rounded;
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: MessageDescriptor; children: React.ReactNode }) {
   return (
     <section className="mt-10">
-      <h2 className="label mb-3">{title}</h2>
+      <h2 className="label mb-3">
+        <FormattedMessage {...title} />
+      </h2>
       {children}
     </section>
   );
@@ -105,7 +139,8 @@ export const Stats = memo(function Stats({
   onPuzzles,
   onClose,
 }: Props) {
-  const bands = manifest.bands.map((band) => band.name);
+  const intl = useIntl();
+  const bands = manifest.bands.map((band) => bandName(intl, band.name));
 
   const overall = useMemo(() => summary(records), [records]);
   const lengths = useMemo(() => byBand(records, bands.length), [records, bands.length]);
@@ -120,56 +155,64 @@ export const Stats = memo(function Stats({
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-16">
       <div className="border-rule flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b py-4">
-        <h1 className="text-bone text-2xl font-semibold">Stats</h1>
+        <h1 className="text-bone text-2xl font-semibold">
+          <FormattedMessage {...says.title} />
+        </h1>
         <span className="flex items-baseline gap-4">
           <button onClick={onPuzzles} className="label text-ash-lit hover:text-gilt" type="button">
-            Puzzles
+            <FormattedMessage {...says.puzzles} />
           </button>
           <button onClick={onClose} className="label text-ash-lit hover:text-gilt" type="button">
-            back to the board
+            <FormattedMessage {...archiveSays.backToBoard} />
           </button>
         </span>
       </div>
 
       {records.length === 0 ? (
         <p className="text-bone-dim mt-8 text-sm">
-          Nothing here yet.
+          <FormattedMessage {...says.empty} />
         </p>
       ) : (
         <>
           <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Figure name="rounds finished" value={String(overall.played)} />
+            <Figure name={says.rounds} value={String(overall.played)} />
             <Figure
-              name="guesses per round"
+              name={says.guessesPerRound}
               value={overall.guesses.toFixed(1)}
-              note={`par ${overall.par.toFixed(1)}`}
+              note={<FormattedMessage {...says.parNote} values={{ par: overall.par.toFixed(1) }} />}
             />
-            <Figure name="against par" value={signed(overall.diff)} />
-            <Figure name="hints per round" value={overall.hints.toFixed(1)} />
+            <Figure name={says.againstPar} value={signed(overall.diff)} />
+            <Figure name={says.hintsPerRound} value={overall.hints.toFixed(1)} />
           </div>
 
-          <Section title="Vs. par">
+          <Section title={says.vsPar}>
             <div className="grid grid-cols-3 gap-2">
               {lengths.map((band, index) => (
-                <Figure
+                <BandFigure
                   key={bands[index] ?? index}
                   name={bands[index] ?? String(index)}
-                  value={band.played === 0 ? '—' : signed(band.diff)}
-                  note={`${band.played} ${band.played === 1 ? 'round' : 'rounds'}`}
+                  value={
+                    band.played === 0 ? intl.formatMessage(says.noneYet) : signed(band.diff)
+                  }
+                  note={<FormattedMessage {...says.roundsAt} values={{ count: band.played }} />}
                 />
               ))}
             </div>
           </Section>
 
-          <Section title="Streak">
+          <Section title={says.streak}>
             <div className="grid grid-cols-3 gap-2">
-              <Figure name="day streak" value={String(run.current)} />
-              <Figure name="longest streak" value={String(run.longest)} />
-              <Figure name="clean sweeps" value={String(swept)} note="all three in a day" />
+              <Figure name={says.dayStreak} value={String(run.current)} />
+              <Figure name={says.longestStreak} value={String(run.longest)} />
+              <Figure
+                name={says.sweeps}
+                value={String(swept)}
+                note={<FormattedMessage {...says.sweepNote} />}
+              />
             </div>
           </Section>
 
-          <Section title="History">
+          <Section title={says.history}>
             <div className="grid gap-3 sm:grid-cols-2">
               <ScorePlot records={records} bands={bands} />
               <ParHistogram records={records} />
@@ -179,53 +222,61 @@ export const Stats = memo(function Stats({
             </div>
           </Section>
 
-          <Section title="What that adds up to">
+          <Section title={says.addsUpTo}>
             <ul className="text-bone-dim space-y-2 text-sm">
               <li>
                 {short.offered === 0 ? (
-                  <>No board you have finished had a way through shorter than par.</>
+                  <FormattedMessage {...says.noShortcuts} />
                 ) : (
-                  <>
-                    You found <span className="text-gilt">{short.found}</span> of{' '}
-                    {short.offered === 1 ? 'the one shortcut' : `the ${short.offered} shortcuts`}{' '}
-                    you were offered.
-                  </>
+                  <FormattedMessage
+                    {...says.shortcutsFound}
+                    values={{
+                      found: short.found,
+                      offered: short.offered,
+                      gilt: (chunks: React.ReactNode) => (
+                        <span className="text-gilt">{chunks}</span>
+                      ),
+                    }}
+                  />
                 )}
               </li>
               <li>
                 {straight.guesses === 0 ? (
-                  <>You have not made a guess yet.</>
+                  <FormattedMessage {...says.noGuesses} />
                 ) : (
-                  <>
-                    <span className="text-bone">
-                      {Math.round((straight.on / straight.guesses) * 100)}%
-                    </span>{' '}
-                    of your guesses landed on a shortest route — {straight.on} of{' '}
-                    {straight.guesses}. The rest was exploring.
-                  </>
+                  <FormattedMessage
+                    {...says.directness}
+                    values={{
+                      percent: Math.round((straight.on / straight.guesses) * 100),
+                      on: straight.on,
+                      total: straight.guesses,
+                      pct: (chunks: React.ReactNode) => (
+                        <span className="text-bone">{chunks}</span>
+                      ),
+                    }}
+                  />
                 )}
               </li>
               <li>
                 {bought.letters + bought.shapes === 0 ? (
-                  <>You have never asked for a hint.</>
+                  <FormattedMessage {...says.noHints} />
                 ) : (
-                  <>
-                    You have bought {bought.letters}{' '}
-                    {bought.letters === 1 ? 'letter' : 'letters'}
-                    .
-                  </>
+                  <FormattedMessage {...says.lettersBought} values={{ count: bought.letters }} />
                 )}
               </li>
             </ul>
           </Section>
 
           {words.length > 0 && (
-            <Section title="Words you keep meeting">
+            <Section title={says.keepMeeting}>
               <ul className="flex flex-wrap gap-x-4 gap-y-1.5">
                 {words.map(({ word, count }) => (
                   <li key={word} className="word text-bone-dim text-sm">
                     {word}
-                    <span className="text-ash-lit"> ×{count}</span>
+                    <span className="text-ash-lit">
+                      <Space />
+                      <FormattedMessage {...says.wordCount} values={{ count }} />
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -257,6 +308,7 @@ const History = memo(function History({
   bands: readonly string[];
   onOpen: (id: string) => void;
 }) {
+  const intl = useIntl();
   const [only, setOnly] = useState<number | null>(null);
 
   const shown = useMemo(
@@ -287,9 +339,11 @@ const History = memo(function History({
   return (
     <section className="mt-10">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="label">Every round</h2>
+        <h2 className="label">
+          <FormattedMessage {...says.everyRound} />
+        </h2>
         <span className="flex flex-wrap gap-1.5">
-          {choice('all', null)}
+          {choice(intl.formatMessage(says.allLengths), null)}
           {bands.map((name, band) => choice(name, band))}
         </span>
       </div>
@@ -313,7 +367,7 @@ const History = memo(function History({
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <span className="label text-ash-lit whitespace-nowrap">
                   <span className={under ? 'text-gilt' : 'text-bone'}>{one.guesses}</span>
-                  {' / '}
+                  <Slash />
                   {one.par}
                 </span>
                 {/* Letter-spaced, so the squares do not fuse into a bar. See Completed.tsx. */}
@@ -325,7 +379,11 @@ const History = memo(function History({
           );
         })}
       </ul>
-      {shown.length === 0 && <p className="label text-ash">no rounds at this length yet</p>}
+      {shown.length === 0 && (
+        <p className="label text-ash">
+          <FormattedMessage {...says.noneAtLength} />
+        </p>
+      )}
     </section>
   );
 });
@@ -358,8 +416,11 @@ const Keeping = memo(function Keeping({
   const [copied, setCopied] = useState(false);
   const [pasted, setPasted] = useState('');
   const [offer, setOffer] = useState<
-    { ok: true; records: Completion[]; added: number; kept: number; dropped: number } | { ok: false; reason: string } | null
+    | { ok: true; records: Completion[]; added: number; kept: number; dropped: number }
+    | { ok: false; reason: Phrase }
+    | null
   >(null);
+  const intl = useIntl();
   const [clearing, setClearing] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -406,7 +467,7 @@ const Keeping = memo(function Keeping({
     try {
       parsed = JSON.parse(raw);
     } catch {
-      setOffer({ ok: false, reason: 'That is not a file this can read — it is not even JSON.' });
+      setOffer({ ok: false, reason: { message: says.notAFile } });
       return;
     }
     const read = parseStats(parsed);
@@ -425,9 +486,11 @@ const Keeping = memo(function Keeping({
 
   return (
     <section className="border-rule mt-12 border-t pt-6">
-      <h2 className="label mb-3">Export</h2>
+      <h2 className="label mb-3">
+        <FormattedMessage {...says.export} />
+      </h2>
       <p className="text-ash-lit text-xs">
-        All your data is stored locally in your browser, so if that's annoying you can export/import and sync between computers to keep it.
+        <FormattedMessage {...says.localOnly} />
       </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -436,21 +499,21 @@ const Keeping = memo(function Keeping({
           onClick={() => setShowing(showing === 'export' ? null : 'export')}
           className="label border-rule text-bone hover:border-gilt hover:text-gilt border px-3 py-1.5 transition-colors"
         >
-          Export
+          <FormattedMessage {...says.export} />
         </button>
         <button
           type="button"
           onClick={() => setShowing(showing === 'import' ? null : 'import')}
           className="label border-rule text-bone hover:border-gilt hover:text-gilt border px-3 py-1.5 transition-colors"
         >
-          Import
+          <FormattedMessage {...says.import} />
         </button>
         <button
           type="button"
           onClick={() => setClearing(true)}
           className="label border-rule text-ash-lit hover:border-blood hover:text-blood-lit ml-auto border px-3 py-1.5 transition-colors"
         >
-          Clear
+          <FormattedMessage {...says.clear} />
         </button>
       </div>
 
@@ -464,18 +527,18 @@ const Keeping = memo(function Keeping({
               onClick={download}
               className="label border-rule text-bone hover:border-gilt hover:text-gilt border px-3 py-1.5 transition-colors"
             >
-              Download the file
+              <FormattedMessage {...says.download} />
             </button>
             <button
               type="button"
               onClick={copy}
               className="label border-rule text-bone hover:border-gilt hover:text-gilt border px-3 py-1.5 transition-colors"
             >
-              {copied ? 'Copied' : 'Copy the text'}
+              <FormattedMessage {...(copied ? says.copied : says.copyText)} />
             </button>
           </div>
           <pre
-            aria-label="Your stats, as text"
+            aria-label={intl.formatMessage(says.asText)}
             className="word text-bone-dim border-rule bg-noir-3 mt-2 max-h-40 overflow-auto border px-2.5 py-1.5 text-[10px] leading-snug break-all whitespace-pre-wrap"
           >
             {text}
@@ -486,27 +549,26 @@ const Keeping = memo(function Keeping({
       {showing === 'import' && (
         <div className="mt-3">
           <p className="text-bone-dim text-xs">
-            A pair you already have is kept as it is — whole, never half of each. Stats only:
-            games in progress stay where they are.
+            <FormattedMessage {...says.importNote} />
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <input
               ref={file}
               type="file"
               accept="application/json,.json"
-              aria-label="A stats file to import"
+              aria-label={intl.formatMessage(says.chooseFile)}
               onChange={(event) => pick(event.target.files?.[0])}
               className="label text-ash-lit max-w-full text-[0.55rem]"
             />
           </div>
           <textarea
-            aria-label="Stats to import, pasted"
+            aria-label={intl.formatMessage(says.pasteLabel)}
             value={pasted}
             onChange={(event) => {
               setPasted(event.target.value);
               setOffer(null);
             }}
-            placeholder="…or paste it here"
+            placeholder={intl.formatMessage(says.pastePlaceholder)}
             rows={3}
             className="word border-rule bg-noir-3 text-bone-dim mt-2 w-full border px-2.5 py-1.5 text-[11px]"
           />
@@ -516,21 +578,25 @@ const Keeping = memo(function Keeping({
             disabled={pasted.trim().length === 0}
             className="label border-rule text-bone hover:border-gilt hover:text-gilt mt-2 border px-3 py-1.5 transition-colors disabled:opacity-40"
           >
-            Read it
+            <FormattedMessage {...says.readIt} />
           </button>
 
-          {offer && !offer.ok && <p className="label text-blood-lit mt-3">{offer.reason}</p>}
+          {offer && !offer.ok && (
+            <p className="label text-blood-lit mt-3">{say(intl, offer.reason)}</p>
+          )}
           {offer?.ok && (
             <div className="border-rule bg-noir-2 mt-3 border p-3">
               <p className="text-bone-dim text-sm">
-                {offer.added} new, {offer.kept} already here (kept yours)
-                {offer.dropped > 0 && `, ${offer.dropped} unreadable and dropped`}.
+                <FormattedMessage
+                  {...says.offer}
+                  values={{ added: offer.added, kept: offer.kept, dropped: offer.dropped }}
+                />
               </p>
               <button
                 type="button"
                 onClick={() => {
                   onReplace(offer.records);
-                  setSaid(`Imported ${offer.added} ${offer.added === 1 ? 'round' : 'rounds'}.`);
+                  setSaid(intl.formatMessage(says.imported, { count: offer.added }));
                   setOffer(null);
                   setPasted('');
                   setShowing(null);
@@ -539,7 +605,7 @@ const Keeping = memo(function Keeping({
                 disabled={offer.added === 0}
                 className="label border-gilt-dim text-gilt hover:border-gilt mt-2 border px-3 py-1.5 transition-colors disabled:opacity-40"
               >
-                {offer.added === 0 ? 'Nothing to add' : 'Import them'}
+                <FormattedMessage {...(offer.added === 0 ? says.nothingToAdd : says.importThem)} />
               </button>
             </div>
           )}
@@ -549,8 +615,7 @@ const Keeping = memo(function Keeping({
       {clearing && (
         <div className="border-blood/60 bg-noir-2 mt-3 border p-3">
           <p className="text-bone-dim text-sm">
-            This throws away all {records.length} {records.length === 1 ? 'round' : 'rounds'}, and
-            there is nowhere else they exist. Export first if you might want them.
+            <FormattedMessage {...says.clearWarning} values={{ count: records.length }} />
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button
@@ -561,25 +626,25 @@ const Keeping = memo(function Keeping({
               }}
               className="label border-rule text-bone hover:border-gilt hover:text-gilt border px-3 py-1.5 transition-colors"
             >
-              Export first
+              <FormattedMessage {...says.exportFirst} />
             </button>
             <button
               type="button"
               onClick={() => {
                 onReplace([]);
                 setClearing(false);
-                setSaid('Cleared.');
+                setSaid(intl.formatMessage(says.cleared));
               }}
               className="label border-blood text-blood-lit hover:bg-blood/10 border px-3 py-1.5 transition-colors"
             >
-              Clear it all
+              <FormattedMessage {...says.clearItAll} />
             </button>
             <button
               type="button"
               onClick={() => setClearing(false)}
               className="label text-ash-lit hover:text-bone-dim px-3 py-1.5"
             >
-              Keep it
+              <FormattedMessage {...says.keepIt} />
             </button>
           </div>
         </div>

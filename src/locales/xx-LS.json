@@ -1,0 +1,4001 @@
+{
+  "archive.backToBoard": [
+    {
+      "type": 0,
+      "value": "back to the boardSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.byDate": [
+    {
+      "type": 0,
+      "value": "By dateSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.byWords": [
+    {
+      "type": 0,
+      "value": "By its two wordsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.cardTitle": [
+    {
+      "type": 1,
+      "value": "band"
+    },
+    {
+      "type": 0,
+      "value": ": "
+    },
+    {
+      "type": 1,
+      "value": "source"
+    },
+    {
+      "type": 0,
+      "value": " → "
+    },
+    {
+      "type": 1,
+      "value": "target"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.cardToday": [
+    {
+      "type": 0,
+      "value": "· todaySSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.cardWaiting": [
+    {
+      "type": 0,
+      "value": "…SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.emptyMonth": [
+    {
+      "type": 0,
+      "value": "Nothing from this month yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.fieldLoading": [
+    {
+      "type": 0,
+      "value": "loading…SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.fieldSource": [
+    {
+      "type": 0,
+      "value": "sourceSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.fieldTarget": [
+    {
+      "type": 0,
+      "value": "targetSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.findBySource": [
+    {
+      "type": 0,
+      "value": "Find a puzzle by its source wordSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.findByTarget": [
+    {
+      "type": 0,
+      "value": "Find a puzzle by its target wordSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.found": [
+    {
+      "type": 0,
+      "value": "Puzzles foundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.matches": [
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " puzzle"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " puzzles"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "total"
+    },
+    {
+      "options": {
+        "other": {
+          "value": [
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": ", showing "
+            },
+            {
+              "type": 1,
+              "value": "shown"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "capped"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.monthAfter": [
+    {
+      "type": 0,
+      "value": "The month afterSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.monthBefore": [
+    {
+      "type": 0,
+      "value": "The month beforeSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.monthName": [
+    {
+      "options": {
+        "1": {
+          "value": [
+            {
+              "type": 0,
+              "value": "January"
+            }
+          ]
+        },
+        "10": {
+          "value": [
+            {
+              "type": 0,
+              "value": "October"
+            }
+          ]
+        },
+        "11": {
+          "value": [
+            {
+              "type": 0,
+              "value": "November"
+            }
+          ]
+        },
+        "12": {
+          "value": [
+            {
+              "type": 0,
+              "value": "December"
+            }
+          ]
+        },
+        "2": {
+          "value": [
+            {
+              "type": 0,
+              "value": "February"
+            }
+          ]
+        },
+        "3": {
+          "value": [
+            {
+              "type": 0,
+              "value": "March"
+            }
+          ]
+        },
+        "4": {
+          "value": [
+            {
+              "type": 0,
+              "value": "April"
+            }
+          ]
+        },
+        "5": {
+          "value": [
+            {
+              "type": 0,
+              "value": "May"
+            }
+          ]
+        },
+        "6": {
+          "value": [
+            {
+              "type": 0,
+              "value": "June"
+            }
+          ]
+        },
+        "7": {
+          "value": [
+            {
+              "type": 0,
+              "value": "July"
+            }
+          ]
+        },
+        "8": {
+          "value": [
+            {
+              "type": 0,
+              "value": "August"
+            }
+          ]
+        },
+        "9": {
+          "value": [
+            {
+              "type": 0,
+              "value": "September"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": "?"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "month"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "type": 1,
+      "value": "year"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.monthShort": [
+    {
+      "options": {
+        "1": {
+          "value": [
+            {
+              "type": 0,
+              "value": "January"
+            }
+          ]
+        },
+        "10": {
+          "value": [
+            {
+              "type": 0,
+              "value": "October"
+            }
+          ]
+        },
+        "11": {
+          "value": [
+            {
+              "type": 0,
+              "value": "November"
+            }
+          ]
+        },
+        "12": {
+          "value": [
+            {
+              "type": 0,
+              "value": "December"
+            }
+          ]
+        },
+        "2": {
+          "value": [
+            {
+              "type": 0,
+              "value": "February"
+            }
+          ]
+        },
+        "3": {
+          "value": [
+            {
+              "type": 0,
+              "value": "March"
+            }
+          ]
+        },
+        "4": {
+          "value": [
+            {
+              "type": 0,
+              "value": "April"
+            }
+          ]
+        },
+        "5": {
+          "value": [
+            {
+              "type": 0,
+              "value": "May"
+            }
+          ]
+        },
+        "6": {
+          "value": [
+            {
+              "type": 0,
+              "value": "June"
+            }
+          ]
+        },
+        "7": {
+          "value": [
+            {
+              "type": 0,
+              "value": "July"
+            }
+          ]
+        },
+        "8": {
+          "value": [
+            {
+              "type": 0,
+              "value": "August"
+            }
+          ]
+        },
+        "9": {
+          "value": [
+            {
+              "type": 0,
+              "value": "September"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": "?"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "month"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.next": [
+    {
+      "type": 0,
+      "value": "next ›SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.noMatches": [
+    {
+      "type": 0,
+      "value": "No puzzle yet with those words.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.prev": [
+    {
+      "type": 0,
+      "value": "‹ prevSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.reading": [
+    {
+      "type": 0,
+      "value": "Reading the calendar…SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.searchHint": [
+    {
+      "type": 0,
+      "value": "Part of either word will do. Only puzzles that have already come up.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.stats": [
+    {
+      "type": 0,
+      "value": "StatsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.title": [
+    {
+      "type": 0,
+      "value": "PuzzlesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.today": [
+    {
+      "type": 0,
+      "value": "Today’s puzzlesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.todayDay": [
+    {
+      "type": 0,
+      "value": "day "
+    },
+    {
+      "type": 1,
+      "value": "day"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.yearAfter": [
+    {
+      "type": 0,
+      "value": "The year afterSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "archive.yearBefore": [
+    {
+      "type": 0,
+      "value": "The year beforeSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "bands.long": [
+    {
+      "type": 0,
+      "value": "longSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "bands.medium": [
+    {
+      "type": 0,
+      "value": "mediumSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "bands.short": [
+    {
+      "type": 0,
+      "value": "shortSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.goal": [
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": ", the goal"
+    },
+    {
+      "options": {
+        "other": {
+          "value": [
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": ", selected"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "selected"
+    },
+    {
+      "type": 0,
+      "value": ". Guess from here.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.noHintOnShortcut": [
+    {
+      "type": 0,
+      "value": "There are no hints on shortcuts!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.onRoute": [
+    {
+      "type": 0,
+      "value": "Unnamed word on the best route. Show which way one of its moves goes.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.partly": [
+    {
+      "type": 0,
+      "value": "Unnamed word, "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letter"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letters"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "options": {
+        "none": {
+          "value": [
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": ", showing "
+            },
+            {
+              "type": 1,
+              "value": "shown"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "shown"
+    },
+    {
+      "type": 0,
+      "value": ". Reveal another letter.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.plate": [
+    {
+      "type": 0,
+      "value": "Map of moves between "
+    },
+    {
+      "type": 1,
+      "value": "source"
+    },
+    {
+      "type": 0,
+      "value": " and "
+    },
+    {
+      "type": 1,
+      "value": "target"
+    },
+    {
+      "type": 0,
+      "value": ". "
+    },
+    {
+      "type": 1,
+      "value": "named"
+    },
+    {
+      "type": 0,
+      "value": " of "
+    },
+    {
+      "type": 1,
+      "value": "total"
+    },
+    {
+      "type": 0,
+      "value": " words named.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.reached": [
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "options": {
+        "other": {
+          "value": [
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": ", selected"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "selected"
+    },
+    {
+      "type": 0,
+      "value": ". Guess from here.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.reset": [
+    {
+      "type": 0,
+      "value": "resetSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.resetView": [
+    {
+      "type": 0,
+      "value": "Show the whole puzzleSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.spelled": [
+    {
+      "type": 0,
+      "value": "Unnamed word, spelled "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": ". Nothing left to hint.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "board.unhinted": [
+    {
+      "type": 0,
+      "value": "Unnamed word. Reveal how many letters it has.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.alt": [
+    {
+      "type": 0,
+      "value": "altSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.answer": [
+    {
+      "type": 0,
+      "value": "answerSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.bar": [
+    {
+      "type": 0,
+      "value": "DEVSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.corridor": [
+    {
+      "type": 0,
+      "value": "corridorSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.find": [
+    {
+      "type": 0,
+      "value": "findSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.findLabel": [
+    {
+      "type": 0,
+      "value": "Find a puzzle by its "
+    },
+    {
+      "type": 1,
+      "value": "which"
+    },
+    {
+      "type": 0,
+      "value": " wordSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.findSource": [
+    {
+      "type": 0,
+      "value": "sourceSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.findTarget": [
+    {
+      "type": 0,
+      "value": "targetSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.findWaiting": [
+    {
+      "type": 0,
+      "value": "…SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.goTo": [
+    {
+      "type": 0,
+      "value": "go toSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.goToLabel": [
+    {
+      "type": 0,
+      "value": "Jump to puzzle numberSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.guessed": [
+    {
+      "type": 0,
+      "value": "guessedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.hide": [
+    {
+      "type": 0,
+      "value": "hide ⌃DSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.hideLabel": [
+    {
+      "type": 0,
+      "value": "Hide dev modeSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.id": [
+    {
+      "type": 0,
+      "value": "idSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.loadFailed": [
+    {
+      "type": 0,
+      "value": "The puzzle didn’t loadSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.loading": [
+    {
+      "type": 0,
+      "value": "ShufflingSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.nameAll": [
+    {
+      "type": 0,
+      "value": "name allSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.next": [
+    {
+      "type": 0,
+      "value": "Next puzzleSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.noPair": [
+    {
+      "type": 0,
+      "value": "no pairSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.noPath": [
+    {
+      "type": 0,
+      "value": "no pathSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.open": [
+    {
+      "type": 0,
+      "value": "openSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.openPair": [
+    {
+      "type": 0,
+      "value": "Open the puzzle about these two wordsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.outOfStep": [
+    {
+      "type": 0,
+      "value": "the puzzle data is out of step with the app: rebuild itSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.par": [
+    {
+      "type": 0,
+      "value": "parSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.position": [
+    {
+      "type": 1,
+      "value": "index"
+    },
+    {
+      "type": 0,
+      "value": "/"
+    },
+    {
+      "type": 1,
+      "value": "total"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.prev": [
+    {
+      "type": 0,
+      "value": "Previous puzzleSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.rank": [
+    {
+      "type": 0,
+      "value": "rankSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.rebuild": [
+    {
+      "type": 0,
+      "value": "Run npm run data to rebuild itSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.reset": [
+    {
+      "type": 0,
+      "value": "resetSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.routes": [
+    {
+      "type": 0,
+      "value": "routesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.secret": [
+    {
+      "type": 0,
+      "value": "secret"
+    },
+    {
+      "options": {
+        "none": {
+          "value": [
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": " "
+            },
+            {
+              "type": 1,
+              "value": "n"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "n"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.solve": [
+    {
+      "type": 0,
+      "value": "solveSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.empty": [
+    {
+      "type": 0,
+      "value": "Type a word.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.field": [
+    {
+      "type": 0,
+      "value": "a wordSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.fieldLabel": [
+    {
+      "type": 0,
+      "value": "Your guess, starting from "
+    },
+    {
+      "type": 1,
+      "value": "from"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.from": [
+    {
+      "type": 0,
+      "value": "from "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.identical": [
+    {
+      "type": 0,
+      "value": "That’s still "
+    },
+    {
+      "type": 1,
+      "value": "from"
+    },
+    {
+      "type": 0,
+      "value": ". Add or remove a word to change it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.identicalShort": [
+    {
+      "type": 0,
+      "value": "That’s still "
+    },
+    {
+      "type": 1,
+      "value": "from"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.noMove": [
+    {
+      "type": 0,
+      "value": "No legal move gets from "
+    },
+    {
+      "type": 1,
+      "value": "from"
+    },
+    {
+      "type": 0,
+      "value": " to "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.notAWord": [
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " isn’t in the word list.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.notLetters": [
+    {
+      "type": 0,
+      "value": "Letters only — no spaces, digits or punctuation.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.notOneRun": [
+    {
+      "type": 0,
+      "value": "not one runSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.prompt": [
+    {
+      "type": 0,
+      "value": "add or remove a wordSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.sameLength": [
+    {
+      "type": 0,
+      "value": "same lengthSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.scattered": [
+    {
+      "options": {
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": "Those letters would be removed in more than one place. The word you remove has to be a single unbroken run."
+            }
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": "Those letters would be added in more than one place. The word you add has to be a single unbroken run."
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "adding"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.subNotWord": [
+    {
+      "options": {
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": "That would remove “"
+            },
+            {
+              "type": 1,
+              "value": "sub"
+            },
+            {
+              "type": 0,
+              "value": "”, which isn’t a word."
+            }
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": "That would add “"
+            },
+            {
+              "type": 1,
+              "value": "sub"
+            },
+            {
+              "type": 0,
+              "value": "”, which isn’t a word."
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "adding"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.subTooShort": [
+    {
+      "type": 0,
+      "value": "“"
+    },
+    {
+      "type": 1,
+      "value": "sub"
+    },
+    {
+      "type": 0,
+      "value": "” is too short — the word you add or remove needs at least "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letter"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letters"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "min"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.submit": [
+    {
+      "type": 0,
+      "value": "GuessSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.swap": [
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " is the same length as "
+    },
+    {
+      "type": 1,
+      "value": "from"
+    },
+    {
+      "type": 0,
+      "value": ". Each turn you add a whole word or remove one — you can’t swap letters.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.tooShort": [
+    {
+      "type": 0,
+      "value": "Words in this puzzle are at least "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letter"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letters"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "min"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.unchanged": [
+    {
+      "type": 0,
+      "value": "unchangedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.chooseLength": [
+    {
+      "type": 0,
+      "value": "Choose a lengthSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.day": [
+    {
+      "type": 0,
+      "value": "№ "
+    },
+    {
+      "type": 1,
+      "value": "day"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.guesses": [
+    {
+      "offset": 0,
+      "options": {
+        "=0": {
+          "value": [
+            {
+              "type": 0,
+              "value": "no guesses yet"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " guessed"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.hints": [
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " hint"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " hints"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.howToPlay": [
+    {
+      "type": 0,
+      "value": "How to playSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.lengthHolds": [
+    {
+      "type": 0,
+      "value": "par "
+    },
+    {
+      "type": 1,
+      "value": "min"
+    },
+    {
+      "type": 0,
+      "value": "–"
+    },
+    {
+      "type": 1,
+      "value": "max"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.lengthMenu": [
+    {
+      "type": 0,
+      "value": "LengthSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.menu": [
+    {
+      "type": 0,
+      "value": "MenuSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.par": [
+    {
+      "type": 0,
+      "value": "par: "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " move"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " moves"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.puzzles": [
+    {
+      "type": 0,
+      "value": "PuzzlesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.shortcuts": [
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " shortcut"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " shortcuts"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.stats": [
+    {
+      "type": 0,
+      "value": "StatsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.tutorial": [
+    {
+      "type": 0,
+      "value": "TutorialSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.begin": [
+    {
+      "type": 0,
+      "value": "BeginSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.devHide": [
+    {
+      "type": 0,
+      "value": "hide dev toolsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.devOffer": [
+    {
+      "type": 0,
+      "value": "Building this thing?SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.devShow": [
+    {
+      "type": 0,
+      "value": "show dev toolsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.devShowing": [
+    {
+      "type": 0,
+      "value": "Instruments are showingSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.exampleAdd": [
+    {
+      "type": 0,
+      "value": "base "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "+ ball"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " = "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "base"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ball"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.exampleRemove": [
+    {
+      "type": 0,
+      "value": "colo"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ratio"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": "ns "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "− ratio"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " = "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "colons"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.goal": [
+    {
+      "type": 0,
+      "value": "The goal of the game is to connect two words by adding and removing words within them using as few guesses and hints as possible.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.graphAnyWord": [
+    {
+      "type": 0,
+      "value": "You can guess from "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "any"
+        }
+      ],
+      "type": 8,
+      "value": "em"
+    },
+    {
+      "type": 0,
+      "value": " word you have already found, not just the last one. The game ends when you complete the path between the words, but you can double-back, work from both ends, leave dead ends, etc.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.graphSpine": [
+    {
+      "type": 0,
+      "value": "The golden center line, or "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "\"spine\""
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " of the graph is the shortest path between the two words you're trying to bridge. The rest of the graph are a subset of the words surrounding the spine that provide a few possible alternative paths. All "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "valid words"
+        }
+      ],
+      "type": 8,
+      "value": "wordlists"
+    },
+    {
+      "type": 0,
+      "value": " can be guessed, so the nodes you see when the game start are not the only paths between the words! If you guess a word that's not on the graph yet, it will be added and connected to any other words that it can reach.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.graphTitle": [
+    {
+      "type": 0,
+      "value": "The GraphSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.hintsBody": [
+    {
+      "type": 0,
+      "value": "Tap or click an undiscovered node to receive a "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "hint"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " for it. You can't get length or letter hints for words on the spine or on shortcuts - only hints about whether the word can be reached by adding or removing a word. Hints are unlimited, and counted alongside your guesses. First you will see the number of letters in the word, and then each subsequent tap will reveal another letter. This is not a competitive game, go ahead and do a thousand hints, challenge yourself and use no hints, whatever.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.hintsTitle": [
+    {
+      "type": 0,
+      "value": "HintsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.ruleActive": [
+    {
+      "type": 0,
+      "value": "The player selects a revealed word in the graph to be the \"active word\"SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.ruleAddRemove": [
+    {
+      "type": 0,
+      "value": "Each turn you either "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "add"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " or "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "remove"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " a word from the active word.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.ruleContiguous": [
+    {
+      "type": 0,
+      "value": "The letters you add or remove must be contiguousSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.ruleMinSub": [
+    {
+      "type": 0,
+      "value": "Words added or removed to reach new words must be "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letter"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letters"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "min"
+    },
+    {
+      "type": 0,
+      "value": " or longerSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.ruleMinWord": [
+    {
+      "type": 0,
+      "value": "Words within the graph must be "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letter"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letters"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "min"
+    },
+    {
+      "type": 0,
+      "value": " or longerSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.rulePosition": [
+    {
+      "type": 0,
+      "value": "The added or removed word can be in any position - before, after, and especially inside the other words.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.ruleRemainder": [
+    {
+      "type": 0,
+      "value": "The letters that are left after adding or removing must also be a word, and that becomes the next active word.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.ruleValidWord": [
+    {
+      "type": 0,
+      "value": "The letters you add or remove must be a single valid word.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.rules": [
+    {
+      "type": 0,
+      "value": "RulesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.shortcutsFound": [
+    {
+      "type": 0,
+      "value": "If your guess stumbles you onto a shortcut, the shortcut path will appear and be highlighted and be all shiny to let you know that the rest of the shortcut is possible.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.shortcutsTitle": [
+    {
+      "type": 0,
+      "value": "ShortcutsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.shortcutsWhat": [
+    {
+      "type": 0,
+      "value": "The ability to guess rare words means that some boards have "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "shortcuts"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " - paths between the two target words that are shorter than the par score, which is computed from the smaller word list.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.shortcutsWhy": [
+    {
+      "type": 0,
+      "value": "The puzzle tries to be \"playable\" by using a smaller list of more common words, since it's not fun to get sniped by a squirrelly rare word. However, also to make the game \"playable,\" we want to allow all words that someone might consider real because it's frustrating to guess a real word and have it be refused.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.title": [
+    {
+      "type": 0,
+      "value": "How to playSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.wordListCommon": [
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "SCOWL "
+        },
+        {
+          "type": 1,
+          "value": "size"
+        }
+      ],
+      "type": 8,
+      "value": "b"
+    },
+    {
+      "type": 0,
+      "value": " - A smaller list of more common used when constructing the puzzles, computing pars, and finding initial non-spine graph nodes.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.wordListLegal": [
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "SCOWL "
+        },
+        {
+          "type": 1,
+          "value": "size"
+        }
+      ],
+      "type": 8,
+      "value": "b"
+    },
+    {
+      "type": 0,
+      "value": " - A much larger list of words that are valid as guesses.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.wordListsIntro": [
+    {
+      "type": 0,
+      "value": "Recurse uses two word lists from "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "SCOWL/ESDB"
+        }
+      ],
+      "type": 8,
+      "value": "scowl"
+    },
+    {
+      "type": 0,
+      "value": ":SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "howto.wordListsTitle": [
+    {
+      "type": 0,
+      "value": "Word ListsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.alsoToday": [
+    {
+      "type": 0,
+      "value": "Also todaySSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.copied": [
+    {
+      "type": 0,
+      "value": "CopiedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.copy": [
+    {
+      "type": 0,
+      "value": "Copy resultSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.copyBlocked": [
+    {
+      "type": 0,
+      "value": "Copying was blocked — select the text aboveSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.day": [
+    {
+      "type": 0,
+      "value": "Day "
+    },
+    {
+      "type": 1,
+      "value": "day"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.found": [
+    {
+      "type": 0,
+      "value": "Found itSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.guessesStat": [
+    {
+      "type": 0,
+      "value": "guessesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.hintsStat": [
+    {
+      "type": 0,
+      "value": "hintsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.parStat": [
+    {
+      "type": 0,
+      "value": "/ par "
+    },
+    {
+      "type": 1,
+      "value": "par"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.partway": [
+    {
+      "type": 0,
+      "value": "· "
+    },
+    {
+      "type": 1,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": " inSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.perfect": [
+    {
+      "type": 0,
+      "value": "PerfectSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.playAgain": [
+    {
+      "type": 0,
+      "value": "Another puzzleSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.refusedStat": [
+    {
+      "type": 0,
+      "value": "refusedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.result": [
+    {
+      "type": 0,
+      "value": "ResultSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.secret": [
+    {
+      "type": 0,
+      "value": "A secret way throughSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.shareScore": [
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " guess"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " guesses"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "guesses"
+    },
+    {
+      "type": 0,
+      "value": " · "
+    },
+    {
+      "options": {
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": "par "
+            },
+            {
+              "type": 1,
+              "value": "par"
+            }
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": "par "
+            },
+            {
+              "type": 1,
+              "value": "par"
+            },
+            {
+              "type": 0,
+              "value": ", under par"
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "under"
+    },
+    {
+      "type": 0,
+      "value": " · "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " hint"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " hints"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "hints"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.shareTitle": [
+    {
+      "type": 0,
+      "value": "ReCurse Words · Day "
+    },
+    {
+      "type": 1,
+      "value": "day"
+    },
+    {
+      "type": 0,
+      "value": " · "
+    },
+    {
+      "type": 1,
+      "value": "band"
+    },
+    {
+      "type": 0,
+      "value": " · "
+    },
+    {
+      "type": 1,
+      "value": "date"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.theRound": [
+    {
+      "type": 0,
+      "value": "The roundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.trail": [
+    {
+      "type": 0,
+      "value": "Your route, as marksSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.underParStat": [
+    {
+      "type": 0,
+      "value": "under parSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.addsUpTo": [
+    {
+      "type": 0,
+      "value": "What that adds up toSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.againstPar": [
+    {
+      "type": 0,
+      "value": "against parSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.allLengths": [
+    {
+      "type": 0,
+      "value": "allSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.asText": [
+    {
+      "type": 0,
+      "value": "Your stats, as textSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.chartEmpty": [
+    {
+      "type": 0,
+      "value": "nothing yetSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.chooseFile": [
+    {
+      "type": 0,
+      "value": "A stats file to importSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.clear": [
+    {
+      "type": 0,
+      "value": "ClearSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.clearItAll": [
+    {
+      "type": 0,
+      "value": "Clear it allSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.clearWarning": [
+    {
+      "type": 0,
+      "value": "This throws away all "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " round"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " rounds"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": ", and there is nowhere else they exist. Export first if you might want them.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.cleared": [
+    {
+      "type": 0,
+      "value": "Cleared.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.copied": [
+    {
+      "type": 0,
+      "value": "CopiedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.copyText": [
+    {
+      "type": 0,
+      "value": "Copy the textSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.dayStreak": [
+    {
+      "type": 0,
+      "value": "day streakSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.directness": [
+    {
+      "children": [
+        {
+          "type": 1,
+          "value": "percent"
+        },
+        {
+          "type": 0,
+          "value": "%"
+        }
+      ],
+      "type": 8,
+      "value": "pct"
+    },
+    {
+      "type": 0,
+      "value": " of your guesses landed on a shortest route — "
+    },
+    {
+      "type": 1,
+      "value": "on"
+    },
+    {
+      "type": 0,
+      "value": " of "
+    },
+    {
+      "type": 1,
+      "value": "total"
+    },
+    {
+      "type": 0,
+      "value": ". The rest was exploring.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.download": [
+    {
+      "type": 0,
+      "value": "Download the fileSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.empty": [
+    {
+      "type": 0,
+      "value": "Nothing here yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.everyRound": [
+    {
+      "type": 0,
+      "value": "Every roundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.export": [
+    {
+      "type": 0,
+      "value": "ExportSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.exportFirst": [
+    {
+      "type": 0,
+      "value": "Export firstSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.guessesPerRound": [
+    {
+      "type": 0,
+      "value": "guesses per roundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.hintLabel": [
+    {
+      "type": 0,
+      "value": "Hints bought per roundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.hintLetters": [
+    {
+      "type": 0,
+      "value": "lettersSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.hintMost": [
+    {
+      "type": 0,
+      "value": "most "
+    },
+    {
+      "type": 1,
+      "value": "most"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.hintShapes": [
+    {
+      "type": 0,
+      "value": "move shapesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.hintTitle": [
+    {
+      "type": 0,
+      "value": "Hints per roundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.hintsPerRound": [
+    {
+      "type": 0,
+      "value": "hints per roundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.histogramLabel": [
+    {
+      "type": 0,
+      "value": "How many rounds came in at each score against parSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.histogramTitle": [
+    {
+      "type": 0,
+      "value": "Vs. Par DistributionSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.history": [
+    {
+      "type": 0,
+      "value": "HistorySSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.import": [
+    {
+      "type": 0,
+      "value": "ImportSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.importNote": [
+    {
+      "type": 0,
+      "value": "A pair you already have is kept as it is — whole, never half of each. Stats only: games in progress stay where they are.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.importThem": [
+    {
+      "type": 0,
+      "value": "Import themSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.imported": [
+    {
+      "type": 0,
+      "value": "Imported "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " round"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " rounds"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.keepIt": [
+    {
+      "type": 0,
+      "value": "Keep itSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.keepMeeting": [
+    {
+      "type": 0,
+      "value": "Words you keep meetingSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.lettersBought": [
+    {
+      "type": 0,
+      "value": "You have bought "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letter"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " letters"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.localOnly": [
+    {
+      "type": 0,
+      "value": "All your data is stored locally in your browser, so if that’s annoying you can export/import and sync between computers to keep it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.longestStreak": [
+    {
+      "type": 0,
+      "value": "longest streakSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.noGuesses": [
+    {
+      "type": 0,
+      "value": "You have not made a guess yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.noHints": [
+    {
+      "type": 0,
+      "value": "You have never asked for a hint.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.noHintsAsked": [
+    {
+      "type": 0,
+      "value": "no hints asked forSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.noShortcuts": [
+    {
+      "type": 0,
+      "value": "No board you have finished had a way through shorter than par.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.noneAtLength": [
+    {
+      "type": 0,
+      "value": "no rounds at this length yetSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.noneYet": [
+    {
+      "type": 0,
+      "value": "—SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.notAFile": [
+    {
+      "type": 0,
+      "value": "That is not a file this can read — it is not even JSON.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.notOurs": [
+    {
+      "type": 0,
+      "value": "That is not a ReCurse stats file.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.nothingToAdd": [
+    {
+      "type": 0,
+      "value": "Nothing to addSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.offer": [
+    {
+      "type": 1,
+      "value": "added"
+    },
+    {
+      "type": 0,
+      "value": " new, "
+    },
+    {
+      "type": 1,
+      "value": "kept"
+    },
+    {
+      "type": 0,
+      "value": " already here (kept yours)"
+    },
+    {
+      "offset": 0,
+      "options": {
+        "=0": {
+          "value": [
+          ]
+        },
+        "one": {
+          "value": [
+            {
+              "type": 0,
+              "value": ", "
+            },
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " unreadable and dropped"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": ", "
+            },
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " unreadable and dropped"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "dropped"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.parNote": [
+    {
+      "type": 0,
+      "value": "par "
+    },
+    {
+      "type": 1,
+      "value": "par"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.pasteLabel": [
+    {
+      "type": 0,
+      "value": "Stats to import, pastedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.pastePlaceholder": [
+    {
+      "type": 0,
+      "value": "…or paste it hereSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.puzzles": [
+    {
+      "type": 0,
+      "value": "PuzzlesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.readIt": [
+    {
+      "type": 0,
+      "value": "Read itSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.rounds": [
+    {
+      "type": 0,
+      "value": "rounds finishedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.roundsAt": [
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " round"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " rounds"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.scoreLabel": [
+    {
+      "type": 0,
+      "value": "Guesses against par, one mark per roundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.scoreMean": [
+    {
+      "type": 0,
+      "value": "mean "
+    },
+    {
+      "type": 1,
+      "value": "mean"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.scoreTitle": [
+    {
+      "type": 0,
+      "value": "Vs. Par HistorySSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.shortcutsFound": [
+    {
+      "type": 0,
+      "value": "You found "
+    },
+    {
+      "children": [
+        {
+          "type": 1,
+          "value": "found"
+        }
+      ],
+      "type": 8,
+      "value": "gilt"
+    },
+    {
+      "type": 0,
+      "value": " of "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 0,
+              "value": "the one shortcut"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": "the "
+            },
+            {
+              "type": 1,
+              "value": "offered"
+            },
+            {
+              "type": 0,
+              "value": " shortcuts"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "offered"
+    },
+    {
+      "type": 0,
+      "value": " you were offered.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.streak": [
+    {
+      "type": 0,
+      "value": "StreakSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.sweepNote": [
+    {
+      "type": 0,
+      "value": "all three in a daySSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.sweeps": [
+    {
+      "type": 0,
+      "value": "clean sweepsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.title": [
+    {
+      "type": 0,
+      "value": "StatsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.tooNew": [
+    {
+      "type": 0,
+      "value": "That file was written by a newer version of ReCurse ("
+    },
+    {
+      "type": 1,
+      "value": "version"
+    },
+    {
+      "type": 0,
+      "value": ", and this one reads "
+    },
+    {
+      "type": 1,
+      "value": "reads"
+    },
+    {
+      "type": 0,
+      "value": "). Update the game and try again.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.vsPar": [
+    {
+      "type": 0,
+      "value": "Vs. parSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.wordCount": [
+    {
+      "type": 0,
+      "value": "×"
+    },
+    {
+      "type": 1,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.back": [
+    {
+      "type": 0,
+      "value": "Previous stepSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.backToToday": [
+    {
+      "type": 0,
+      "value": "Back to todaySSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.boardAround": [
+    {
+      "type": 0,
+      "value": "Around it are words that lead somewhere without being shortest. Every puzzle has many non-spine paths between the target words - a winning path does not need to touch the spine!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.boardSpine": [
+    {
+      "type": 0,
+      "value": "The gold line down the middle is the \"spine\" - the shortest way through using only common words. Its words are unnamed dots for now.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.boardTitle": [
+    {
+      "type": 0,
+      "value": "The BoardSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.bothEndsAny": [
+    {
+      "type": 0,
+      "value": "You can guess from any word you have reached - including the goal - by tapping it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.bothEndsAsk": [
+    {
+      "type": 0,
+      "value": "Tap towing to guess from it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.bothEndsGuess": [
+    {
+      "type": 0,
+      "value": "Now guess \"wing\"SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.bothEndsTitle": [
+    {
+      "type": 0,
+      "value": "Jumping aroundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.bothEndsWhy": [
+    {
+      "type": 0,
+      "value": "Working from both ends is often easier: "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "towing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " is "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "to·wing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": ", and taking "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "to"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " off gets us to \"wing\" which seems like the right direction.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.done": [
+    {
+      "type": 0,
+      "value": "DoneSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.finish": [
+    {
+      "type": 0,
+      "value": "Finish the tutorialSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.finishAsk": [
+    {
+      "type": 0,
+      "value": "Guess bestowingSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.finishBody": [
+    {
+      "type": 0,
+      "value": "Finish the game by reaching towing through the shortcut!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.finishJoin": [
+    {
+      "type": 0,
+      "value": "Now finish the game by completing the connection to towing!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.finishTitle": [
+    {
+      "type": 0,
+      "value": "Finish the gameSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.firstMoveAsk": [
+    {
+      "type": 0,
+      "value": "Type shadowing and guess.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.firstMoveTitle": [
+    {
+      "type": 0,
+      "value": "babbies first moveSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.firstMoveWhere": [
+    {
+      "type": 0,
+      "value": "The word with a gold ring around it is the word you are guessing from. Make moves by typing in the guess box.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.firstMoveWhich": [
+    {
+      "type": 0,
+      "value": "The next spine word after "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "showing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " is "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "shadowing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": ", made by putting "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ad"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " in the middle of it like "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "sh·"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ad"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "·owing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.firstMoveWhole": [
+    {
+      "type": 0,
+      "value": "Type the whole word you are guessing, not the piece. The game works out which piece you meant.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintRouteAsk": [
+    {
+      "type": 0,
+      "value": "Click the gold dot to show a - hint.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintRouteAskMore": [
+    {
+      "type": 0,
+      "value": "Once more for the hell of it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintRouteAskPlus": [
+    {
+      "type": 0,
+      "value": "Click the gold dot until you get a + hint.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintRouteRead": [
+    {
+      "type": 0,
+      "value": "So a "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "−"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " here means to reach this word from "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "shadowing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": ", we have to remove a word, and vice versa for the "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "+"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintRouteTitle": [
+    {
+      "type": 0,
+      "value": "Spine Hints!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintRouteWhat": [
+    {
+      "type": 0,
+      "value": "Spine hints tell you how to reach a word from another. "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "+"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " by adding letters, "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "−"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " by taking them away.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintRouteWhy": [
+    {
+      "type": 0,
+      "value": "A spine word doesn't hint its length or letters, that would be too easy!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintWordAgain": [
+    {
+      "type": 0,
+      "value": "Click it again to reveal a letter.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintWordAsk": [
+    {
+      "type": 0,
+      "value": "Click the lit dot to reveal its length.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintWordBody": [
+    {
+      "type": 0,
+      "value": "You can get hints for any undiscovered node! For non-spine nodes, the first click gives its length; every click after that reveals one more random letter.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintWordMore": [
+    {
+      "type": 0,
+      "value": "Keep revealing letters or move onSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.hintWordTitle": [
+    {
+      "type": 0,
+      "value": "Hints!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.leave": [
+    {
+      "type": 0,
+      "value": "leaveSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.lineTicks": [
+    {
+      "type": 0,
+      "value": "The tickmarks perpendicular from the edge of a node are an indicator of the \"degree\" of the node, or how many other nodes connect to it - the number of ticks isn't literal (i.e. there are more than 4 other words that can be reached from "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "showing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": "), but more ticks means higher degree.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.lineTitle": [
+    {
+      "type": 0,
+      "value": "What that move look likeSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.lineWritten": [
+    {
+      "type": 0,
+      "value": "The move is written along the edge: "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "+ad"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": ", in gold (or "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "red"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " if a word was removed).SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.name": [
+    {
+      "type": 0,
+      "value": "TutorialSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.offBoardAsk": [
+    {
+      "type": 0,
+      "value": "Name a word that's not on the board yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.offBoardFamily": [
+    {
+      "type": 0,
+      "value": "You are standing on "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "wing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": ". Two letters on the front of it is a whole family: "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "se"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": ", "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "mo"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": ", "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "vo"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": ", "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ca"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.offBoardTitle": [
+    {
+      "type": 0,
+      "value": "Going offroadSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.offBoardWhat": [
+    {
+      "type": 0,
+      "value": "The starting nodes on the board are a suggestion, but any word you can reach is valid. Guessing a word that isn't on the board adds it, along with any of its neighbors that might form a new route.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.on": [
+    {
+      "type": 0,
+      "value": "Next stepSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.parRelax": [
+    {
+      "type": 0,
+      "value": "Lower numbers of guesses and hints are better, but this isn't a competitive game: both are unlimited, and there's no penalty to wander off and explore the board. Especially if you're new, don't worry about keeping a tidy board or making optimal guesses. Take some time to fill in the board with guesses to get a feel for the game. If you're frustrated, get more hints!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.parTitle": [
+    {
+      "type": 0,
+      "value": "ScoringSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.parWhat": [
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "par"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " is the shortest way through using ordinary words: four moves here. Your guesses and hints are counted beside it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.progress": [
+    {
+      "type": 1,
+      "value": "at"
+    },
+    {
+      "type": 0,
+      "value": "/"
+    },
+    {
+      "type": 1,
+      "value": "of"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.shortcutAsk": [
+    {
+      "type": 0,
+      "value": "Tap showing to stand on it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.shortcutGuess": [
+    {
+      "type": 0,
+      "value": "Now name owing.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.shortcutThis": [
+    {
+      "type": 0,
+      "value": "This one does: "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "showing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " is "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "sh"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "·owing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": ": Rare words aren't always long, \""
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "sh"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": "\" is a word but not a very common one. take "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "sh"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " off the front, and the rest of the way through is drawn for you in gold.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.shortcutTitle": [
+    {
+      "type": 0,
+      "value": "ShortcutsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.shortcutWhy": [
+    {
+      "type": 0,
+      "value": "Par is measured over ordinary words, but you probably know lots of words that aren't so common! Sometimes there are shortcut paths through rare words, the header says when a board has one.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.startOver": [
+    {
+      "type": 0,
+      "value": "start overSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.statementGoal": [
+    {
+      "type": 0,
+      "value": "The goal of the game is to "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "connect the two target words"
+        }
+      ],
+      "type": 8,
+      "value": "b"
+    },
+    {
+      "type": 0,
+      "value": " by guessing some path between them using "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "as few guesses and hints as possible"
+        }
+      ],
+      "type": 8,
+      "value": "b"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.statementTitle": [
+    {
+      "type": 0,
+      "value": "The gameSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.statementWhat": [
+    {
+      "type": 0,
+      "value": "The puzzle is stated at the top: connect "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "showing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " and "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "towing"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": ". You can move from any revealed node, so you can work from either end, backtrack and make a new branch, whatever.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.welcomeExamples": [
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "base"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "+ ball"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " = "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "base"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ball"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "colo"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ratio"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ns"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "− ratio"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " = "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "colons"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.welcomeRule": [
+    {
+      "type": 0,
+      "value": "Every move takes one whole word out of another, or puts one in. What is left has to be a word too.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.welcomeShape": [
+    {
+      "type": 0,
+      "value": "The piece you add or take out must be a word, must be in one run, and can sit anywhere - including in the middle.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.welcomeTitle": [
+    {
+      "type": 0,
+      "value": "Words inside wordsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.wrongBoardBody": [
+    {
+      "type": 0,
+      "value": "It is taught on one particular puzzle, "
+    },
+    {
+      "children": [
+        {
+          "type": 1,
+          "value": "id"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": ", and a rebuild that changed that puzzle’s answer changed its address. Point "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "LESSON.puzzle"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " at a board that is still there, and rewrite the steps that name its words.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "tutorial.wrongBoardTitle": [
+    {
+      "type": 0,
+      "value": "The tutorial’s board is not in this bankSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "welcome.example": [
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "c"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "our"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "age"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "− our"
+        }
+      ],
+      "type": 8,
+      "value": "cut"
+    },
+    {
+      "type": 0,
+      "value": " = "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "cage"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "welcome.offer": [
+    {
+      "type": 0,
+      "value": "There is a short walkthrough on a real board. It takes a couple of minutes.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "welcome.skip": [
+    {
+      "type": 0,
+      "value": "Skip — I’ll work it outSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "welcome.take": [
+    {
+      "type": 0,
+      "value": "Show me howSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "welcome.title": [
+    {
+      "type": 0,
+      "value": "New here?SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "welcome.what": [
+    {
+      "type": 0,
+      "value": "The game is getting from one word to another by adding or removing a whole word from inside it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "welcome.whereItWent": [
+    {
+      "type": 0,
+      "value": "It stays in the menu, under “Tutorial”.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ]
+}

@@ -6,12 +6,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  MONTHS,
   archiveRange,
   clampMonth,
   compareMonths,
   daysInMonth,
   monthDays,
-  monthName,
   monthOf,
   stepMonth,
 } from './archive';
@@ -49,8 +49,12 @@ describe('months', () => {
     expect(daysInMonth({ year: 2026, month: 9 })).toBe(30);
   });
 
-  it('names a month for a heading', () => {
-    expect(monthName({ year: 2026, month: 7 })).toBe('July 2026');
+  // What a month is *called* is not here any more: the heading is formatted from the
+  // catalog, so this module holds date arithmetic and no English at all.
+  it('offers the twelve months as numbers', () => {
+    expect(MONTHS).toHaveLength(12);
+    expect(MONTHS[0]).toBe(1);
+    expect(MONTHS[11]).toBe(12);
   });
 });
 

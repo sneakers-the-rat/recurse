@@ -15,6 +15,9 @@
  * visibly nothing, or the choice is not a real one.
  */
 
+import { FormattedMessage } from 'react-intl';
+import { welcome as says } from '../i18n/messages/howto';
+
 interface Props {
   onTutorial: () => void;
   onSkip: () => void;
@@ -36,12 +39,11 @@ export function Welcome({ onTutorial, onSkip }: Props) {
         onClick={(event) => event.stopPropagation()}
       >
         <h2 id="welcome-title" className="text-bone mb-3 text-2xl font-semibold">
-          New here?
+          <FormattedMessage {...says.title} />
         </h2>
 
         <p className="text-bone-dim text-[0.9375rem] leading-relaxed">
-          The game is getting from one word to another by adding or removing a whole word
-          from inside it.
+          <FormattedMessage {...says.what} />
         </p>
 
         {/*
@@ -50,15 +52,12 @@ export function Welcome({ onTutorial, onSkip }: Props) {
         */}
         <figure className="border-rule bg-noir-3 my-4 border p-3">
           <p className="word text-base">
-            <span className="text-bone">c</span>
-            <span className="text-blood-lit">our</span>
-            <span className="text-bone">age</span> <span className="text-blood-lit">− our</span> ={' '}
-            <span className="text-bone">cage</span>
+            <FormattedMessage {...says.example} />
           </p>
         </figure>
 
         <p className="text-bone-dim text-[0.9375rem] leading-relaxed">
-          There is a short walkthrough on a real board. It takes a couple of minutes.
+          <FormattedMessage {...says.offer} />
         </p>
 
         <button
@@ -66,7 +65,7 @@ export function Welcome({ onTutorial, onSkip }: Props) {
           className="label border-gilt-dim text-gilt hover:border-gilt hover:bg-gilt-dim/15 mt-5 w-full border py-3 transition-colors"
           type="button"
         >
-          Show me how
+          <FormattedMessage {...says.take} />
         </button>
 
         <button
@@ -74,7 +73,7 @@ export function Welcome({ onTutorial, onSkip }: Props) {
           className="label text-ash-lit hover:text-bone-dim mt-3 w-full py-2 transition-colors"
           type="button"
         >
-          Skip — I’ll work it out
+          <FormattedMessage {...says.skip} />
         </button>
 
         {/*
@@ -83,7 +82,7 @@ export function Welcome({ onTutorial, onSkip }: Props) {
           to press rather than as the reassurance it is.
         */}
         <p className="text-ash-lit mt-3 text-center text-xs">
-          It stays in the menu, under “Tutorial”.
+          <FormattedMessage {...says.whereItWent} />
         </p>
       </div>
     </div>

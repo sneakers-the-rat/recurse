@@ -18,21 +18,25 @@
  */
 
 import { memo } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { board as says } from '../i18n/messages/board';
 
 export const ResetView = memo(function ResetView({ onReset }: { onReset: () => void }) {
+  const intl = useIntl();
+  const whole = intl.formatMessage(says.resetView);
   return (
     <button
       type="button"
       onClick={onReset}
       // The name says what it does; the word on it is what there is room for.
-      aria-label="Show the whole puzzle"
-      title="Show the whole puzzle"
+      aria-label={whole}
+      title={whole}
       data-tour="reset-view"
       // Padded past what the label needs, because this is a thumb's target on the screen
       // it matters on and the rest of the chrome is sized for a pointer.
       className="label bg-noir/80 border-rule hover:border-gilt-dim hover:text-gilt absolute right-2 bottom-2 z-10 border px-3 py-2.5 leading-none whitespace-nowrap transition-colors"
     >
-      reset
+      <FormattedMessage {...says.reset} />
     </button>
   );
 });

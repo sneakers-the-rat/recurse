@@ -28,6 +28,7 @@
  */
 
 import type { ReactNode } from 'react';
+import type { MessageDescriptor } from 'react-intl';
 import { hintCount, moveHint, type GameState } from './game';
 
 /**
@@ -228,8 +229,11 @@ export type Look = { at: 'words'; words: readonly string[] } | { at: 'board' };
 
 /** What the player has to do, and how the panel asks for it. */
 export interface Ask {
-  /** One imperative sentence. Shown apart from the prose, and ticked when it is done. */
-  prompt: string;
+  /**
+   * One imperative sentence, named rather than written: the words are in the catalog like
+   * every other word the game says. Shown apart from the prose, and ticked when it is done.
+   */
+  prompt: MessageDescriptor;
   done: Advance;
 }
 
@@ -257,7 +261,8 @@ export interface Stage {
 export interface Step extends Stage {
   /** Stable, and part of the key the run remembers a cleared beat by. Never shown. */
   id: string;
-  title: string;
+  /** Named, not written. Unlike `id`, this is read by the player. */
+  title: MessageDescriptor;
   body: ReactNode;
   /**
    * Further beats of this card. The prose stays put; the spotlight and the prompt move on.

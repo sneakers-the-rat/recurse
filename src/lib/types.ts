@@ -5,6 +5,8 @@
  * should ever have to know.
  */
 
+import type { Phrase } from '../i18n/format';
+
 /** A single legal step: add or remove `sub` at `pos`. */
 export interface Move {
   to: string;
@@ -140,13 +142,18 @@ export interface InsertionSpot {
 }
 
 /**
- * A verdict on a guess. A refusal carries a sentence, not a structure: the code
- * is for tests to pin the reason, and the message is what the player reads. An
- * `EditShape` used to ride along too, and nothing ever looked at it.
+ * A verdict on a guess.
+ *
+ * A refusal carries the *phrase* it would be said in — a message and its values — rather
+ * than a finished sentence, because this module is judged in node and must not know which
+ * language the player reads. Whoever draws it says it; see `Phrase` in i18n/format.ts.
+ *
+ * The code is for tests to pin the reason. An `EditShape` used to ride along too, and
+ * nothing ever looked at it.
  */
 export type Judgement =
   | { ok: true; move: Move; word: string }
-  | { ok: false; code: Rejection; message: string };
+  | { ok: false; code: Rejection; reason: Phrase };
 
 export interface Point {
   x: number;

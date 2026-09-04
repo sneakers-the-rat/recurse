@@ -1,5 +1,13 @@
 # recurse
 
+> *"Fiendish game. Deeply frustrating. Has cost me a lot of productivity. Clearly this is working as intended"*
+>
+> *"had to stop myself from playing the long so I could eat lunch (now two hours late)"*
+>
+> *"I am too stupid and impatient for this"*
+>
+> *"uh oh"*
+
 A daily word game. Get from one word to another by adding or removing a whole word from
 inside it.
 
@@ -7,11 +15,9 @@ inside it.
     courage     − our   = cage
     base        + ball  = baseball
 
-Each move deletes or inserts one unbroken run of letters that is itself a word. The result
-must also be a word.
+Each move deletes or inserts one unbroken run of letters that is itself a word. The result must also be a word.
 
-Every day offers three boards — **short**, **medium** and **long** — chosen by how many moves
-the answer takes. Each is addressed by its own URL and keeps its own progress.
+go to <https://jon-e.net/recurse/>
 
 ## Requirements
 

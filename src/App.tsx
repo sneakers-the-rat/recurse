@@ -15,6 +15,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { say } from './i18n/format';
+import { board as boardSays } from './i18n/messages/board';
+import { dev as devSays } from './i18n/messages/dev';
+import { bandName } from './i18n/bands';
 import { Result, Round } from './components/Completed';
 import { Opening } from './components/Opening';
 import { DevBar } from './components/DevBar';
@@ -315,6 +320,7 @@ function useOpening({
 }
 
 export default function App() {
+  const intl = useIntl();
   const [data, setData] = useState<GameData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [state, setState] = useState<GameState | null>(null);
@@ -590,7 +596,7 @@ export default function App() {
         if (!chosen) {
           // Today's own shard does not hold the id the calendar named for today, which means
           // the year files and the shards are from different builds — see `idForDay`.
-          setLoadError('the puzzle data is out of step with the app: rebuild it');
+          setLoadError(intl.formatMessage(devSays.outOfStep));
           return;
         }
         show(chosen, 'replace');
@@ -982,13 +988,15 @@ export default function App() {
       if (!data || !state) return;
       const outcome = applyGuess(state, data.graph, raw, isWord);
       setState(outcome.state);
-      setError(outcome.kind === 'rejected' ? outcome.judgement.message : null);
+      // The judge names the message; saying it is this layer's job, because this is the
+      // first layer that knows what language the player reads. See `Phrase`.
+      setError(outcome.kind === 'rejected' ? say(intl, outcome.judgement.reason) : null);
       // A refused guess moved nobody, so there is nothing to follow. Anything else left the
       // player standing on the word it named — including a move back onto a word they
       // already had, which is navigation and every bit as much a reason to look there.
       if (outcome.kind !== 'rejected') setFollow({ word: outcome.word, centre: narrow });
     },
-    [data, state, isWord, narrow],
+    [data, state, isWord, narrow, intl],
   );
 
   const selectWord = useCallback((word: string) => {
@@ -1037,7 +1045,7 @@ export default function App() {
     (word: string) => {
       if (secretOnly?.has(word)) {
         setRefusal({ word });
-        setToast('There are no hints on shortcuts!');
+        setToast(intl.formatMessage(boardSays.noHintOnShortcut));
         return;
       }
       if (plate?.routeNodes.has(word)) {
@@ -1058,7 +1066,7 @@ export default function App() {
       }
       setState((s) => (s ? useHint(s, word) : s));
     },
-    [secretOnly, plate],
+    [secretOnly, plate, intl],
   );
 
   // Both go away on their own: the cross is over in under a second, the toast is read in two.
@@ -1268,7 +1276,11 @@ export default function App() {
         if (!found) return null;
         const saved = restore(found.puzzle, loadGame(gameKey(found.puzzle)));
         if (saved.solved) return null;
-        return { band: index, name: bandOf(index, manifest).name, guesses: saved.guesses };
+        return {
+          band: index,
+          name: bandName(intl, bandOf(index, manifest).name),
+          guesses: saved.guesses,
+        };
       }),
     )
       .then((found) => {
@@ -1281,7 +1293,7 @@ export default function App() {
     return () => {
       live = false;
     };
-  }, [data, state?.solved, at, band]);
+  }, [data, state?.solved, at, band, intl]);
 
   /**
    * Dev helper: name every word on the board at once.
@@ -1331,9 +1343,9 @@ export default function App() {
       day: at.day,
       date,
       marks,
-      text: shareText({
+      text: shareText(intl, {
         day: at.day,
-        band: bandOf(state.puzzle.band, data.manifest).name,
+        band: bandName(intl, bandOf(state.puzzle.band, data.manifest).name),
         date,
         guesses: state.guesses,
         par: state.puzzle.par,
@@ -1342,7 +1354,7 @@ export default function App() {
         url,
       }),
     };
-  }, [data, state, at, shortcut]);
+  }, [data, state, at, shortcut, intl]);
 
   /**
    * Boards this session has seen unfinished, and boards dev mode finished for us.
@@ -1437,9 +1449,15 @@ export default function App() {
     return (
       <main className="flex min-h-dvh items-center justify-center p-6 text-center">
         <div>
-          <h1 className="text-bone mb-2 text-xl">The puzzle didn’t load</h1>
+          <h1 className="text-bone mb-2 text-xl">
+            <FormattedMessage {...devSays.loadFailed} />
+          </h1>
+          {/* The underlying error, untranslated on purpose: it is a fetch failure or a
+              version mismatch, and it is for whoever reads it in a console. */}
           <p className="text-bone-dim text-sm">{loadError}</p>
-          <p className="label mt-4">Run npm run data to rebuild it</p>
+          <p className="label mt-4">
+            <FormattedMessage {...devSays.rebuild} />
+          </p>
         </div>
       </main>
     );
@@ -1448,7 +1466,9 @@ export default function App() {
   if (!data || !state || !plate || !laid || !at) {
     return (
       <main className="flex min-h-dvh items-center justify-center">
-        <p className="label">Shuffling</p>
+        <p className="label">
+          <FormattedMessage {...devSays.loading} />
+        </p>
       </main>
     );
   }
@@ -1683,6 +1703,8 @@ export default function App() {
         <HowTo
           minWord={data.graph.params.minWord}
           minSub={data.graph.params.minSub}
+          commonScowl={data.graph.params.commonScowl}
+          legalScowl={data.graph.params.legalScowl}
           devMode={devMode}
           onToggleDev={toggleDev}
           onClose={closeHelp}

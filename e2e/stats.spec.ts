@@ -18,7 +18,7 @@ const pathOf = (url: string) => new URL(url).pathname.replace(/^\//, '').split('
 
 async function guess(page: Page, word: string) {
   await page.getByLabel(/Your guess/).fill(word);
-  await page.getByRole('button', { name: 'Name it' }).click();
+  await page.getByRole('button', { name: 'Guess', exact: true }).click();
 }
 
 /** Walk a puzzle's shortest path, which finishes it at par. */

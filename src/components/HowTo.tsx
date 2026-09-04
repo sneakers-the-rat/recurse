@@ -8,17 +8,46 @@
  * both need hardware a phone does not have, while looking at a real board on a real phone
  * is most of what the panel is for. Set apart below a rule and labelled for what it is, so
  * it reads as the back of the manual rather than as part of the game.
+ *
+ * Every word of it comes from `i18n/messages/howto.ts`. What is left here is the shape:
+ * which rule sits under which heading, and where the figure goes. The inks — `<w>`,
+ * `<add>`, `<cut>` — travel inside the messages, so a translator can move a coloured piece
+ * to wherever their language puts it.
  */
+
+import { FormattedMessage, useIntl } from 'react-intl';
+import { howto as says } from '../i18n/messages/howto';
 
 interface Props {
   minWord: number;
   minSub: number;
+  /** Which SCOWL tiers the data was built from, for the word list section. */
+  commonScowl: number;
+  legalScowl: number;
   devMode: boolean;
   onToggleDev: () => void;
   onClose: () => void;
 }
 
-export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props) {
+/** The link out to the word list project, and the one down to the section about it. */
+const LINKS = {
+  scowl: (chunks: React.ReactNode) => (
+    <a href="https://wordlist.aspell.net/scowl_v1-readme/">{chunks}</a>
+  ),
+  wordlists: (chunks: React.ReactNode) => <a href="#wordlists">{chunks}</a>,
+};
+
+export function HowTo({
+  minWord,
+  minSub,
+  commonScowl,
+  legalScowl,
+  devMode,
+  onToggleDev,
+  onClose,
+}: Props) {
+  const intl = useIntl();
+
   return (
     <div
       id="how-to"
@@ -34,113 +63,103 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="howto-title" className="text-bone mb-1 text-2xl font-semibold">
-          How to play
+          <FormattedMessage {...says.title} />
         </h2>
 
         <div className="text-bone-dim space-y-4 text-[0.9375rem] leading-relaxed">
           <p>
             <span className="text-bone font-bold">
-              The goal of the game is to connect two words by adding and removing words within them
-              using as few guesses and hints as possible.{' '}
+              <FormattedMessage {...says.goal} />
             </span>
           </p>
 
           <figure className="border-rule bg-noir-3 border p-3">
             <p className="word text-base">
-              base <span className="text-gilt">+ ball</span> ={' '}
-              <span className="text-bone">base</span>
-              <span className="text-gilt">ball</span>
+              <FormattedMessage {...says.exampleAdd} />
             </p>
             <p className="word mt-1.5 text-base">
-              colo<span className="text-blood-lit">ratio</span>ns{' '}
-              <span className="text-blood-lit">− ratio</span> ={' '}
-              <span className="text-bone">colons</span>
+              <FormattedMessage {...says.exampleRemove} />
             </p>
           </figure>
 
-          <h3 className="text-bone mb-1 text-xl font-semibold">Rules</h3>
-          <p>
-            
-            <ul>
-            <li>The player selects a revealed word in the graph to be the "active word"</li>
-            <li>Each turn you either{' '}<span className="text-gilt">add</span> or{' '}
-            <span className="text-blood-lit">remove</span> a word from the active word.</li>
-            <li>The letters you add or remove must be a single valid word.</li>
-            <li>The letters you add or remove must be contiguous</li>
-            <li>The letters that are left after adding or removing must also be a word, and that becomes the next active word.</li>
-            <li>The added or removed word can be in any position - before, after,
-            and especially inside the other words.</li>
-          <li>
-            Words within the graph must be {minWord} or more letters long
-          </li>
-          <li>
-            Words added or removed to reach new words must be {' '}
-            {minSub} or more letters long.
-          </li>
+          <h3 className="text-bone mb-1 text-xl font-semibold">
+            <FormattedMessage {...says.rules} />
+          </h3>
+          <ul>
+            <li>
+              <FormattedMessage {...says.ruleActive} />
+            </li>
+            <li>
+              <FormattedMessage {...says.ruleAddRemove} />
+            </li>
+            <li>
+              <FormattedMessage {...says.ruleValidWord} />
+            </li>
+            <li>
+              <FormattedMessage {...says.ruleContiguous} />
+            </li>
+            <li>
+              <FormattedMessage {...says.ruleRemainder} />
+            </li>
+            <li>
+              <FormattedMessage {...says.rulePosition} />
+            </li>
+            <li>
+              <FormattedMessage {...says.ruleMinWord} values={{ min: minWord }} />
+            </li>
+            <li>
+              <FormattedMessage {...says.ruleMinSub} values={{ min: minSub }} />
+            </li>
           </ul>
-          </p>
 
-
-          <h3 className="text-bone mb-1 text-xl font-semibold">The Graph</h3>
+          <h3 className="text-bone mb-1 text-xl font-semibold">
+            <FormattedMessage {...says.graphTitle} />
+          </h3>
           <p>
-            The golden center line, or <span className="text-gilt">"spine"</span> 
-            of the graph is the shortest path between the two words you're trying to bridge.
-            The rest of the graph are a subset of the words surrounding the spine that provide a few possible alternative paths.
-            All <a href="#wordlists">valid words</a> can be guessed,
-            so the nodes you see when the game start are not the only paths between the words!
-            If you guess a word that's not on the graph yet, it will be added and connected to any other words that it can reach.
+            <FormattedMessage {...says.graphSpine} values={LINKS} />
           </p>
-
           <p>
-            You can guess from <em className="text-bone not-italic">any</em> word you have
-            already found, not just the last one. 
-            The game ends when you complete the path between the words,
-            but you can double-back, work from both ends, leave dead ends, etc.
-
+            <FormattedMessage {...says.graphAnyWord} />
           </p>
 
-          <h3 className="text-bone mb-1 text-xl font-semibold">Hints</h3>
+          <h3 className="text-bone mb-1 text-xl font-semibold">
+            <FormattedMessage {...says.hintsTitle} />
+          </h3>
           <p>
-            Tap or click an undiscovered node to receive a <span className="text-bone">hint</span> for it.
-            You can't get length or letter hints for words on the spine or on shortcuts - 
-            only hints about whether the word can be reached by adding or removing a word.
-            Hints are unlimited, and counted alongside your guesses.
-            First you will see the number of letters in the word,
-            and then each subsequent tap will reveal another letter.
-            This is not a competitive game, go ahead and do a thousand hints,
-            challenge yourself and use no hints, whatever.
+            <FormattedMessage {...says.hintsBody} />
           </p>
 
-          <h3 className="text-bone mb-1 text-xl font-semibold">Shortcuts</h3>
+          <h3 className="text-bone mb-1 text-xl font-semibold">
+            <FormattedMessage {...says.shortcutsTitle} />
+          </h3>
           <p>
-          The puzzle tries to be "playable" by using a smaller list of more common words,
-          since it's not fun to get sniped by a squirrelly rare word.
-          However, also to make the game "playable," we want to allow all words that someone might consider real
-          because it's frustrating to guess a real word and have it be refused.
+            <FormattedMessage {...says.shortcutsWhy} />
           </p>
-
           <p>
-            The ability to guess rare words means that some boards have <span className="text-gilt">shortcuts</span> - {' '}
-            paths between the two target words that are shorter than the par score,
-            which is computed from the smaller word list.
+            <FormattedMessage {...says.shortcutsWhat} />
           </p>
-
           <p>
-            If your guess stumbles you onto a shortcut, the shortcut path will appear and be highlighted
-            and be all shiny to let you know that the rest of the shortcut is possible.
+            <FormattedMessage {...says.shortcutsFound} />
           </p>
 
-
-          <h3 id="wordlists" className="text-bone mb-1 text-xl font-semibold">Word Lists</h3>
+          <h3 id="wordlists" className="text-bone mb-1 text-xl font-semibold">
+            <FormattedMessage {...says.wordListsTitle} />
+          </h3>
           <p>
-            Recurse uses two word lists from <a href="https://wordlist.aspell.net/scowl_v1-readme/">SCOWL/ESDB</a>:
-            <ul>
-              <li><span className="font-bold text-bone">SCOWL 35</span> - A smaller list of more common used when constructing the puzzles, computing pars, and finding initial non-spine graph nodes.</li>
-              <li><span className="font-bold text-bone">SCOWL 80</span> - A much larger list of words that are valid as guesses.</li>
-            </ul>
+            <FormattedMessage {...says.wordListsIntro} values={LINKS} />
           </p>
-
-
+          {/*
+            The two tiers are read out of the shipped data rather than written down here,
+            so the manual cannot disagree with the bank it is describing.
+          */}
+          <ul>
+            <li>
+              <FormattedMessage {...says.wordListCommon} values={{ size: commonScowl }} />
+            </li>
+            <li>
+              <FormattedMessage {...says.wordListLegal} values={{ size: legalScowl }} />
+            </li>
+          </ul>
         </div>
 
         <button
@@ -148,7 +167,7 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
           className="label border-rule text-bone hover:border-gilt hover:text-gilt mt-6 w-full border py-2.5 transition-colors"
           type="button"
         >
-          Begin
+          <FormattedMessage {...says.begin} />
         </button>
 
         {/*
@@ -159,15 +178,16 @@ export function HowTo({ minWord, minSub, devMode, onToggleDev, onClose }: Props)
         */}
         <div className="border-rule mt-6 flex items-center justify-between border-t pt-4">
           <p className="label text-ash-lit normal-case">
-            {devMode ? 'Instruments are showing' : 'Building this thing?'}
+            <FormattedMessage {...(devMode ? says.devShowing : says.devOffer)} />
           </p>
           <button
             onClick={onToggleDev}
             className="label border-rule text-ash-lit hover:border-gilt hover:text-gilt border px-3 py-1.5 transition-colors"
             type="button"
             aria-pressed={devMode}
+            aria-label={intl.formatMessage(devMode ? says.devHide : says.devShow)}
           >
-            {devMode ? 'hide dev tools' : 'show dev tools'}
+            <FormattedMessage {...(devMode ? says.devHide : says.devShow)} />
           </button>
         </div>
       </div>

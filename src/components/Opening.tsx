@@ -17,6 +17,9 @@
  */
 
 import { memo } from 'react';
+import { FormattedMessage } from 'react-intl';
+import { round as says } from '../i18n/messages/round';
+import { Diamond, Dot } from './marks';
 
 interface Props {
   source: string;
@@ -49,13 +52,13 @@ export const Opening = memo(function Opening({ source, target, day, date, phase 
         }`}
       >
         <p className="label text-gilt mb-3">
-          Day {day} <span className="text-ash-lit mx-1">·</span> {date}
+          <FormattedMessage {...says.day} values={{ day }} />
+          <Dot />
+          {date}
         </p>
         <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
           <span className="word text-bone text-3xl sm:text-5xl">{source}</span>
-          <span aria-hidden className="text-gilt text-base">
-            ◆
-          </span>
+          <Diamond className="text-gilt text-base" />
           <span className="word text-bone text-3xl sm:text-5xl">{target}</span>
         </p>
       </div>

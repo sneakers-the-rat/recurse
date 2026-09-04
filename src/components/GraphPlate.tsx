@@ -33,6 +33,9 @@
  */
 
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { useIntl } from 'react-intl';
+import { board as says } from '../i18n/messages/board';
+import { moveSign } from './marks';
 import { fullyHinted, hintLabel, isFront, moveHint, type GameState } from '../lib/game';
 import type { PlateEdge } from '../lib/plate';
 import type { Point } from '../lib/types';
@@ -238,6 +241,7 @@ const PlateNode = memo(function PlateNode({
   onActivate: (word: string, at: At | null) => void;
   onInspect: ((word: string, at: At) => void) | undefined;
 }) {
+  const intl = useIntl();
   const isEndpoint = isSource || isTarget;
   const hinted = level > 0;
   // Named words, and the two you are given, are drawn as circles; the rest
@@ -404,21 +408,22 @@ const PlateNode = memo(function PlateNode({
         tabIndex={0}
         aria-label={
           isRevealed
-            ? `${word}${isSelected ? ', selected' : ''}. Guess from here.`
+            ? intl.formatMessage(says.reached, { word, selected: String(isSelected) })
             : // The goal is somewhere to stand from the first move, not something to ask
               // about: the moves into it are found by standing there and working backwards.
               isTarget
-              ? `${word}, the goal${isSelected ? ', selected' : ''}. Guess from here.`
+              ? intl.formatMessage(says.goal, { word, selected: String(isSelected) })
               : onRoute
-                ? 'Unnamed word on the best route. Show which way one of its moves goes.'
+                ? intl.formatMessage(says.onRoute)
                 : !hinted
-              ? 'Unnamed word. Reveal how many letters it has.'
-              : fullyHinted(word, level)
-                ? `Unnamed word, spelled ${word}. Nothing left to hint.`
-                : // What the next click buys, since that is the decision.
-                  `Unnamed word, ${word.length} letters${
-                    level >= 2 ? `, showing ${hintLabel(word, level)}` : ''
-                  }. Reveal another letter.`
+                  ? intl.formatMessage(says.unhinted)
+                  : fullyHinted(word, level)
+                    ? intl.formatMessage(says.spelled, { word })
+                    : // What the next click buys, since that is the decision.
+                      intl.formatMessage(says.partly, {
+                        count: word.length,
+                        shown: level >= 2 ? (hintLabel(word, level) ?? 'none') : 'none',
+                      })
         }
         // Hovering a word lifts every move from it out of the background, so
         // the question "what connects here" can be answered by pointing. Focus
@@ -479,6 +484,7 @@ export function GraphPlate({
   onHint,
   onSpell,
 }: Props) {
+  const intl = useIntl();
   const { revealed, selected, puzzle } = state;
 
   /**
@@ -704,10 +710,12 @@ export function GraphPlate({
       }`}
       role="img"
       {...gestures}
-      aria-label={
-        `Map of moves between ${puzzle.source} and ${puzzle.target}. ` +
-        `${revealed.size} of ${nodes.length} words named.`
-      }
+      aria-label={intl.formatMessage(says.plate, {
+        source: puzzle.source,
+        target: puzzle.target,
+        named: revealed.size,
+        total: nodes.length,
+      })}
     >
       <g>
         {edges.map(({ a, b }) => {
@@ -840,7 +848,7 @@ export function GraphPlate({
                   strokeWidth="3"
                   strokeLinejoin="round"
                 >
-                  {trail.kind === 'add' ? '+' : '−'}
+                  {moveSign(trail.kind)}
                   {trail.sub}
                 </text>
               )}
@@ -898,7 +906,7 @@ export function GraphPlate({
               strokeWidth="3.5"
               strokeLinejoin="round"
             >
-              {marked.kind === 'add' ? '+' : '−'}
+              {moveSign(marked.kind)}
             </text>
           );
         })}

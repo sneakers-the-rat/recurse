@@ -29,7 +29,16 @@
  * The text is deliberately built from plain data rather than from `GameState`: the
  * completed view renders it, a test asserts on it, and neither should have to build
  * a game to ask what a share string looks like.
+ *
+ * **It is translated, and it takes a `Phrasebook` to do it.** A player reading the game in
+ * another language pastes that language. This module has no React in it and is tested in
+ * node, so the words arrive as a parameter rather than out of a hook: a component hands it
+ * the `intl` it already has, a test hands it one built by `createIntl`. The marks and the
+ * link are the same in every language, so a trail still reads across a mixed thread.
  */
+
+import type { Phrasebook } from '../i18n/format';
+import { round as says } from '../i18n/messages/round';
 
 /** What a guessed word was, in relation to the answer. */
 export type Mark = 'shortcut' | 'route' | 'alternate' | 'stray';
@@ -100,17 +109,24 @@ export interface Result {
  * round: par is the best route through ordinary words, so going under it means a
  * rarer word cut a corner nobody expected to be cut.
  */
-function scoreLine({ guesses, par, hints }: Result): string {
-  const guessed = `${guesses} ${guesses === 1 ? 'guess' : 'guesses'}`;
-  const against = guesses < par ? `par ${par}, under par` : `par ${par}`;
-  return `${guessed} · ${against} · ${hints} ${hints === 1 ? 'hint' : 'hints'}`;
+function scoreLine(intl: Phrasebook, { guesses, par, hints }: Result): string {
+  return intl.formatMessage(says.shareScore, {
+    guesses,
+    par,
+    hints,
+    under: String(guesses < par),
+  });
 }
 
 /** The whole thing, ready for a clipboard. */
-export function shareText(result: Result): string {
+export function shareText(intl: Phrasebook, result: Result): string {
   const lines = [
-    `ReCurse Words · Day ${result.day} · ${result.band} · ${result.date}`,
-    scoreLine(result),
+    intl.formatMessage(says.shareTitle, {
+      day: result.day,
+      band: result.band,
+      date: result.date,
+    }),
+    scoreLine(intl, result),
     emojiTrail(result.marks),
     result.url,
   ];

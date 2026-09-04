@@ -108,7 +108,12 @@ describe('judgeGuess', () => {
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) {
       expect(verdict.code).toBe('scattered');
-      expect(verdict.message).toMatch(/single unbroken run/);
+      // The message it would be said in, not the sentence: the judge names a message and
+      // the values to put in it, and what English makes of that is the catalog's business.
+      expect(verdict.reason.message.id).toBe('guess.scattered');
+      // The direction still has to survive the trip, since both halves of that sentence
+      // turn on it.
+      expect(verdict.reason.values).toEqual({ adding: 'true' });
     }
   });
 

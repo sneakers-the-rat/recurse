@@ -17,6 +17,9 @@
  */
 
 import { memo, useEffect, useMemo } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { bandName as translateBand } from '../i18n/bands';
+import { archive as says } from '../i18n/messages/archive';
 import { archiveRange } from '../lib/archive';
 import { idOnDay, type Pair, type RawCalendar, type RawManifest } from '../lib/data';
 import { dateForDay, dayOfYear } from '../lib/daily';
@@ -80,20 +83,27 @@ export const Puzzles = memo(function Puzzles({
   }, [pairs]);
 
   const played = usePlayed(manifest, years, today);
-  const bandName = (band: number) => manifest.bands[band]?.name ?? '';
+  const intl = useIntl();
+  // The builder names the lengths; the client translates them if it has words for them.
+  const bandName = (band: number) => {
+    const name = manifest.bands[band]?.name;
+    return name ? translateBand(intl, name) : '';
+  };
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-16">
       <div className="border-rule flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b py-4">
-        <h1 className="text-bone text-2xl font-semibold">Puzzles</h1>
+        <h1 className="text-bone text-2xl font-semibold">
+          <FormattedMessage {...says.title} />
+        </h1>
         <span className="flex items-baseline gap-4">
           {/* The other page that is not a board. Each links to the other, so neither is
               reachable only through the masthead. */}
           <button onClick={onStats} className="label text-ash-lit hover:text-gilt" type="button">
-            Stats
+            <FormattedMessage {...says.stats} />
           </button>
           <button onClick={onClose} className="label text-ash-lit hover:text-gilt" type="button">
-            back to the board
+            <FormattedMessage {...says.backToBoard} />
           </button>
         </span>
       </div>
@@ -105,15 +115,21 @@ export const Puzzles = memo(function Puzzles({
         className="border-rule hover:border-gilt hover:bg-noir-3 group mt-6 flex w-full items-baseline justify-between border p-4 text-left transition-colors"
       >
         <span className="text-bone group-hover:text-gilt text-lg group-hover:underline">
-          Today’s puzzles
+          <FormattedMessage {...says.today} />
         </span>
-        <span className="label text-ash-lit">day {today}</span>
+        <span className="label text-ash-lit">
+          <FormattedMessage {...says.todayDay} values={{ day: today }} />
+        </span>
       </button>
 
-      <h2 className="label mt-10 mb-3">By its two words</h2>
+      <h2 className="label mt-10 mb-3">
+        <FormattedMessage {...says.byWords} />
+      </h2>
       <FindPuzzle pairs={pairs} played={played} bandName={bandName} onOpen={onOpen} />
 
-      <h2 className="label mt-10 mb-3">By date</h2>
+      <h2 className="label mt-10 mb-3">
+        <FormattedMessage {...says.byDate} />
+      </h2>
       <Calendar
         manifest={manifest}
         today={today}

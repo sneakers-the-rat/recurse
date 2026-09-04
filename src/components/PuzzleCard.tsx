@@ -15,6 +15,9 @@
  */
 
 import { memo } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { archive as says } from '../i18n/messages/archive';
+import { Separator } from './marks';
 
 interface Props {
   /** Shown when given, and underlined on hover. Omitted where the surround already says it. */
@@ -39,16 +42,19 @@ export const PuzzleCard = memo(function PuzzleCard({
   today = false,
   onOpen,
 }: Props) {
+  const intl = useIntl();
   const words = known ? (
     <span className="word text-bone-dim group-hover:text-bone text-[0.7rem] leading-tight break-words">
       {source}
-      <span className="text-ash-lit"> · </span>
+      <Separator />
       {target}
     </span>
   ) : (
     // The index is a megabyte and arrives after the page. A row that keeps its shape while it
     // does is better than one that appears under the pointer.
-    <span className="word text-ash-lit text-[0.7rem]">…</span>
+    <span className="word text-ash-lit text-[0.7rem]">
+      <FormattedMessage {...says.cardWaiting} />
+    </span>
   );
 
   const inside = (
@@ -60,7 +66,7 @@ export const PuzzleCard = memo(function PuzzleCard({
           } ${onOpen ? 'group-hover:text-gilt group-hover:underline' : ''}`}
         >
           {date}
-          {today ? ' · today' : ''}
+          {today && <FormattedMessage {...says.cardToday} />}
         </span>
       )}
       <span className="label text-ash-lit block text-[0.55rem] leading-none">{band}</span>
@@ -80,7 +86,7 @@ export const PuzzleCard = memo(function PuzzleCard({
     <button
       type="button"
       onClick={onOpen}
-      title={`${band}: ${source} → ${target}`}
+      title={intl.formatMessage(says.cardTitle, { band, source, target })}
       className={`${shape} group hover:border-gilt hover:bg-noir-3 w-full`}
     >
       {inside}

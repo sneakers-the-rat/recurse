@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { phrasebook } from '../i18n/format';
 import { emojiTrail, markGuesses, shareText, type Result } from './share';
 
 const route = new Set(['ball', 'cannonball']);
@@ -44,6 +45,10 @@ describe('markGuesses', () => {
 });
 
 describe('shareText', () => {
+  // The real shipped English, so these assertions are on what a player would actually
+  // paste rather than on a fixture that could drift away from the catalog.
+  const intl = phrasebook();
+
   const result: Result = {
     day: 3,
     band: 'short',
@@ -56,7 +61,7 @@ describe('shareText', () => {
   };
 
   it('says which puzzle, how it went, what it looked like, and where to play it', () => {
-    expect(shareText(result)).toBe(
+    expect(shareText(intl, result)).toBe(
       [
         // The length is named: a day offers three, so a score without it cannot be placed.
         'ReCurse Words · Day 3 · short · 2026-07-29',
@@ -69,29 +74,29 @@ describe('shareText', () => {
 
   it('names no word, so it can be pasted the day the puzzle is live', () => {
     for (const word of ['ball', 'cannonball', 'baseball', 'lifetime']) {
-      expect(shareText(result)).not.toContain(word);
+      expect(shareText(intl, result)).not.toContain(word);
     }
   });
 
   it('says so when par was beaten, which is the best thing that can happen', () => {
-    const secret = shareText({ ...result, guesses: 3, marks: ['route', 'route', 'route'] });
+    const secret = shareText(intl, { ...result, guesses: 3, marks: ['route', 'route', 'route'] });
     expect(secret).toContain('3 guesses · par 4, under par');
   });
 
   it('counts in the singular where there is one of something', () => {
     expect(
-      shareText({ ...result, guesses: 1, par: 1, hints: 1, marks: ['route'] }),
+      shareText(intl, { ...result, guesses: 1, par: 1, hints: 1, marks: ['route'] }),
     ).toContain('1 guess · par 1 · 1 hint');
   });
 
   it('says nought hints rather than leaving the question open', () => {
     // A missing hint count would read as a claim of none, which is the same claim —
     // but only one of the two is the same claim every time.
-    expect(shareText({ ...result, hints: 0 })).toContain('0 hints');
+    expect(shareText(intl, { ...result, hints: 0 })).toContain('0 hints');
   });
 
   it('leaves no blank line when there is no trail to draw', () => {
-    const nothing = shareText({ ...result, guesses: 0, marks: [] });
+    const nothing = shareText(intl, { ...result, guesses: 0, marks: [] });
     expect(nothing.split('\n')).toHaveLength(3);
     expect(nothing).not.toContain('\n\n');
   });

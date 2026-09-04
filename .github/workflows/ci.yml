@@ -96,6 +96,18 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Not a style guide — see eslint.config.js. It asks one question: is there a word here
+      # that a player can read and a translator cannot reach.
+      - name: Lint
+        run: npm run lint
+
+      # Re-extracts the catalog from src/i18n/messages and fails if the result differs from
+      # what is committed, which is the only way to notice a message written but never
+      # extracted. Then compiles it, so malformed ICU is a red build rather than a sentence
+      # that renders as its own source at some point in the future.
+      - name: Messages are extracted and valid
+        run: npm run i18n:check
+
       - name: Unit tests
         run: npm test
 

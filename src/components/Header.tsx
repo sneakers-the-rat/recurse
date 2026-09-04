@@ -12,6 +12,10 @@
  */
 
 import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { bandName } from '../i18n/bands';
+import { header } from '../i18n/messages/header';
+import { Caret, Diamond, Dot, Wordmark } from './marks';
 
 interface Band {
   name: string;
@@ -89,6 +93,7 @@ function Lengths({
   band: number;
   onBand: (band: number) => void;
 }) {
+  const intl = useIntl();
   const [open, setOpen] = useState(false);
   const box = useDismiss(open, useCallback(() => setOpen(false), []));
   const here = bands[band];
@@ -98,7 +103,7 @@ function Lengths({
   /** What a length holds, in the smaller hand the tabs used for it. */
   const holds = (it: Band) => (
     <span className="text-[0.5625rem] tracking-[0.18em] normal-case opacity-70">
-      par {it.minPar}–{it.maxPar}
+      <FormattedMessage {...header.lengthHolds} values={{ min: it.minPar, max: it.maxPar }} />
     </span>
   );
 
@@ -109,21 +114,23 @@ function Lengths({
         onClick={() => setOpen(!open)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label="Choose a length"
+        aria-label={intl.formatMessage(header.chooseLength)}
         className={`${CONTROL} gap-1 sm:gap-1.5 ${
           open ? 'border-gilt-dim text-gilt' : 'text-bone-dim'
         }`}
       >
-        {here.name}
+        {bandName(intl, here.name)}
         {/* Not on a phone, where the masthead is already three things wide. */}
         <span className="hidden sm:inline">{holds(here)}</span>
-        <span aria-hidden className="text-gilt-dim text-[0.5rem]">
-          ▾
-        </span>
+        <Caret />
       </button>
 
       {open && (
-        <div role="listbox" aria-label="Length" className={`${PANEL} left-0`}>
+        <div
+          role="listbox"
+          aria-label={intl.formatMessage(header.lengthMenu)}
+          className={`${PANEL} left-0`}
+        >
           {bands.map((it, index) => (
             <button
               key={it.name}
@@ -138,7 +145,7 @@ function Lengths({
                 index === band ? 'text-gilt' : 'text-ash-lit hover:text-bone-dim'
               }`}
             >
-              {it.name}
+              {bandName(intl, it.name)}
               {holds(it)}
             </button>
           ))}
@@ -171,6 +178,7 @@ function Menu({
   onStats: () => void;
   onTutorial: () => void;
 }) {
+  const intl = useIntl();
   const [open, setOpen] = useState(false);
   const box = useDismiss(open, useCallback(() => setOpen(false), []));
 
@@ -195,7 +203,7 @@ function Menu({
         onClick={() => setOpen(!open)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Menu"
+        aria-label={intl.formatMessage(header.menu)}
         className={`${CONTROL} justify-center ${
           open ? 'border-gilt-dim text-gilt' : 'text-bone-dim'
         }`}
@@ -209,11 +217,15 @@ function Menu({
       </button>
 
       {open && (
-        <div role="menu" aria-label="Menu" className={`${PANEL} right-0`}>
-          {item('Puzzles', onPuzzles)}
-          {item('Stats', onStats)}
-          {item('Tutorial', onTutorial)}
-          {item('How to play', onHelp)}
+        <div
+          role="menu"
+          aria-label={intl.formatMessage(header.menu)}
+          className={`${PANEL} right-0`}
+        >
+          {item(intl.formatMessage(header.puzzles), onPuzzles)}
+          {item(intl.formatMessage(header.stats), onStats)}
+          {item(intl.formatMessage(header.tutorial), onTutorial)}
+          {item(intl.formatMessage(header.howToPlay), onHelp)}
         </div>
       )}
     </div>
@@ -307,10 +319,10 @@ export const Header = memo(function Header({
         */}
         <span className="flex items-center gap-2 sm:gap-3">
           <h1 className="flex items-baseline gap-2">
-            <span className="text-bone text-xl leading-none font-semibold tracking-tight">
-              Re<span className="text-blood-lit italic">Curse</span>
+            <Wordmark />
+            <span className="label text-ash-lit">
+              <FormattedMessage {...header.day} values={{ day }} />
             </span>
-            <span className="label text-ash-lit">№ {day}</span>
           </h1>
           <Lengths bands={bands} band={band} onBand={onBand} />
         </span>
@@ -322,20 +334,20 @@ export const Header = memo(function Header({
             className="label hover:text-gilt transition-colors"
             type="button"
           >
-            Puzzles
+            <FormattedMessage {...header.puzzles} />
           </button>
           <button onClick={onStats} className="label hover:text-gilt transition-colors" type="button">
-            Stats
+            <FormattedMessage {...header.stats} />
           </button>
           <button
             onClick={onTutorial}
             className="label hover:text-gilt transition-colors"
             type="button"
           >
-            Tutorial
+            <FormattedMessage {...header.tutorial} />
           </button>
           <button onClick={onHelp} className="label hover:text-gilt transition-colors" type="button">
-            How to play
+            <FormattedMessage {...header.howToPlay} />
           </button>
         </span>
         <Menu onHelp={onHelp} onPuzzles={onPuzzles} onStats={onStats} onTutorial={onTutorial} />
@@ -365,29 +377,27 @@ export const Header = memo(function Header({
             style={{ '--chars': Math.max(source.length, target.length) } as CSSProperties}
           >
             <span className="word text-bone">{source}</span>
-            <span aria-hidden className="text-gilt text-xs">
-              ◆
-            </span>
+            <Diamond />
             <span className="word text-bone">{target}</span>
           </p>
           <p data-tour="tally" className="label mt-2.5">
-            par: {par} moves
+            <FormattedMessage {...header.par} values={{ count: par }} />
             {shortcuts > 0 && (
               <>
-                <span className="text-ash-lit mx-2">·</span>
+                <Dot />
                 <span className="text-gilt-dim">
-                  {shortcuts} {shortcuts === 1 ? 'shortcut' : 'shortcuts'}
+                  <FormattedMessage {...header.shortcuts} values={{ count: shortcuts }} />
                 </span>
               </>
             )}
-            <span className="text-ash-lit mx-2">·</span>
-            {guesses === 0 ? 'no guesses yet' : `${guesses} guessed`}
+            <Dot />
+            <FormattedMessage {...header.guesses} values={{ count: guesses }} />
             {/* Only once any have been asked for: a nought here would read as a
                 score to protect, and hints are not something to be stingy with. */}
             {hints > 0 && (
               <>
-                <span className="text-ash-lit mx-2">·</span>
-                {hints} {hints === 1 ? 'hint' : 'hints'}
+                <Dot />
+                <FormattedMessage {...header.hints} values={{ count: hints }} />
               </>
             )}
           </p>

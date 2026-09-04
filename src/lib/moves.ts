@@ -5,8 +5,15 @@
  * that lookup exists to turn a rejection into a sentence the player can act on
  * — especially the case the original build silently swallowed, where letters
  * arrive in two separate places so no single word was ever inserted.
+ *
+ * **It names the message rather than writing the sentence.** A refusal comes back as a
+ * `Phrase` — which message, and what to put in it — and whoever is drawing says it. This
+ * module is tested in node and imported by the e2e fixtures outside a bundler, so it has
+ * no business holding a `useIntl`; and English written down here would be English below
+ * the layer that knows what language the player reads.
  */
 
+import { guess as says } from '../i18n/messages/guess';
 import type { EditShape, Graph, InsertionSpot, Judgement } from './types';
 
 /**
@@ -128,19 +135,15 @@ export function judgeGuess(
 ): Judgement {
   const word = String(raw ?? '').trim().toLowerCase();
 
-  if (!word) return { ok: false, code: 'empty', message: 'Type a word.' };
+  if (!word) return { ok: false, code: 'empty', reason: { message: says.empty } };
   if (!/^[a-z]+$/.test(word)) {
-    return {
-      ok: false,
-      code: 'not-letters',
-      message: 'Letters only — no spaces, digits or punctuation.',
-    };
+    return { ok: false, code: 'not-letters', reason: { message: says.notLetters } };
   }
   if (word === from) {
     return {
       ok: false,
       code: 'identical',
-      message: `That’s still ${from}. Add or remove a word to change it.`,
+      reason: { message: says.identical, values: { from } },
     };
   }
 
@@ -173,27 +176,31 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'swap',
-      message:
-        `${word} is the same length as ${from}. Each turn you add a whole word ` +
-        `or remove one — you can’t swap letters.`,
+      reason: { message: says.swap, values: { word, from } },
     };
   }
 
   if (edit.shape === 'scattered') {
-    const verb = edit.direction === 'add' ? 'added' : 'removed';
-    const inf = edit.direction === 'add' ? 'add' : 'remove';
+    // Both halves of the sentence turn on the direction, so it is one message with a
+    // `select` rather than two verbs spliced into a frame — a frame with a verb slot in
+    // it is a sentence only English can be written in.
     return {
       ok: false,
       code: 'scattered',
-      message:
-        `Those letters would be ${verb} in more than one place. The word you ` +
-        `${inf} has to be a single unbroken run.`,
+      reason: {
+        message: says.scattered,
+        values: { adding: String(edit.direction === 'add') },
+      },
     };
   }
 
   if (edit.shape === 'identical') {
     // Unreachable given the equality check above, but keeps the union exhaustive.
-    return { ok: false, code: 'identical', message: `That’s still ${from}.` };
+    return {
+      ok: false,
+      code: 'identical',
+      reason: { message: says.identicalShort, values: { from } },
+    };
   }
 
   // Contiguous, so name the run and say what is wrong with it.
@@ -205,9 +212,7 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'sub-too-short',
-      message:
-        `“${subs[0]}” is too short — the word you add or remove needs at least ` +
-        `${minSub} letters.`,
+      reason: { message: says.subTooShort, values: { sub: subs[0], min: minSub } },
     };
   }
 
@@ -215,12 +220,12 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'too-short',
-      message: `Words in this puzzle are at least ${minWord} letters.`,
+      reason: { message: says.tooShort, values: { min: minWord } },
     };
   }
 
   if (isWord && !isWord(word)) {
-    return { ok: false, code: 'not-a-word', message: `${word} isn’t in the word list.` };
+    return { ok: false, code: 'not-a-word', reason: { message: says.notAWord, values: { word } } };
   }
 
   // `word` is real (or unverifiable) and the edit is one clean run, so the run
@@ -230,13 +235,13 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'sub-not-word',
-      message: `That would ${adding ? 'add' : 'remove'} “${named}”, which isn’t a word.`,
+      reason: { message: says.subNotWord, values: { adding: String(adding), sub: named } },
     };
   }
 
   return {
     ok: false,
     code: 'no-move',
-    message: `No legal move gets from ${from} to ${word}.`,
+    reason: { message: says.noMove, values: { from, word } },
   };
 }

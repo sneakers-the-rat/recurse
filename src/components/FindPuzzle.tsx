@@ -14,8 +14,11 @@
  */
 
 import { memo, useMemo, useState } from 'react';
+import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
+import { archive as says } from '../i18n/messages/archive';
 import type { Pair } from '../lib/data';
 import { PuzzleCard } from './PuzzleCard';
+import { Arrow } from './marks';
 
 /** Results shown at once. A two-letter query matches thousands; nobody reads thousands. */
 const RESULTS = 40;
@@ -59,15 +62,27 @@ export const FindPuzzle = memo(function FindPuzzle({
   return (
     <div className="border-rule border">
       <div className="border-rule flex flex-wrap items-center gap-2 border-b p-3">
-        <Field value={source} onChange={setSource} label="source" ready={pairs !== null} />
-        <span className="text-ash-lit">→</span>
-        <Field value={target} onChange={setTarget} label="target" ready={pairs !== null} />
+        <Field
+          value={source}
+          onChange={setSource}
+          placeholder={says.fieldSource}
+          name={says.findBySource}
+          ready={pairs !== null}
+        />
+        <Arrow />
+        <Field
+          value={target}
+          onChange={setTarget}
+          placeholder={says.fieldTarget}
+          name={says.findByTarget}
+          ready={pairs !== null}
+        />
       </div>
       {asked ? (
         <Results shown={shown} total={total} played={played} bandName={bandName} onOpen={onOpen} />
       ) : (
         <p className="label text-ash-lit p-3 normal-case">
-          Part of either word will do. Only puzzles that have already come up.
+          <FormattedMessage {...says.searchHint} />
         </p>
       )}
     </div>
@@ -77,20 +92,23 @@ export const FindPuzzle = memo(function FindPuzzle({
 function Field({
   value,
   onChange,
-  label,
+  placeholder,
+  name,
   ready,
 }: {
   value: string;
   onChange: (next: string) => void;
-  label: string;
+  placeholder: MessageDescriptor;
+  name: MessageDescriptor;
   ready: boolean;
 }) {
+  const intl = useIntl();
   return (
     <input
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      placeholder={ready ? label : 'loading…'}
-      aria-label={`Find a puzzle by its ${label} word`}
+      placeholder={intl.formatMessage(ready ? placeholder : says.fieldLoading)}
+      aria-label={intl.formatMessage(name)}
       autoComplete="off"
       className="word border-rule text-bone focus:border-gilt min-w-0 flex-1 border bg-transparent px-2 py-1 outline-none"
     />
@@ -110,16 +128,28 @@ function Results({
   bandName: (band: number) => string;
   onOpen: (id: string) => void;
 }) {
+  const intl = useIntl();
   return (
     <div className="p-2">
       <p className="label text-ash-lit mb-2 normal-case" role="status">
-        {total === 0
-          ? 'No puzzle yet with those words.'
-          : `${total} puzzle${total === 1 ? '' : 's'}${
-              total > shown.length ? `, showing ${shown.length}` : ''
-            }`}
+        {total === 0 ? (
+          <FormattedMessage {...says.noMatches} />
+        ) : (
+          <FormattedMessage
+            {...says.matches}
+            values={{
+              total,
+              capped: String(total > shown.length),
+              shown: shown.length,
+            }}
+          />
+        )}
       </p>
-      <div className="grid gap-1 sm:grid-cols-2" role="group" aria-label="Puzzles found">
+      <div
+        className="grid gap-1 sm:grid-cols-2"
+        role="group"
+        aria-label={intl.formatMessage(says.found)}
+      >
         {shown.map((pair) => {
           const when = played.get(pair.id)!;
           return (

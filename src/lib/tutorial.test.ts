@@ -157,18 +157,29 @@ describe('selectors', () => {
   });
 });
 
+/**
+ * A throwaway message descriptor.
+ *
+ * These tests are about the machinery — which beat is current, when the arrow unlocks,
+ * what a run remembers — and never about what a card says. The text is the id so a failure
+ * still reads, but nothing here asserts on it.
+ */
+function card(id: string) {
+  return { id, defaultMessage: id };
+}
+
 describe('running a lesson', () => {
   const lesson: Lesson = {
     puzzle: 'aaaa1111',
     steps: [
-      { id: 'read', title: 'Read this', body: null },
+      { id: 'read', title: card('Read this'), body: null },
       {
         id: 'guess',
-        title: 'Now guess',
+        title: card('Now guess'),
         body: null,
-        ask: { prompt: 'Name baseball.', done: reached('baseball') },
+        ask: { prompt: card('Name baseball.'), done: reached('baseball') },
       },
-      { id: 'end', title: 'Done', body: null },
+      { id: 'end', title: card('Done'), body: null },
     ],
   };
 
@@ -245,18 +256,18 @@ describe('a card in several beats', () => {
     steps: [
       {
         id: 'two-parts',
-        title: 'Tap, then name',
+        title: card('Tap, then name'),
         body: null,
         spotlight: { on: 'word', word: 'cannon' },
-        ask: { prompt: 'Tap cannon.', done: standingOn('cannon') },
+        ask: { prompt: card('Tap cannon.'), done: standingOn('cannon') },
         beats: [
           {
             spotlight: { on: 'chrome', part: 'guess' },
-            ask: { prompt: 'Name cannonball.', done: reached('cannonball') },
+            ask: { prompt: card('Name cannonball.'), done: reached('cannonball') },
           },
         ],
       },
-      { id: 'end', title: 'Done', body: null },
+      { id: 'end', title: card('Done'), body: null },
     ],
   };
 

@@ -8,13 +8,15 @@
  */
 
 import { memo, useMemo, useState } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { bandName as translateBand } from '../i18n/bands';
+import { archive as says } from '../i18n/messages/archive';
 import {
-  MONTH_NAMES,
+  MONTHS,
   archiveRange,
   clampMonth,
   compareMonths,
   monthDays,
-  monthName,
   stepMonth,
   type Month,
 } from '../lib/archive';
@@ -38,6 +40,7 @@ export const Calendar = memo(function Calendar({
   wordsFor,
   onOpen,
 }: Props) {
+  const intl = useIntl();
   const range = useMemo(() => archiveRange(manifest.epoch, today), [manifest.epoch, today]);
   // Opens on the month today is in, which is the one with something new in it.
   const [at, setAt] = useState<Month>(range.last);
@@ -45,7 +48,10 @@ export const Calendar = memo(function Calendar({
 
   const go = (to: Month) => setAt(clampMonth(to, range.first, range.last));
   const days = useMemo(() => monthDays(at, today, manifest.epoch), [at, today, manifest.epoch]);
-  const bandName = (band: number) => manifest.bands[band]?.name ?? '';
+  const bandName = (band: number) => {
+    const name = manifest.bands[band]?.name;
+    return name ? translateBand(intl, name) : '';
+  };
 
   /** The three boards of a date, or none until that year's calendar has arrived. */
   const boardsOn = (date: string): Board[] => {
@@ -88,7 +94,9 @@ export const Calendar = memo(function Calendar({
           }}
         />
       ) : !years.has(at.year) ? (
-        <p className="label text-ash-lit p-4 normal-case">Reading the calendar…</p>
+        <p className="label text-ash-lit p-4 normal-case">
+          <FormattedMessage {...says.reading} />
+        </p>
       ) : (
         <Days days={days} boardsOn={boardsOn} bandName={bandName} onOpen={onOpen} />
       )}
@@ -112,9 +120,12 @@ function Nav({
   onStep: (by: number) => void;
   onZoom: () => void;
 }) {
+  const intl = useIntl();
   // What a step means here, and so what it can be stopped by: a year view runs out of years, a
-  // month view runs out of months.
-  const unit = zoomed ? 'year' : 'month';
+  // month view runs out of months. Two whole names rather than a frame with a noun dropped
+  // into it: "the {unit} before" is a sentence only English can be assembled that way.
+  const back = zoomed ? says.yearBefore : says.monthBefore;
+  const on = zoomed ? says.yearAfter : says.monthAfter;
   const before = zoomed ? at.year - 1 < first.year : compareMonths(at, first) <= 0;
   const after = zoomed ? at.year + 1 > last.year : compareMonths(at, last) >= 0;
 
@@ -125,9 +136,9 @@ function Nav({
         disabled={before}
         className="label text-ash-lit hover:text-gilt disabled:opacity-30"
         type="button"
-        aria-label={`The ${unit} before`}
+        aria-label={intl.formatMessage(back)}
       >
-        ‹ prev
+        <FormattedMessage {...says.prev} />
       </button>
       <button
         onClick={onZoom}
@@ -135,16 +146,20 @@ function Nav({
         type="button"
         aria-expanded={zoomed}
       >
-        {zoomed ? at.year : monthName(at)}
+        {zoomed ? (
+          at.year
+        ) : (
+          <FormattedMessage {...says.monthName} values={{ month: at.month, year: at.year }} />
+        )}
       </button>
       <button
         onClick={() => onStep(1)}
         disabled={after}
         className="label text-ash-lit hover:text-gilt disabled:opacity-30"
         type="button"
-        aria-label={`The ${unit} after`}
+        aria-label={intl.formatMessage(on)}
       >
-        next ›
+        <FormattedMessage {...says.next} />
       </button>
     </div>
   );
@@ -167,15 +182,15 @@ function Months({
 
   return (
     <div className="grid grid-cols-3 gap-2 p-3 sm:grid-cols-4">
-      {MONTH_NAMES.map((name, index) => (
+      {MONTHS.map((month) => (
         <button
-          key={name}
-          onClick={() => onPick({ year: at.year, month: index + 1 })}
-          disabled={outside({ year: at.year, month: index + 1 })}
+          key={month}
+          onClick={() => onPick({ year: at.year, month })}
+          disabled={outside({ year: at.year, month })}
           type="button"
           className="border-rule text-bone-dim hover:border-gilt hover:text-gilt border px-2 py-3 text-sm disabled:opacity-25 disabled:hover:border-neutral-800"
         >
-          {name}
+          <FormattedMessage {...says.monthShort} values={{ month }} />
         </button>
       ))}
     </div>
@@ -206,7 +221,11 @@ function Days({
     .filter(({ boards }) => boards.length > 0);
 
   if (shown.length === 0) {
-    return <p className="label text-ash-lit p-4 normal-case">Nothing from this month yet.</p>;
+    return (
+      <p className="label text-ash-lit p-4 normal-case">
+        <FormattedMessage {...says.emptyMonth} />
+      </p>
+    );
   }
   return (
     <ul>

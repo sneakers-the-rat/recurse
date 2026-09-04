@@ -15,15 +15,25 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "data": "cargo run --release --manifest-path tools/graphgen/Cargo.toml",
-    "data:build": "cargo build --release --manifest-path tools/graphgen/Cargo.toml"
+    "data:build": "cargo build --release --manifest-path tools/graphgen/Cargo.toml",
+    "lint": "eslint .",
+    "i18n:extract": "formatjs extract 'src/i18n/messages/**/*.ts' --format simple --out-file src/locales/en.json",
+    "i18n:validate": "formatjs compile src/locales/en.json --ast --format simple --out-file /dev/null",
+    "i18n:pseudo": "formatjs compile src/locales/en.json --format simple --ast --pseudo-locale xx-LS --out-file src/locales/xx-LS.json",
+    "i18n:check": "npm run i18n:extract && npm run i18n:pseudo && git diff --exit-code -- src/locales && npm run i18n:validate"
   },
   "dependencies": {
+    "@formatjs/intl": "^4.1.20",
     "d3-force": "^3.0.0",
     "driver.js": "^1.8.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-intl": "^10.1.26"
   },
   "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/eslint-parser": "^8.0.1",
+    "@formatjs/cli": "6.14.0",
     "@playwright/test": "^1.50.1",
     "@tailwindcss/vite": "^4.0.6",
     "@types/d3-force": "^3.0.10",
@@ -31,6 +41,9 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^10.9.1",
+    "eslint-plugin-formatjs": "^6.6.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "tailwindcss": "^4.0.6",
     "typescript": "^7.0.2",
     "vite": "^6.1.0",

@@ -17,7 +17,7 @@ async function startOn(page: Page, word: string) {
 
 async function guess(page: Page, word: string) {
   await page.getByLabel(/Your guess/).fill(word);
-  await page.getByRole('button', { name: 'Name it' }).click();
+  await page.getByRole('button', { name: 'Guess', exact: true }).click();
 }
 
 const error = (page: Page) => page.locator('#guess-error');

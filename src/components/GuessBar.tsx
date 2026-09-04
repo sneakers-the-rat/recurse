@@ -8,6 +8,8 @@
  */
 
 import { memo, useEffect, useRef, useState } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { guess as says } from '../i18n/messages/guess';
 import { MoveReadout } from './MoveReadout';
 import type { Graph } from '../lib/types';
 
@@ -79,6 +81,7 @@ export const GuessBar = memo(function GuessBar({
   onSubmit,
   onClearError,
 }: Props) {
+  const intl = useIntl();
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -108,7 +111,14 @@ export const GuessBar = memo(function GuessBar({
       <div className="mx-auto max-w-2xl">
         <div className="mb-2 flex items-baseline justify-between gap-3">
           <span className="label">
-            from <span className="word text-bone ml-1 tracking-normal normal-case">{from}</span>
+            <FormattedMessage
+              {...says.from}
+              values={{
+                word: (
+                  <span className="word text-bone ml-1 tracking-normal normal-case">{from}</span>
+                ),
+              }}
+            />
           </span>
           <div className="min-w-0 flex-1 text-right">
             <MoveReadout
@@ -133,8 +143,8 @@ export const GuessBar = memo(function GuessBar({
             className={`word bg-noir-3 min-w-0 flex-1 rounded-sm border px-3 py-2.5 text-lg
               outline-none transition-colors placeholder:tracking-normal placeholder:normal-case
               ${error ? 'border-blood refuse' : 'border-rule focus:border-gilt'}`}
-            placeholder="a word"
-            aria-label={`Your guess, starting from ${from}`}
+            placeholder={intl.formatMessage(says.field)}
+            aria-label={intl.formatMessage(says.fieldLabel, { from })}
             aria-invalid={error !== null}
             aria-describedby={error ? 'guess-error' : undefined}
             autoCapitalize="off"
@@ -151,7 +161,7 @@ export const GuessBar = memo(function GuessBar({
               disabled:text-ash-lit rounded-sm border px-4 transition-colors
               disabled:cursor-not-allowed disabled:hover:border-rule"
           >
-            Guess
+            <FormattedMessage {...says.submit} />
           </button>
         </div>
 

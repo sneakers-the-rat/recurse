@@ -28,6 +28,8 @@
  * *stored* belongs to storage.ts, which is the only module that touches `localStorage`.
  */
 
+import type { Phrase } from '../i18n/format';
+import { stats as says } from '../i18n/messages/stats';
 import type { GameState } from './game';
 import type { Mark } from './share';
 
@@ -452,7 +454,7 @@ export function exportStats(
 
 export type Import =
   | { ok: true; file: StatsFile; records: Completion[]; dropped: number }
-  | { ok: false; reason: string };
+  | { ok: false; reason: Phrase };
 
 /**
  * Read a file somebody pasted or picked, and say what is wrong with it if anything is.
@@ -464,17 +466,20 @@ export type Import =
  */
 export function parseStats(value: unknown): Import {
   if (typeof value !== 'object' || value === null) {
-    return { ok: false, reason: 'That is not a ReCurse stats file.' };
+    return { ok: false, reason: { message: says.notOurs } };
   }
   const raw = value as Record<string, unknown>;
   if (raw.app !== 'recurse' || raw.kind !== 'stats') {
-    return { ok: false, reason: 'That is not a ReCurse stats file.' };
+    return { ok: false, reason: { message: says.notOurs } };
   }
   const version = typeof raw.version === 'number' ? Math.trunc(raw.version) : 0;
   if (version > EXPORT_VERSION) {
     return {
       ok: false,
-      reason: `That file was written by a newer version of ReCurse (${version}, and this one reads ${EXPORT_VERSION}). Update the game and try again.`,
+      reason: {
+        message: says.tooNew,
+        values: { version: String(version), reads: EXPORT_VERSION },
+      },
     };
   }
   const offered = Array.isArray(raw.records) ? raw.records : [];

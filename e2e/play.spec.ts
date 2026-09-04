@@ -17,7 +17,7 @@ import {
 async function guess(page: Page, word: string) {
   const input = page.getByLabel(/Your guess/);
   await input.fill(word);
-  await page.getByRole('button', { name: 'Name it' }).click();
+  await page.getByRole('button', { name: 'Guess', exact: true }).click();
 }
 
 test('solves a puzzle perfectly by walking a shortest path', async ({ page }) => {
@@ -178,7 +178,7 @@ test('typing goes to the guess box wherever focus is', async ({ page }) => {
   await expect(input).toHaveValue(word);
 
   // And it is a real guess, not just text in a box.
-  await page.getByRole('button', { name: 'Name it' }).click();
+  await page.getByRole('button', { name: 'Guess', exact: true }).click();
   await expect(page.locator('header')).toContainText('1 guessed');
 });
 

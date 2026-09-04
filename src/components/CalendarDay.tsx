@@ -8,6 +8,8 @@
  */
 
 import { memo } from 'react';
+import { FormattedMessage } from 'react-intl';
+import { archive as says } from '../i18n/messages/archive';
 import { PuzzleCard } from './PuzzleCard';
 
 /** One board of one day, as the archive needs it. */
@@ -42,7 +44,7 @@ export const CalendarDay = memo(function CalendarDay({
         className={`label mb-1 block text-[0.65rem] ${today ? 'text-gilt' : 'text-ash-lit'}`}
       >
         {date}
-        {today ? ' · today' : ''}
+        {today && <FormattedMessage {...says.cardToday} />}
       </span>
       <div className="grid grid-cols-3 gap-1">
         {boards.map((board) => (

@@ -33,6 +33,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { tutorial as says } from '../i18n/messages/tutorial';
+import { StepBack, StepOn, Ticked } from './marks';
 import { driver, type Driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import {
@@ -140,6 +143,7 @@ export function Tutorial({
   onLeave,
   onRestart,
 }: Props) {
+  const intl = useIntl();
   /**
    * Where the player got to last time, if they have been here before.
    *
@@ -429,7 +433,7 @@ export function Tutorial({
         // itself as "Popover Title".
         dom.wrapper.removeAttribute('aria-labelledby');
         dom.wrapper.removeAttribute('aria-describedby');
-        dom.wrapper.setAttribute('aria-label', 'Tutorial');
+        dom.wrapper.setAttribute('aria-label', intl.formatMessage(says.name));
         // And the element itself goes, rather than being left hidden with the library's
         // placeholder in it: it is a `<header>`, so every test that reaches for the
         // masthead by tag finds two, and the second one says "Popover Title".
@@ -527,17 +531,13 @@ export function Tutorial({
       return (
         <div className="space-y-3">
           <h2 className="text-bone text-lg leading-tight font-semibold">
-            The tutorial’s board is not in this bank
+            <FormattedMessage {...says.wrongBoardTitle} />
           </h2>
           <p className="text-bone-dim text-sm leading-relaxed">
-            It is taught on one particular puzzle,{' '}
-            <span className="word text-bone">{lesson.puzzle}</span>, and a rebuild that
-            changed that puzzle’s answer changed its address. Point{' '}
-            <span className="word text-bone">LESSON.puzzle</span> at a board that is still
-            there, and rewrite the steps that name its words.
+            <FormattedMessage {...says.wrongBoardBody} values={{ id: lesson.puzzle }} />
           </p>
           <button type="button" onClick={onLeave} className={QUIET}>
-            Back to today
+            <FormattedMessage {...says.backToToday} />
           </button>
         </div>
       );
@@ -548,7 +548,9 @@ export function Tutorial({
       // Named, so a test can say which card and which beat it is looking at without
       // reading the prose.
       <div data-step={step.id} data-beat={run.beat} className="space-y-3">
-        <h2 className="text-bone text-lg leading-tight font-semibold">{step.title}</h2>
+        <h2 className="text-bone text-lg leading-tight font-semibold">
+          <FormattedMessage {...step.title} />
+        </h2>
 
         <div className="text-bone-dim space-y-2 text-sm leading-relaxed">{step.body}</div>
 
@@ -566,12 +568,8 @@ export function Tutorial({
             }`}
             role="status"
           >
-            {cleared && (
-              <span aria-hidden className="mr-1.5">
-                ✓
-              </span>
-            )}
-            {stage.ask.prompt}
+            {cleared && <Ticked />}
+            <FormattedMessage {...stage.ask.prompt} />
           </p>
         )}
 
@@ -584,27 +582,27 @@ export function Tutorial({
           */}
           <span className="flex items-center gap-3">
             <button type="button" onClick={onLeave} className={QUIET}>
-              leave
+              <FormattedMessage {...says.leave} />
             </button>
             {run.at > 0 && (
               <button type="button" onClick={onAgain} className={QUIET}>
-                start over
+                <FormattedMessage {...says.startOver} />
               </button>
             )}
           </span>
 
           <span className="flex items-center gap-2">
             <span className="label text-ash-lit">
-              {through.at}/{through.of}
+              <FormattedMessage {...says.progress} values={{ at: through.at, of: through.of }} />
             </span>
             <button
               type="button"
               onClick={onBack}
               disabled={!backward}
-              aria-label="Previous step"
+              aria-label={intl.formatMessage(says.back)}
               className={ARROW}
             >
-              ‹
+              <StepBack />
             </button>
             <button
               type="button"
@@ -613,10 +611,10 @@ export function Tutorial({
               // and can be clicked past has taught nothing. The last one is always
               // pressable, because finishing is not a thing to be gated.
               disabled={!forward && !last}
-              aria-label={last ? 'Finish the tutorial' : 'Next step'}
+              aria-label={intl.formatMessage(last ? says.finish : says.on)}
               className={last ? DONE : ARROW}
             >
-              {last ? 'Done' : '›'}
+              {last ? <FormattedMessage {...says.done} /> : <StepOn />}
             </button>
           </span>
         </div>
