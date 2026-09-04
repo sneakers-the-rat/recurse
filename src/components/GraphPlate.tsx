@@ -805,7 +805,6 @@ export function GraphPlate({
                         : stroke
                 }
                 strokeWidth={trail ? (golden ? 2 : 1.6) : ahead ? 1.8 : lifted ? 1.8 : 1}
-                strokeDasharray={live ? '2 4' : undefined}
                 opacity={ahead || lifted ? 1 : trail ? 1 : bothKnown ? 0.9 : live ? 0.85 : 0.6}
               />
               {/*
