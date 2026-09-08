@@ -31,9 +31,9 @@ export const header = defineMessages({
   },
   lengthHolds: {
     id: 'header.lengthHolds',
-    defaultMessage: 'par {min}–{max}',
+    defaultMessage: '({min}–{max})',
     description:
-      'What a length holds, in small caps beside its name: the range of par it covers. The dash is an en dash.',
+      'What a length holds, in small caps beside its name: the range of par it covers. Bracketed numbers rather than "par 3–4", because the masthead has to fit six boards’ worth of switch onto a phone and the word is the only part a reader does not need — the two numbers beside a length are legible as its range. The dash is an en dash.',
   },
 
   menu: {

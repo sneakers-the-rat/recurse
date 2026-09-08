@@ -1,10 +1,9 @@
 /**
- * One day of the archive: the date, and the three boards it offered.
+ * One day of the archive: the date, and every board it offered.
  *
- * Three columns, one per length, on every screen. A seven-column month grid was never wide
- * enough to read a word pair in — a desktop column is about 100px and a phone's is 58, and the
- * words are longer than either — so the calendar is a stack of days and the *lengths* get the
- * columns.
+ * A column per board, on every screen. A seven-column month grid was never wide enough to read
+ * a word pair in — a desktop column is about 100px and a phone's is 58, and the words are
+ * longer than either — so the calendar is a stack of days and the *boards* get the columns.
  */
 
 import { memo } from 'react';

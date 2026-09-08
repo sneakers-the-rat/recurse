@@ -84,9 +84,9 @@ export function daysInMonth(at: Month): number {
 /**
  * The days of a month, in order, with what is known about each.
  *
- * A flat list rather than a grid of weeks. The archive draws every day as a row of three boards —
- * one per length — because a seven-column month is never wide enough to read three word pairs in
- * a square, on any screen: a desktop column is about 100px and a phone's is 58, and the words are
+ * A flat list rather than a grid of weeks. The archive draws every day as a row of its boards —
+ * one per band — because a seven-column month is never wide enough to read a word pair in a
+ * square, on any screen: a desktop column is about 100px and a phone's is 58, and the words are
  * longer than either. So there is no week structure to build, no leading blanks, and no
  * first-day-of-week question to get wrong.
  */

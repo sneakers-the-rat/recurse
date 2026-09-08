@@ -124,7 +124,22 @@ export default [
       'formatjs/enforce-default-message': ['error', 'literal'],
       'formatjs/enforce-description': 'error',
       'formatjs/no-invalid-icu': 'error',
-      'formatjs/no-multiple-whitespaces': 'error',
+      /*
+       * **Off, so a long message can be written as a multiline template literal.**
+       *
+       * A paragraph of prose on one line is not something anybody can read or diff, and this
+       * catalog has several — the rules page and the tutorial are paragraphs. The indentation
+       * of a wrapped template literal is *inside* the string, which is what this rule was
+       * catching.
+       *
+       * It is safe to turn off because `formatjs extract` collapses every run of whitespace
+       * and every newline to a single space and trims the ends — that is its default, and
+       * `--preserve-whitespace` is the flag that would stop it. So the message that ships is
+       * normalised whatever the source looked like, and `messages.test.ts` asserts exactly
+       * that over the built catalog rather than over the source. Checking the artefact is the
+       * stronger of the two: it is the thing a translator is handed.
+       */
+      'formatjs/no-multiple-whitespaces': 'off',
       'formatjs/no-offset': 'error',
     },
   },

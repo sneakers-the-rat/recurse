@@ -1,0 +1,268 @@
+# ReCurse configuration.
+#
+# One source of truth for the numbers that shape the game. The builder reads this
+# file, then stamps the values it used into public/data/*.json — so the web app
+# reads them back out of the data rather than duplicating them here. Change a
+# value, re-run `npm run data`, and both sides move together.
+#
+# Three levels, and the middle one is the point. `shared` is what cannot differ
+# between modes without breaking addressing or the calendar. `defaults` is every
+# knob a mode has, set once. `modes` is the list of games this bank holds, each
+# overriding whatever it wants of `defaults` and nothing else.
+#
+# Any value can be overridden for one run by an environment variable:
+#
+#   RECURSE_MIN_SUB=3 npm run data          every mode
+#   RECURSE_PHONEMES_MIN_SUB=3 npm run data just that one
+#
+# The name is the key in SCREAMING_SNAKE_CASE, with the mode's name in front of it
+# for the per-mode form. See `Config::load`.
+
+# --- what cannot differ between modes ---------------------------------------
+shared:
+  # Day one. The calendar is written as one file per calendar year, so the builder
+  # needs the date the count starts from — and the client, which used to hard-code
+  # it, reads it out of the manifest instead. Two copies of the game's start date is
+  # one too many.
+  #
+  # Moving it moves every puzzle to a different date. Nothing else depends on it.
+  epoch: 2025-01-01
+
+  # Shuffle seed. Changing this reshuffles which puzzle falls on which day.
+  seed: 20260725
+
+  # How many hex digits long a puzzle's blake2s id is, which is the whole of its
+  # URL: /recurse/2ed944641b7c. Twelve is 48 bits, 281 trillion addresses: over a
+  # bank of 175,000 that is a 0.00003% chance two puzzles want the same address, and
+  # the builder refuses to write a bank where that happened rather than shipping two
+  # boards at one URL. The number has to be read against the size of the bank —
+  # eight digits is a coin flip at 175,000 puzzles, and was fine at a few thousand.
+  #
+  # Not a display width: the length is one of blake2's parameters, so changing this
+  # gives every puzzle a completely different id rather than a longer one, and every
+  # link anyone has shared stops resolving. Even numbers only.
+  #
+  # Shared because every mode's puzzles live in one id space and one set of shards.
+  idChars: 12
+
+  # Puzzles a word waits before it may be an endpoint again, within its own band.
+  # Ordering only — no puzzle is ever dropped for repeating a word; when the gap
+  # cannot be honoured the next puzzle is placed anyway. The same day's puzzles are
+  # also kept off each other's endpoints where the calendar allows it, on the same
+  # terms.
+  minGap: 45
+
+# --- every knob a mode has --------------------------------------------------
+# A mode that says nothing gets exactly these.
+defaults:
+  # Which alphabet the graph is built over. `letters` is the spelling of a word;
+  # `phonemes` is its pronunciation, one character per phoneme. See phonetic.rs.
+  alphabet: letters
+
+  # Shortest word that can be a node in the graph, in units of the alphabet.
+  minWord: 4
+  # Shortest run that can be added or removed. Two letters makes the graph roughly
+  # twice as dense, which means far more routes and far more alternatives to weigh.
+  minSub: 2
+
+  # Dictionaries (SCOWL sizes: 35 small ... 80 comprehensive).
+  #
+  # LEGAL is the graph that ships and every word a player may guess. Generous on
+  # purpose: refusing an ordinary word reads as a bug, not a rule.
+  legalScowl: 80
+  # COMMON is only a filter on which puzzles get offered — never on what is legal.
+  # A puzzle qualifies when its whole best route is made of words at this level.
+  commonScowl: 35
+
+  # How wide a neighbourhood puzzle *selection* measures, as a difficulty statistic
+  # on the common graph. Not a ceiling: how much of it gets drawn is the client's
+  # business. Even numbers only — parity means an odd value covers exactly what the
+  # even value below it covers.
+  slack: 6
+
+  # Shortest and longest answer the builder looks for. maxPar is a ceiling on the
+  # *search*, not a filter on taste: every par in this range ships, par is recorded
+  # on each puzzle, and how par maps to difficulty is the client's business.
+  minPar: 3
+  maxPar: 10
+
+  # Moves out of the opening word that have to lead to the target without coming
+  # back through it, so the first move is a choice and not the only option.
+  minSourceMoves: 2
+
+  # What a puzzle declares it is. A puzzle is a set of shortest ways through (drawn
+  # gold), a few longer ways (green), and a little of the graph joining them. The
+  # builder decides all of it once; the client draws what it is given.
+  #
+  # How many longer ways through to declare. Each one is node-disjoint from every way
+  # already declared, which is what makes it another way to play rather than a detour
+  # off the last one — in a graph this dense, almost any word beside the answer can
+  # step off it and back a move later, and hundreds of those are worthless.
+  altWays: 4
+  # How many moves past par one of those may take. Beyond this it joins the same two
+  # words without being a recognisable answer to the same puzzle.
+  altSlack: 4
+  # Consecutive words an alternative must spend away from every route already
+  # declared. One means a single-word bulge beside the answer counts, which is the
+  # same way through with a wart on it; two is the least that reads as going
+  # somewhere else. The common graph averages 2.1 moves per word, so asking for long
+  # divergences finds nothing at all.
+  minDivergence: 2
+  # How much surrounding graph to declare, as a percentage of the words on a way
+  # through. Only words joining two or more of them qualify: one drawn neighbour is a
+  # spur and says nothing, two is a cross-link. Zero draws the ways as bare parallel
+  # lines.
+  #
+  # Forty-five, because past that the budget buys board size rather than
+  # connectedness. Measured over four puzzles at 25 / 45 / 70 / 100 percent, every
+  # setting gives a board more edges than words — which is to say some cross-links —
+  # while the words roughly double: `sinking → stapled` goes from 45 words to 72 to
+  # gain 0.15 edges per word. The goal is *some* rungs, not every rung.
+  #
+  # What made this work was taking the cheapest rungs first, not raising the budget.
+  # Sorted alphabetically, a couple of long chains ate the whole allowance and the
+  # single-word cross-links were never reached.
+  aroundPercent: 45
+  # How long a chain running *between* two ways through may be. One finds only single
+  # words with two neighbours on the board; further reaches find the rungs — the short
+  # hops from a word on one chain to a word on another — which is what stops a board
+  # being two parallel lines joined only at the ends.
+  linkReach: 3
+
+  # Moves in the solution that must add or remove a word from strictly inside
+  # another. Without this a puzzle can be solved purely by gluing compounds.
+  minInternal: 1
+  # Prefix/suffix swaps allowed in the solution — splitting apart a compound you just
+  # made (while + mean = meanwhile, drop while, reach mean) discovers nothing.
+  maxSwaps: 0
+  # Common-graph nodes that must form a genuine longer way round.
+  minAltNodes: 4
+
+  # Words so many answers pivot on that arriving at one stops being a discovery, and sets of
+  # words that are only overexposed *together*. Per mode, because exposure is a property of one
+  # graph: a hub of the spelling graph means nothing to the sound one. See `Overexposed` in
+  # select.rs, and *The rulebook* in CLAUDE.md for how to read a word's exposure before adding
+  # it — `pivots.test.ts` counts, `npm run data -- routes` reads.
+  #
+  # Empty by default. A mode says its own.
+  tooFrequent: []
+  tooFrequentClusters: []
+
+# --- the games this bank holds ----------------------------------------------
+# Order is the order the lengths appear in the manifest and on the masthead, and a
+# band's index is its position in the flattened list. Appending a mode is safe;
+# reordering renumbers every band and invalidates stored preferences.
+modes:
+  # The original game: words inside words, by spelling.
+  - name: letters
+    # Every day offers one puzzle of each of these, and `bandCuts` is where they
+    # divide: the last par of the first band, then of the second. The final band is
+    # everything above.
+    #
+    # 4,6 was the evenest three-way split this par distribution had. It is now out of
+    # tune — see the band table `npm run data` prints — because the frequency rules
+    # refuse far more at high par than at low. Re-tuning is a taste decision nobody
+    # has made yet.
+    bands: [short, medium, long]
+    bandCuts: [4, 6]
+
+    # `sing` lies on a shortest route of 44% of the bank and `reed` of 27%, because both fit
+    # inside hundreds of longer words. The effect over a run of days is that the answers keep
+    # arriving at the same two hubs by different roads, which reads as one puzzle wearing
+    # costumes. Banning them cost 72% of the bank — their combined pivot share, the two barely
+    # ever appearing on one answer — and took the most-pivoted word from 44% of answers to 19%.
+    tooFrequent: [reed, sing]
+
+    # Combinations, each of them one hub wearing several names. `cons → contractions → ions` is
+    # a fixed three-step, and all three are on one answer 7,119 times — exactly as often as any
+    # two of them, which is what made it a cluster rather than three separate bans. Two sets
+    # share `king`: it pivots the `wing` chain and the `thing` chain, which are different
+    # three-steps through it rather than one bigger cluster.
+    tooFrequentClusters:
+      - [cons, contractions, ions]
+      - [wing, winking, king]
+      - [thing, thinking, king]
+      - [fore, forearmed, formed]
+
+  # The same game played by ear: the graph is built over pronunciations, so a move
+  # finds a word inside a word by *sound* rather than by spelling.
+  #
+  # Three lengths, cut where the letters mode cuts. That was measured rather than
+  # copied: all 21 valid cuts were counted, and 4,6 is both the evenest three-way
+  # split this par distribution has and an evener one than it gives the letters mode
+  # (35.8 / 38.3 / 26.0 against 43.6 / 37.4 / 18.9). The runner-up, 4,5, comes out
+  # 35.8 / 18.3 / 46.0. So the two games divide at the same two numbers by measurement
+  # and not by symmetry, and a rebuild that moves either distribution should re-measure
+  # rather than assume they still agree.
+  #
+  # minWord is in phonemes, not letters, so it is lower than the letters mode's: four
+  # phonemes is a long word. The knobs left at their defaults are deliberately
+  # untuned — the taste pass comes after this mode can be played at all.
+  - name: phonemes
+    alphabet: phonemes
+    bands: [short, medium, long]
+    bandCuts: [4, 6]
+    minWord: 3
+    minSub: 2
+    # **Written in ordinary spelling, the same as every other mode's list.** A transcription is
+    # what the diagnostics print and cannot be typed; `nodes_named` in select.rs is the one place
+    # a spelling becomes graph nodes, and naming a word bans every way of saying it — `can` is
+    # `/kæn/` and `/kən/`, and the build prints which readings a name expanded to so an
+    # over-broad ban is visible rather than inferred. A name that matches nothing stops the
+    # build rather than being ignored.
+    #
+    # The letters mode's list says nothing about this one: `reed` and `sing` are hubs there
+    # because of the letters they are made of. Exposure is a property of one graph.
+    # `/ɹid/` (reed) is on 19.9% of the answers — the single biggest hub in this graph, and the
+    # meeting point of the two most productive affixes English has: `re-` is /ɹi/ and `-ed` is
+    # /d/, so every `re-…-ed` word passes through it. A cluster with `/ɹikənfɪɡjɚd/` was tried
+    # first, on the grounds that the two are one object (each is on ~100% of the other's
+    # answers); banning the word outright is both cheaper and, given how much of `/ɹid/` would
+    # end up banned cluster by cluster, where this was going anyway.
+    tooFrequent: [reed]
+
+    tooFrequentClusters: 
+      - [rid, raided, did]
+      - [can, beacon, been]
+      - [can, bacon, been]
+      - [did, depend, end]
+      - [did, graded, good]
+      - [ring, racing, sing]
+      - [ring, soaring, sing]
+      - [ring, sparring, sing]
+      - [ring, wreaking, king]
+      - [ring, raking, king]
+      - [did, banded, bid]
+      - [did, boarded, bid]
+      - [did, braided, bid]
+      - [did, brooded, bid]
+      - [did, denied, din]
+      - [did, denied, died]
+      - [did, candid, kid]
+      - [did, dated, mandated]
+      - [did, dated, mated]
+      - [can, carrion, care]
+      - [can, kitten, kit]
+      - [sing, standing, outstanding]
+      - [sing, stripping, outstripping]
+      - [sing, smarting, outsmarting]
+      - [ring, pouring, portending]
+      - [ring, flooring, fling]
+      - [king, wreaking, reclining]
+      - [king, wreaking, recruiting]
+      - [king, wreaking, requiring]
+      - [king, liking, likening]
+      - [tease, taxis, sees]
+      - [bees, bases, sees]
+      - [peas, parties, tease]
+      - [peas, panties, tease]
+      - [seeds, seaweeds, sees]
+      - [keys, crises, sees]
+      - [and, unmanned, manned]
+      - [and, manned, unmanned]
+      - [and, likened, lied]
+      - [and, unload]
+      - [and, weakened, weed]
+      - [real, recall, reek]
+      - [real, recoil, reek]
+      - [says, sizes, sighs]

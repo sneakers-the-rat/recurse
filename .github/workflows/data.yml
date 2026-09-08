@@ -11,7 +11,7 @@ name: Graph and puzzle bank
 # Two caches, and each one names exactly the inputs of the step it guards:
 #
 #   the crate     rustc, Cargo.lock/toml, src/**  ->  ~/.cargo and target/
-#   the data      those, plus .env, the blocklist and the corpora  ->  public/data
+#   the data      those, plus recurse.yaml, the blocklist and the corpora  ->  public/data
 #
 # So an ordinary change — a component, a comment, a README — rebuilds neither, and a change to
 # a selection rule rebuilds both, because it genuinely means a different bank.
@@ -90,7 +90,7 @@ jobs:
         with:
           path: public/data
           key: >-
-            data-${{ hashFiles('tools/graphgen/src/**', 'tools/graphgen/Cargo.lock', '.env',
+            data-${{ hashFiles('tools/graphgen/src/**', 'tools/graphgen/Cargo.lock', 'recurse.yaml',
             'tools/blocklist.txt', 'tools/cache/*.txt') }}
 
       # The search's own result, which the builder caches for itself in tools/cache. Restored
@@ -105,7 +105,7 @@ jobs:
         with:
           path: tools/cache/bank-*.tsv
           key: >-
-            bank-${{ hashFiles('tools/graphgen/src/**', 'tools/graphgen/Cargo.lock', '.env',
+            bank-${{ hashFiles('tools/graphgen/src/**', 'tools/graphgen/Cargo.lock', 'recurse.yaml',
             'tools/blocklist.txt', 'tools/cache/*.txt') }}
           restore-keys: bank-
 
@@ -117,7 +117,7 @@ jobs:
           path: bin
 
       # From the repo root, because that is how the builder finds the repo: it walks up
-      # looking for a .env beside a package.json.
+      # looking for a recurse.yaml beside a package.json.
       - name: Build the graph and the bank
         if: steps.cache.outputs.cache-hit != 'true'
         run: |

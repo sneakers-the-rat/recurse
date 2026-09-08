@@ -14,7 +14,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
-    "data": "cargo run --release --manifest-path tools/graphgen/Cargo.toml",
+    "data": "cargo run --release --manifest-path tools/graphgen/Cargo.toml --",
     "data:build": "cargo build --release --manifest-path tools/graphgen/Cargo.toml",
     "lint": "eslint .",
     "i18n:extract": "formatjs extract 'src/i18n/messages/**/*.ts' --format simple --out-file src/locales/en.json",

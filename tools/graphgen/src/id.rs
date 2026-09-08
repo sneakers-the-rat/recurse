@@ -1,14 +1,14 @@
 //! Puzzle identifiers: the address a shared board is reached at.
 //!
 //! A puzzle's id is a BLAKE2s digest of its answer, written as a canonical JSON
-//! array of the words, asked for at exactly `RECURSE_ID_CHARS` hex digits:
+//! array of the words, asked for at exactly `idChars` hex digits:
 //!
 //!     ["passing","starring"]  ->  5be37f57  ->  /recurse/5be37f57
 //!
 //! Asked for, not cut down to: the digest length is one of BLAKE2's parameters and
 //! goes into the state before a byte of message does, so a 4-byte digest is its own
 //! digest rather than the front of the 32-byte one. Every id therefore changes
-//! completely if `RECURSE_ID_CHARS` ever does — that knob is not a display width.
+//! completely if `idChars` ever does — that knob is not a display width.
 //!
 //! Two decisions worth knowing.
 //!

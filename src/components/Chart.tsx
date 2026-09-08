@@ -92,7 +92,18 @@ function inkOf(diff: number): string {
   return diff === 0 ? 'var(--color-bone)' : 'var(--color-bone-dim)';
 }
 
-/** One round: a disc, a square or a diamond, by which of the three lengths it was. */
+/**
+ * One round: a disc, a square or a diamond, by which of the three lengths it was.
+ *
+ * **Shape and not colour**, because colour is the game's grammar and says how the round went.
+ *
+ * **Three shapes, and there is no fourth.** `Dot.band` counts within the game on screen — the
+ * chart shows one game at a time — so these three cover every game there will ever be. It was
+ * numbered across the whole manifest once, which meant a shape per band: a fourth arrived with
+ * the second game, a fifth and sixth would have arrived with its other two lengths, and nobody
+ * can tell six small marks apart at three pixels. Splitting the screen per game is what made
+ * the shapes finite.
+ */
 function Mark({ dot }: { dot: Dot }) {
   const ink = inkOf(dot.diff);
   const r = 3;
@@ -167,11 +178,17 @@ export const ScorePlot = memo(function ScorePlot({
   bands,
 }: {
   records: readonly Completion[];
-  bands: readonly string[];
+  /**
+   * The lengths of the game being shown: what each is called, and which band of the manifest
+   * it is. The order is the order of the shapes, and the index into it is what a mark's shape
+   * is chosen by — see `Dot.band`.
+   */
+  bands: readonly { at: number; name: string }[];
 }) {
   const intl = useIntl();
   const [measure, width] = useWidth();
-  const chart = width > 0 ? scoreChart(records, frameOf(width)) : null;
+  const chart =
+    width > 0 ? scoreChart(records, frameOf(width), bands.map((one) => one.at)) : null;
 
   return (
     <Figure
@@ -232,12 +249,12 @@ export const ScorePlot = memo(function ScorePlot({
 
           {/* Which shape is which length. Three words, so it sits under the figure. */}
           <p className="label text-ash-lit mt-1 flex flex-wrap gap-x-3 text-[0.55rem]">
-            {bands.map((name, band) => (
-              <span key={name} className="flex items-center gap-1">
+            {bands.map((one, band) => (
+              <span key={one.at} className="flex items-center gap-1">
                 <svg width={9} height={9} aria-hidden>
-                  <Mark dot={{ x: 4.5, y: 4.5, band, diff: 0, date: '', key: name }} />
+                  <Mark dot={{ x: 4.5, y: 4.5, band, diff: 0, date: '', key: one.name }} />
                 </svg>
-                {name}
+                {one.name}
               </span>
             ))}
           </p>

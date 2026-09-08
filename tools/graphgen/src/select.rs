@@ -8,11 +8,12 @@
 //! beaten anywhere in the 190k-word graph — is by far the most expensive.
 
 
-use crate::config::{Audit, Config};
+use crate::config::{Alphabet, Audit, Mode, Shared};
 use crate::graph::{Bfs, FxMap, FxSet, Graph, UNREACHED};
 use crate::id::puzzle_id;
 use crate::progress::{Progress, BATCH};
-use crate::word::{by_length, is_compound_swap, readings, same_family};
+use crate::lexicon::Lexicon;
+use crate::word::{by_length, is_compound_swap, readings};
 
 #[derive(Debug, Clone)]
 pub struct Puzzle {
@@ -43,33 +44,14 @@ pub struct Puzzle {
     /// The board this puzzle declares: its ways through and a little of what joins them,
     /// encoded for the shard files. See board.rs — the client draws exactly this.
     pub board: String,
-    /// Which of the three lengths this is: 0 short, 1 medium, 2 long. Derived from par by
-    /// `band_of` and set by `schedule`, like `day` — so changing where the bands divide is
-    /// a calendar change and costs no search.
+    /// Which band this is, indexing the manifest's flattened list across every mode — so
+    /// the letters mode's three lengths are 0, 1, 2 and the phonemes mode's are 3, 4, 5.
+    ///
+    /// Set where the puzzle is built rather than by `schedule`, because par divides a
+    /// *mode's* bands and `schedule` runs once over the merged bank. See `Mode::band_of`.
+    /// Recomputed when a bank is read back from the cache, because `bandCuts` is not part
+    /// of the cache key — see `build_mode`.
     pub band: usize,
-}
-
-/// The three lengths a day offers. Not a knob: the game shows three, and a fourth would be
-/// a different game rather than a different number.
-pub const BANDS: usize = 3;
-
-/// Which length a par belongs to.
-///
-/// The cuts are the last par of the short band and of the medium one; long is everything
-/// above. Two cuts, three bands, and `Config::load` refuses cuts that would leave one empty.
-pub fn band_of(par: u32, cuts: (u32, u32)) -> usize {
-    if par <= cuts.0 {
-        0
-    } else if par <= cuts.1 {
-        1
-    } else {
-        2
-    }
-}
-
-/// What each band is called, and what it holds. The client shows both.
-pub fn band_name(band: usize) -> &'static str {
-    ["short", "medium", "long"][band.min(BANDS - 1)]
 }
 
 /// Fewest words a board may have and still be worth drawing.
@@ -84,46 +66,25 @@ const OFF_ROUTE_PER_MOVE: usize = 2;
 /// any answer presents.
 const BRANCH_REACH: u32 = 3;
 
-/// Words so many answers pivot on that arriving at one stops being a discovery.
-///
-/// **Not the content blocklist.** `tools/blocklist.txt` is about words nobody wants to read;
-/// this is about words everybody has read already this week. Both are bans and they are
-/// answering opposite questions, so they are kept apart: a word here is perfectly good and
-/// simply overexposed, and the list should shrink as the corpus grows rather than being tuned
-/// for taste.
-///
-/// `sing` lies on a shortest route of 44% of the bank and `reed` of 27% — see the pivot count in
-/// `pivots.test.ts` — because both fit inside hundreds of longer words. The effect over a run of
-/// days is that the answers keep arriving at the same two hubs by different roads, which reads
-/// as one puzzle wearing costumes.
-///
-/// A word here still **plays**: it is legal, it is drawn, and a route through it is a perfectly
-/// good thing for a player to find. What it may not be is on the answer the puzzle advertises.
-const TOO_FREQUENT: [&str; 2] = ["reed", "sing"];
-
-/// Sets of words that are only overexposed *together*.
-///
-/// The other list bans a word outright. These ban **combinations**, because each set is really one
-/// hub wearing several names: `cons → contractions → ions` is a fixed three-step, and
-/// `npm run data -- routes cons contractions ions` finds all three on one answer 7,119 times —
-/// exactly as often as it finds any two of them. So banning a single member would leave the others
-/// doing the same work, while banning all three separately would cost three times as much of the
-/// bank as the problem is worth: each is on thousands of answers by itself, and plenty of those are
-/// perfectly good puzzles that merely pass through one of them.
-///
-/// Hence clusters: a puzzle is refused when one answer walks the whole of *any* one set. Order and
-/// position do not matter — see `all_on_one_route`.
-///
-/// Sets may share a word, and two of these do: `king` is the pivot of both the `wing` chain and
-/// the `thing` chain, which are different three-steps through it rather than one bigger cluster.
-/// Merging them into a four-word set would ask an answer to walk all of `wing`, `thing` and
-/// `king`, which is a rarer and less interesting thing than either pair of moves through the hub.
-const TOO_FREQUENT_CLUSTERS: [&[&str]; 4] = [
-    &["cons", "contractions", "ions"],
-    &["wing", "winking", "king"],
-    &["thing", "thinking", "king"],
-    &["fore", "forearmed", "formed"],
-];
+// The two frequency lists — `tooFrequent` and `tooFrequentClusters` — live in
+// `recurse.yaml`, per mode, because exposure is a property of one graph: a hub of the
+// spelling graph means nothing to the sound one, and a list tuned for one game applied to
+// another refuses puzzles for a reason that was never measured there.
+//
+// **Not the content blocklist.** `tools/blocklist.txt` is about words nobody wants to read;
+// these are about words everybody has read already this week. Both are bans and they are
+// answering opposite questions, so they are kept apart: a word here is perfectly good and
+// simply overexposed, and the lists should shrink as a corpus grows rather than being tuned
+// for taste. A word on one still **plays**: it is legal, it is drawn, and a route through it
+// is a perfectly good thing to find. What it may not be is on the answer a puzzle advertises.
+//
+// `tooFrequent` bans a word outright. `tooFrequentClusters` bans **combinations**, because a
+// set is really one hub wearing several names: `cons → contractions → ions` is a fixed
+// three-step, and `npm run data -- routes cons contractions ions` finds all three on one
+// answer 7,119 times — exactly as often as it finds any two. Banning a single member would
+// leave the others doing the same work, while banning all three outright would cost three
+// times as much of the bank as the problem is worth. A puzzle is refused when one answer
+// walks the whole of *any* one set, in any order or position — see `all_on_one_route`.
 
 /// Every reason a candidate pair can be refused.
 ///
@@ -151,7 +112,7 @@ const TOO_FREQUENT_CLUSTERS: [&[&str]; 4] = [
 ///   Endpoint reuse is a matter of *calendar order* — see `spread`, which never
 ///   rejects anything.
 /// * A ceiling on par. Par is a difficulty statistic, recorded on every puzzle;
-///   `RECURSE_MAX_PAR` bounds the search and nothing else.
+///   `maxPar` bounds the search and nothing else.
 ///
 /// Every filter that can remove a puzzle from the bank is a variant here. A filter
 /// outside this enum is a filter nobody is auditing — which is exactly what
@@ -194,26 +155,26 @@ impl Rule {
     pub fn describe(self) -> (&'static str, &'static str) {
         match self {
             Rule::BoardTooSmall => ("nothing around the answer to weigh", "10, fixed"),
-            Rule::NoAlternatives => ("no genuine longer way round", "RECURSE_MIN_ALT_NODES"),
+            Rule::NoAlternatives => ("no genuine longer way round", "minAltNodes"),
             Rule::OffRouteTooFew => ("too little off the answer for its length", "2 x par, fixed"),
             Rule::NoLateBranch => ("nothing joins the answer past halfway", "par / 2, fixed"),
             // Asked of the source, and a pair is offered both ways round, so what it refuses
             // is a pair with a branch at *neither* end.
             Rule::OpeningForced => {
-                ("first move is forced — no branch at the root", "RECURSE_MIN_SOURCE_MOVES")
+                ("first move is forced — no branch at the root", "minSourceMoves")
             }
             Rule::NotInLegalGraph => ("an endpoint has no moves in the legal graph", "none"),
             Rule::SameFamilyOnRoute => ("two words on the answer are the same word", "none"),
-            Rule::CompoundSwap => ("answer splits or merges a compound", "RECURSE_MAX_SWAPS"),
+            Rule::CompoundSwap => ("answer splits or merges a compound", "maxSwaps"),
             Rule::NoInternalMove => {
                 ("too few moves find a word inside a word", "max(MIN_INTERNAL, par/2-1)")
             }
             Rule::ReverseAlreadyAdded => ("the same pair the other way round", "none"),
             Rule::ContainsTooFrequentWord => {
-                ("the answer runs through an overexposed word", "TOO_FREQUENT, fixed")
+                ("the answer runs through an overexposed word", "tooFrequent")
             }
             Rule::ContainsTooFrequentCluster => {
-                ("the answer walks a whole overexposed cluster", "TOO_FREQUENT_CLUSTERS, fixed")
+                ("the answer walks a whole overexposed cluster", "tooFrequentClusters")
             }
         }
     }
@@ -272,7 +233,7 @@ impl Needs {
     }
 }
 
-/// Longest par a tally has a column for. `RECURSE_MAX_PAR` is bounded well inside this, and
+/// Longest par a tally has a column for. `maxPar` is bounded well inside this, and
 /// a par past it is counted in the last column rather than panicking a build over a report.
 pub const PAR_SLOTS: usize = 16;
 
@@ -356,17 +317,18 @@ fn judge_solutions(
     src: u32,
     tgt: u32,
     depth_from_tgt: &dyn Fn(u32) -> u32,
-    config: &Config,
+    mode: &Mode,
+    lex: &Lexicon,
     stop_early: bool,
     broken: &mut Vec<Rule>,
 ) -> Vec<String> {
     let mut shown: Vec<String> = Vec::new();
     // One buffer for the whole walk, pushed and popped as it descends. The answer
     // reads source-first, which is the order the swap rule is defined in.
-    let mut path: Vec<u32> = Vec::with_capacity(config.max_par + 1);
+    let mut path: Vec<u32> = Vec::with_capacity(mode.max_par + 1);
     path.push(src);
     descend(
-        common, subs, tgt, depth_from_tgt, config, stop_early, broken, &mut shown, &mut path,
+        common, subs, tgt, depth_from_tgt, mode, lex, stop_early, broken, &mut shown, &mut path,
     );
 
     // Stable regardless of the order the DAG walk happened to find them.
@@ -390,7 +352,8 @@ fn descend(
     subs: &FxSet<&str>,
     tgt: u32,
     depth_from_tgt: &dyn Fn(u32) -> u32,
-    config: &Config,
+    mode: &Mode,
+    lex: &Lexicon,
     stop_early: bool,
     broken: &mut Vec<Rule>,
     shown: &mut Vec<String>,
@@ -401,7 +364,7 @@ fn descend(
 
     let last = *path.last().expect("never empty");
     if last == tgt {
-        judge_one_answer(common, subs, path, config, broken);
+        judge_one_answer(common, subs, path, mode, lex, broken);
         if broken.is_empty() && shown.len() < SHOWN {
             shown.push(
                 path.iter().map(|&id| common.word(id)).collect::<Vec<_>>().join(" → "),
@@ -421,7 +384,7 @@ fn descend(
         if closer != UNREACHED && closer + 1 == depth {
             path.push(next);
             descend(
-                common, subs, tgt, depth_from_tgt, config, stop_early, broken, shown, path,
+                common, subs, tgt, depth_from_tgt, mode, lex, stop_early, broken, shown, path,
             );
             path.pop();
         }
@@ -436,13 +399,14 @@ fn judge_one_answer(
     common: &Graph,
     subs: &FxSet<&str>,
     path: &[u32],
-    config: &Config,
+    mode: &Mode,
+    lex: &Lexicon,
     broken: &mut Vec<Rule>,
 ) {
     // No two words anywhere on the route may be forms of the same word.
     let family_clash = (0..path.len()).any(|i| {
         ((i + 1)..path.len())
-            .any(|j| same_family(common.word(path[i]), common.word(path[j])))
+            .any(|j| lex.same_family(common.word(path[i]), common.word(path[j])))
     });
     if family_clash {
         note(broken, Rule::SameFamilyOnRoute);
@@ -450,9 +414,9 @@ fn judge_one_answer(
 
     let swaps = path
         .windows(3)
-        .filter(|w| is_compound_swap(common.word(w[0]), common.word(w[1]), common.word(w[2])))
+        .filter(|w| is_compound_swap(lex, common.word(w[0]), common.word(w[1]), common.word(w[2])))
         .count();
-    if swaps > config.max_swaps {
+    if swaps > mode.max_swaps {
         note(broken, Rule::CompoundSwap);
     }
 
@@ -460,10 +424,10 @@ fn judge_one_answer(
     let internal = path
         .windows(2)
         .filter(|w| {
-            has_internal_reading(common.word(w[0]), common.word(w[1]), &is_word, config.min_sub)
+            has_internal_reading(common.word(w[0]), common.word(w[1]), &is_word, mode.min_sub)
         })
         .count();
-    if internal < internal_wanted(config, (path.len() - 1) as u32) {
+    if internal < internal_wanted(mode, (path.len() - 1) as u32) {
         note(broken, Rule::NoInternalMove);
     }
 }
@@ -515,8 +479,8 @@ fn canonical_answer(
 ///
 ///     par  3 4 5 6 7 8 9 10
 ///     want 1 1 1 2 2 3 3 4
-fn internal_wanted(config: &Config, par: u32) -> usize {
-    config.min_internal.max((par as usize / 2).saturating_sub(1))
+fn internal_wanted(mode: &Mode, par: u32) -> usize {
+    mode.min_internal.max((par as usize / 2).saturating_sub(1))
 }
 
 /// Record a broken rule once, however many answers break it.
@@ -562,7 +526,7 @@ pub fn board_words(
     par: u32,
     from_src: &dyn Fn(u32) -> u32,
     from_tgt: &dyn Fn(u32) -> u32,
-    config: &Config,
+    mode: &Mode,
     bfs: &mut Bfs,
 ) -> Vec<u32> {
     let empty: FxSet<u32> = FxSet::default();
@@ -585,7 +549,7 @@ pub fn board_words(
         }
     }
 
-    let limit = par + config.alt_slack as u32;
+    let limit = par + mode.alt_slack as u32;
 
     // A second way out of **each end**, whatever it costs in divergence.
     //
@@ -644,7 +608,7 @@ pub fn board_words(
 
     let mut ways = 0;
     for &pivot in &interior {
-        if ways >= config.max_alt_ways {
+        if ways >= mode.max_alt_ways {
             break;
         }
         blocked.clear();
@@ -652,7 +616,7 @@ pub fn board_words(
         let Some(route) = bfs.route_avoiding(common, src, tgt, &blocked, limit) else {
             continue;
         };
-        if diverges(&route, &live) < config.min_divergence {
+        if diverges(&route, &live) < mode.min_divergence {
             continue;
         }
         live.extend(route.iter().copied());
@@ -672,7 +636,7 @@ pub fn board_words(
     // by following the parents back. `link_reach` of 1 is the special case of a single word
     // with two declared neighbours; further reaches find the longer rungs, which is where the
     // graph's real texture is.
-    let reach = config.link_reach as u32;
+    let reach = mode.link_reach as u32;
     let mut root: FxMap<u32, u32> = FxMap::default();
     let mut parent: FxMap<u32, u32> = FxMap::default();
     // How many steps off the board each word is, so a rung's cost is known before it is taken.
@@ -722,7 +686,7 @@ pub fn board_words(
     // an untaken single-word rung, which is exactly the cross-link that makes two chains read as
     // one neighbourhood. The id only breaks ties, so a rebuild draws the same board.
     rungs.sort_unstable_by_key(|&(word, touched)| (depth[&word] + depth[&touched], word));
-    let room = (live.len() * config.around_percent) / 100;
+    let room = (live.len() * mode.around_percent) / 100;
     let mut added = 0usize;
     for (word, touched) in rungs {
         if added >= room {
@@ -807,15 +771,14 @@ pub fn all_on_one_route(
 /// candidate instead meant a hash lookup per listed word per candidate, fifty-five million times
 /// over, to answer a question whose answer never changed.
 pub struct Overexposed {
-    /// `TOO_FREQUENT`, as ids. Names the graph does not have are dropped — there is nothing for
-    /// them to be on a route of — silently, because the lists are constants in this file and a
-    /// build is not the place to argue with them.
+    /// The mode's `tooFrequent`, as ids. A name the graph does not have stops the build — see
+    /// `nodes_named`.
     words: Vec<u32>,
-    /// `TOO_FREQUENT_CLUSTERS`, one entry each.
+    /// The mode's `tooFrequentClusters`, one entry each.
     clusters: Vec<Cluster>,
 }
 
-/// One set from `TOO_FREQUENT_CLUSTERS`, with what the rule needs to judge it.
+/// One set from `tooFrequentClusters`, with what the rule needs to judge it.
 struct Cluster {
     ids: Vec<u32>,
     /// `between[i * ids.len() + j]` is the distance from member `i` to member `j`. A property of
@@ -823,19 +786,93 @@ struct Cluster {
     between: Vec<u32>,
 }
 
-impl Overexposed {
-    pub fn new(common: &Graph) -> Overexposed {
-        let resolve = |names: &[&str]| -> Vec<u32> {
-            names.iter().filter_map(|word| common.id(word)).collect()
-        };
+/// The nodes a ban list's names stand for, one group per name.
+///
+/// **A ban list is written in ordinary spelling, always.** `reed`, not `/ɹid/` and not `bRI`.
+/// The transcription is what the diagnostics *print* and it cannot be typed; the token is exact
+/// and unreadable. Neither is a thing to ask a person to write in a config file, and accepting
+/// all three would mean a list with three dialects in it.
+///
+/// A spelling becomes graph nodes here, which is the only place that translation belongs — and
+/// in the phonemes alphabet one spelling can be several nodes, since a word said two ways is
+/// two sounds. Banning the word bans **every way of saying it**: that is what naming the word
+/// means, and the alternative is a syntax for picking a reading, which is the complexity this
+/// spec exists to avoid.
+///
+/// A name that stands for nothing stops the build. It used to be dropped in silence — the
+/// phonemes lists were looked up in the *token* index, where a spelling matches nothing, so every
+/// entry was ignored and the rule read as working.
+fn nodes_named(
+    common: &Graph,
+    mode: &Mode,
+    lex: &Lexicon,
+    names: &[String],
+) -> Result<Vec<Vec<u32>>, String> {
+    names
+        .iter()
+        .map(|name| {
+            let asked = name.trim();
+            let heard: Vec<u32> = match mode.alphabet {
+                // A word is its own node, so there is nothing to translate.
+                Alphabet::Letters => common.id(asked).into_iter().collect(),
+                Alphabet::Phonemes => (0..common.words.len() as u32)
+                    .filter(|&id| lex.labels(common.word(id)).iter().any(|l| l == asked))
+                    .collect(),
+            };
+            if heard.is_empty() {
+                return Err(format!(
+                    "mode {}: {name:?} is on a ban list but is not an ordinary word carrying a \
+                     move here, so the ban would do nothing",
+                    mode.name,
+                ));
+            }
+            if heard.len() > 1 {
+                eprintln!(
+                    "    {name:?} is said {} ways and all of them are banned: {}",
+                    heard.len(),
+                    heard
+                        .iter()
+                        .map(|&id| format!("/{}/", crate::phonetic::to_ipa(common.word(id))))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                );
+            }
+            Ok(heard)
+        })
+        .collect()
+}
 
+/// Every choice of one node per name, which is what a cluster of ambiguous words comes to.
+///
+/// A cluster asks for all of its members on one answer, and a member said two ways is satisfied
+/// by either — so the `and` is across the names and the `or` is within one. Each combination
+/// becomes its own `Cluster` and an answer walking any of them is refused, which is the same
+/// reading `routes` gives the question.
+fn one_of_each(groups: &[Vec<u32>]) -> Vec<Vec<u32>> {
+    let mut out: Vec<Vec<u32>> = vec![Vec::new()];
+    for group in groups {
+        out = out
+            .into_iter()
+            .flat_map(|so_far| {
+                group.iter().map(move |&id| {
+                    let mut next = so_far.clone();
+                    next.push(id);
+                    next
+                })
+            })
+            .collect();
+    }
+    out
+}
+
+impl Overexposed {
+    pub fn new(common: &Graph, mode: &Mode, lex: &Lexicon) -> Result<Overexposed, String> {
         // One search per member of every cluster, and only the other members read out of it. A
         // dozen sweeps of the common graph, once per run.
         let mut bfs = Bfs::new(common.words.len());
-        let clusters = TOO_FREQUENT_CLUSTERS
-            .iter()
-            .map(|names| {
-                let ids = resolve(names);
+        let mut clusters = Vec::new();
+        for names in &mode.too_frequent_clusters {
+            for ids in one_of_each(&nodes_named(common, mode, lex, names)?) {
                 let mut between = vec![UNREACHED; ids.len() * ids.len()];
                 for (i, &from) in ids.iter().enumerate() {
                     bfs.run(common, from, u32::MAX);
@@ -843,11 +880,17 @@ impl Overexposed {
                         between[i * ids.len() + j] = bfs.get(to);
                     }
                 }
-                Cluster { ids, between }
-            })
-            .collect();
+                clusters.push(Cluster { ids, between });
+            }
+        }
 
-        Overexposed { words: resolve(&TOO_FREQUENT), clusters }
+        // Every way of saying every banned word. The word rule asks "is any of these on the
+        // answer", so a flat list is already the `or` it wants.
+        let words = nodes_named(common, mode, lex, &mode.too_frequent)?
+            .into_iter()
+            .flatten()
+            .collect();
+        Ok(Overexposed { words, clusters })
     }
 
     /// Does any answer of exactly par run through a word banned on its own?
@@ -965,10 +1008,12 @@ pub fn select(
     common: &Graph,
     common_subs: &FxSet<&str>,
     legal: &Graph,
-    config: &Config,
+    mode: &Mode,
+    lex: &Lexicon,
     rank: &FxMap<String, usize>,
+    audit: Audit,
     threads: usize,
-) -> Selection {
+) -> Result<Selection, String> {
     // One tally per rule: how many candidates it refused, and how many it was the
     // sole objection to.
     let mut alone: Tally = empty_tally();
@@ -986,7 +1031,7 @@ pub fn select(
     // and over — it was 150 of the 153 seconds this used to take. Depths are
     // capped at max_par + slack, comfortably inside a u8, so the whole table is
     // one byte per endpoint per word.
-    let far = (config.max_par + config.slack) as u32;
+    let far = (mode.max_par + mode.slack) as u32;
     let unreachable_u8 = u8::MAX;
     let mut slot_of: FxMap<u32, usize> = FxMap::default();
     for (slot, &id) in endpoints.iter().enumerate() {
@@ -1083,8 +1128,8 @@ pub fn select(
                         };
                         let d = row[tgt as usize];
                         if d == unreachable_u8
-                            || (d as usize) < config.min_par
-                            || (d as usize) > config.max_par
+                            || (d as usize) < mode.min_par
+                            || (d as usize) > mode.max_par
                         {
                             continue;
                         }
@@ -1116,16 +1161,18 @@ pub fn select(
     let candidate_count = pair_count * 2;
     eprintln!(
         "  candidates: {pair_count} pairs at par {}-{}, {candidate_count} with both directions",
-        config.min_par, config.max_par
+        mode.min_par, mode.max_par
     );
 
     // Judging every rule against every candidate, or stopping each candidate at its
     // first failure. See Audit in config.rs. Nothing is sampled either way: the
     // tallies a build reports are counts, not estimates.
-    let full = config.audit == Audit::On;
+    let full = audit == Audit::On;
 
     // The frequency lists, resolved against this graph once rather than per candidate.
-    let overexposed = Overexposed::new(common);
+    // Before the search, not during it: a name that bans nothing is a typo in the config, and
+    // finding out after ten minutes of judging is finding out too late.
+    let overexposed = Overexposed::new(common, mode, lex)?;
 
     // Candidates are judged in parallel. Nothing a candidate reads is mutable — the
     // graphs, the distance tables and the reachable sets are all shared immutably —
@@ -1162,7 +1209,7 @@ pub fn select(
             let overexposed = &overexposed;
             handles.push(scope.spawn(move || {
                 judge_candidates(
-                    &stripe, common, common_subs, legal, config, rank, tables, slot_of,
+                    &stripe, common, common_subs, legal, mode, lex, rank, tables, slot_of,
                     unreachable_u8, full, overexposed, judging,
                 )
             }));
@@ -1182,37 +1229,43 @@ pub fn select(
 
     // The calendar is applied separately, by `schedule`, because its knobs are not
     // part of what the search depends on — see bank.rs.
-    Selection {
+    Ok(Selection {
         passed: puzzles.len(),
         puzzles,
         rejections: Rejections::from_tallies(&alone, &only),
         candidates: candidate_count,
-    }
+    })
 }
 
-/// Put a bank in calendar order and hand back how much of each band is date-addressable.
+/// Put the whole bank in calendar order.
 ///
-/// **Three calendars, not one.** Every day offers one puzzle of each length, so each band is
-/// spread over its own days and runs out at its own point — the shortest first, which is what
-/// the wrap in `dayIndex` is for. A day number therefore names three boards, one per band.
+/// **One calendar per band, not one per mode.** Every day offers one puzzle of every band
+/// there is, so each band is spread over its own days and runs out at its own point — which
+/// is what the wrap in `dayIndex` is for. A day number therefore names one board per band.
 ///
-/// Separate from `select` so that reordering the calendar does not mean repeating the search:
-/// `RECURSE_SEED`, `RECURSE_MIN_GAP` and `RECURSE_BAND_CUTS` reach only this function.
-pub fn schedule(mut selection: Selection, config: &Config) -> Selection {
+/// **Runs once, over every mode's puzzles at once**, and that is the point of it: the bands
+/// avoid each other's endpoints on a given day, so a day whose every length hinges on the
+/// same word is avoided across modes as well as within one. It is also why a puzzle's band
+/// is decided where the puzzle is built — by the time the merged bank gets here, which cuts
+/// applied to it is no longer knowable.
+///
+/// Separate from `select` so that reordering the calendar does not mean repeating the
+/// search: `seed`, `minGap` and `bandCuts` reach only this function.
+pub fn schedule(mut selection: Selection, shared: &Shared, bands: usize) -> Selection {
     let before = selection.puzzles.len();
 
-    // Bands in order, short first, because each one avoids the endpoints the earlier ones
-    // have already put on a day and the first to choose has the freest choice.
-    let mut by_band: Vec<Vec<Puzzle>> = vec![Vec::new(); BANDS];
-    for mut puzzle in selection.puzzles.drain(..) {
-        puzzle.band = band_of(puzzle.par, config.band_cuts);
-        by_band[puzzle.band].push(puzzle);
+    // Bands in order, because each one avoids the endpoints the earlier ones have already
+    // put on a day and the first to choose has the freest choice.
+    let mut by_band: Vec<Vec<Puzzle>> = vec![Vec::new(); bands];
+    for puzzle in selection.puzzles.drain(..) {
+        let band = puzzle.band.min(bands.saturating_sub(1));
+        by_band[band].push(puzzle);
     }
 
     let mut ordered: Vec<Puzzle> = Vec::with_capacity(before);
     let mut endpoints_on: FxMap<usize, Vec<String>> = FxMap::default();
     for puzzles in by_band {
-        ordered.extend(spread(puzzles, config, &mut endpoints_on));
+        ordered.extend(spread(puzzles, shared, &mut endpoints_on));
     }
 
     debug_assert_eq!(ordered.len(), before, "spread must not lose a puzzle");
@@ -1287,7 +1340,8 @@ pub fn judge_candidates(
     common: &Graph,
     common_subs: &FxSet<&str>,
     legal: &Graph,
-    config: &Config,
+    mode: &Mode,
+    lex: &Lexicon,
     rank: &FxMap<String, usize>,
     tables: &[Vec<u8>],
     slot_of: &FxMap<u32, usize>,
@@ -1320,7 +1374,8 @@ pub fn judge_candidates(
                 common,
                 common_subs,
                 legal,
-                config,
+                mode,
+                lex,
                 rank,
                 &tables[slot_of[&src]],
                 &tables[slot_of[&tgt]],
@@ -1368,7 +1423,8 @@ pub fn judge_direction(
     common: &Graph,
     common_subs: &FxSet<&str>,
     legal: &Graph,
-    config: &Config,
+    mode: &Mode,
+    lex: &Lexicon,
     rank: &FxMap<String, usize>,
     from_src_row: &[u8],
     from_tgt_row: &[u8],
@@ -1437,7 +1493,8 @@ pub fn judge_direction(
             src,
             tgt,
             &|word| at(from_tgt_row, word),
-            config,
+            mode,
+            lex,
             !full,
             &mut broken,
         );
@@ -1455,7 +1512,7 @@ pub fn judge_direction(
             par,
             &|word| at(from_src_row, word),
             &|word| at(from_tgt_row, word),
-            config,
+            mode,
             &mut scratch.board,
         );
         if drawn.len() < MIN_BOARD {
@@ -1474,7 +1531,7 @@ pub fn judge_direction(
         };
 
         alt = drawn.iter().filter(|&&w| !on_route(w)).count();
-        if alt < config.min_alt_nodes {
+        if alt < mode.min_alt_nodes {
             broken.push(Rule::NoAlternatives);
             if !full {
                 break 'judge;
@@ -1524,7 +1581,7 @@ pub fn judge_direction(
         }
 
         // The first move has to be a choice. See `opening_moves`.
-        if opening_moves(common, src, tgt, par, &mut scratch.branch) < config.min_source_moves {
+        if opening_moves(common, src, tgt, par, &mut scratch.branch) < mode.min_source_moves {
             broken.push(Rule::OpeningForced);
             if !full {
                 break 'judge;
@@ -1554,7 +1611,7 @@ pub fn judge_direction(
     let legal_src = legal.id(common.word(src)).expect("checked by NotInLegalGraph");
     let legal_tgt = legal.id(common.word(tgt)).expect("checked by NotInLegalGraph");
     if scratch.searched_from != Some(legal_src) {
-        scratch.legal_from.run(legal, legal_src, config.max_par as u32);
+        scratch.legal_from.run(legal, legal_src, mode.max_par as u32);
         scratch.searched_from = Some(legal_src);
     }
     let best = scratch.legal_from.get(legal_tgt).min(par);
@@ -1571,9 +1628,14 @@ pub fn judge_direction(
     Verdict {
         broken,
         puzzle: Some(Puzzle {
-            id: puzzle_id(&answer, config.id_chars),
+            id: puzzle_id(&answer, mode.id_chars),
             // Set by `spread`, which is what decides the calendar.
             day: 0,
+            // Set here rather than in `schedule`, because par divides a mode's bands and
+            // `schedule` runs once over every mode's puzzles at once — by which point
+            // which cuts to apply is no longer knowable. Global, so it indexes the
+            // manifest's flattened band list.
+            band: mode.global_band(mode.band_of(par)),
             source: common.word(src).to_string(),
             target: common.word(tgt).to_string(),
             par,
@@ -1589,8 +1651,6 @@ pub fn judge_direction(
             secret: if best < par { best } else { 0 },
             routes: routes_shown,
             board: drawn.iter().map(|&w| common.word(w)).collect::<Vec<_>>().join(" "),
-            // Both set by `schedule`: which day this is, and which of the three lengths.
-            band: 0,
         }),
     }
 }
@@ -1622,7 +1682,7 @@ impl Rng {
 /// and the alternative is losing puzzles to it.
 fn spread(
     mut puzzles: Vec<Puzzle>,
-    config: &Config,
+    shared: &Shared,
     endpoints_on: &mut FxMap<usize, Vec<String>>,
 ) -> Vec<Puzzle> {
     // Canonical order before shuffling: selection order depends on hash iteration
@@ -1630,7 +1690,7 @@ fn spread(
     // every calendar date.
     puzzles.sort_by(|a, b| (&a.source, &a.target).cmp(&(&b.source, &b.target)));
 
-    let mut rng = Rng(config.seed);
+    let mut rng = Rng(shared.seed);
     for i in (1..puzzles.len()).rev() {
         let j = (rng.next() % (i as u64 + 1)) as usize;
         puzzles.swap(i, j);
@@ -1684,7 +1744,7 @@ fn spread(
         *blocked.entry(puzzle.source.clone()).or_insert(0) += 1;
         *blocked.entry(puzzle.target.clone()).or_insert(0) += 1;
         recent.push_back((puzzle.source.clone(), puzzle.target.clone()));
-        while recent.len() > config.min_gap {
+        while recent.len() > shared.min_gap {
             if let Some((source, target)) = recent.pop_front() {
                 for word in [source, target] {
                     if let Some(count) = blocked.get_mut(&word) {

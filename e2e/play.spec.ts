@@ -166,9 +166,12 @@ test('typing goes to the guess box wherever focus is', async ({ page }) => {
   const input = page.getByLabel(/Your guess/);
   await expect(input).toBeVisible();
 
-  // Put focus somewhere else entirely: a word on the plate, one that is in shot.
-  const node = await inShot(page, 'main svg circle[role="button"]');
-  await node.click();
+  // Put focus somewhere else entirely: a word on the plate. The *source*, deliberately —
+  // any word a guess can be made from is selected by a tap, so clicking whichever node
+  // happens to be first in shot moves the guess origin as well as the focus, and then the
+  // move below is being made from somewhere else. The source is already selected, so
+  // clicking it moves the focus and nothing else.
+  await page.locator(`[aria-label^="${puzzle.source}"]`).first().click();
   await expect(input).not.toBeFocused();
 
   // Now just type. The first letter must not be swallowed by the handover.

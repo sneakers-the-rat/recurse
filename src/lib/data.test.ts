@@ -48,7 +48,7 @@ describe('the calendar', () => {
     }
   });
 
-  it('gives the three lengths of one day three different boards', () => {
+  it('gives every band of one day a board of its own', () => {
     for (const day of [0, 1, 85, 86, 1000]) {
       const seen = bands.map((band) => shippedIdForDay(day === 0 ? band : band, day));
       expect(new Set(seen).size).toBe(bands.length);
@@ -138,16 +138,16 @@ describe('decodeGameData', () => {
     manifest: {
       version: 'testtest',
       shards: 256,
+      modes: [{ name: 'letters', alphabet: 'letters', slack: 6, minPar: 3, maxPar: 10 }],
       bands: [
-        { name: 'short', minPar: 3, maxPar: 4 },
-        { name: 'medium', minPar: 5, maxPar: 6 },
-        { name: 'long', minPar: 7, maxPar: 10 },
+        { name: 'letters-short', label: 'short', mode: 0, minPar: 3, maxPar: 4 },
+        { name: 'letters-medium', label: 'medium', mode: 0, minPar: 5, maxPar: 6 },
+        { name: 'letters-long', label: 'long', mode: 0, minPar: 7, maxPar: 10 },
       ],
       puzzles: 0,
       epoch: '2026-07-26',
       days: 1,
       years: [2026, 2026] as [number, number],
-      params: { slack: 6, minPar: 3, maxPar: 5 },
     },
     puzzles: [],
     common: { common: [at('ball'), at('base') - at('ball')] },
@@ -172,8 +172,24 @@ describe('decodeGameData', () => {
   it('carries the manifest through, since the calendar arithmetic needs it', () => {
     const { manifest } = decodeGameData(files);
     expect(manifest).toMatchObject({ shards: 256 });
-    // Three lengths, each with its own calendar. The client cannot work out where they
-    // divide, so the builder says.
-    expect(manifest.bands.map((band) => band.name)).toEqual(['short', 'medium', 'long']);
+    // The bands, flat across every mode. The client cannot work out where they divide, so
+    // the builder says. Their names carry the game, because both games label a band "short"
+    // and a name is what a stored game is keyed on — see `bandId`.
+    expect(manifest.bands.map((band) => band.name)).toEqual([
+      'letters-short',
+      'letters-medium',
+      'letters-long',
+    ]);
+    expect(manifest.bands.map((band) => band.label)).toEqual(['short', 'medium', 'long']);
+  });
+
+  it('reads an untranslated alphabet as one where a token is its own label', () => {
+    // The letters mode ships no lexicon, and `PLAIN` is what stands in for it. Everything
+    // above this layer goes through the same two calls either way.
+    const { lexicon } = decodeGameData(files);
+    expect(lexicon.translated).toBe(false);
+    expect(lexicon.label('baseball')).toBe('baseball');
+    expect(lexicon.parse('baseball')).toEqual(['baseball']);
+    expect(lexicon.transcribe('baseball')).toBe('');
   });
 });

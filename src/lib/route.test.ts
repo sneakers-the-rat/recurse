@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { idFromPath, pageFromPath, pagePath, pathFor, shareUrl } from './route';
+import { idFromPath, modeFromPath, pageFromPath, pagePath, pathFor, shareUrl } from './route';
 
 const PAGES = '/recurse/';
 
@@ -88,6 +88,51 @@ describe('pageFromPath', () => {
 
   it('carries the query string over, so ?dev survives a visit to a page', () => {
     expect(pagePath('stats', '?dev', PAGES)).toBe('/recurse/stats?dev');
+  });
+});
+
+/**
+ * The rules page is the only one with a second segment, because the rules it states belong to
+ * one game and there is more than one game.
+ */
+describe('the rules page and the game it is of', () => {
+  it('is a page like the others, with its game after it', () => {
+    expect(pagePath('rules', '', PAGES, 'phonemes')).toBe('/recurse/rules/phonemes');
+    expect(pageFromPath('/recurse/rules/phonemes', PAGES)).toBe('rules');
+    expect(modeFromPath('/recurse/rules/phonemes', PAGES)).toBe('phonemes');
+  });
+
+  it('is the inverse of pagePath, game and all', () => {
+    for (const base of ['/', PAGES]) {
+      const path = pagePath('rules', '', base, 'letters');
+      expect(pageFromPath(path, base)).toBe('rules');
+      expect(modeFromPath(path, base)).toBe('letters');
+    }
+  });
+
+  it('keeps the query string after the game, not between it and the page', () => {
+    expect(pagePath('rules', '?dev', PAGES, 'phonemes')).toBe('/recurse/rules/phonemes?dev');
+  });
+
+  /**
+   * Which games are real is the manifest's business. A name this does not recognise is a page
+   * with nothing to say — `ModeRules` says so in a sentence — rather than a path to reject,
+   * the same way an id naming no puzzle is a board that is not there.
+   */
+  it('reads whatever game the path names, without judging it', () => {
+    expect(modeFromPath('/rules/klingon', '/')).toBe('klingon');
+    expect(modeFromPath('/rules/PHONEMES', '/')).toBe('phonemes');
+  });
+
+  it('names no game for a bare rules path, or for any other path', () => {
+    for (const path of ['/rules', '/rules/', '/stats/phonemes', '/2ed94464', '/']) {
+      expect(modeFromPath(path, '/')).toBeNull();
+    }
+  });
+
+  /** Hex only, and `rules` is not — so the page needs no special case in `idFromPath`. */
+  it('is not mistaken for a board', () => {
+    expect(idFromPath('/rules/phonemes', '/')).toBeNull();
   });
 });
 

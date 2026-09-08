@@ -21,6 +21,8 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use rust_stemmers::{Algorithm, Stemmer};
 
+use crate::lexicon::Lexicon;
+
 /// One way a pair can be read: the run at `pos` in the longer word, `len` long.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reading {
@@ -134,14 +136,19 @@ const MIN_PART: usize = 2;
 /// Is `whole` these two words glued together, in either order, allowing either to
 /// appear as another form of itself?
 ///
-fn is_glued_from(whole: &str, x: &str, y: &str) -> bool {
+/// The family question goes through the mode's lexicon rather than straight to the
+/// stemmer, because `whole` is split at every position and the halves are usually not
+/// words. In the letters alphabet that is the stemmer as before. In the phonemes one a
+/// fragment has no family, so only an exact match counts — which is the right answer: a
+/// run of phonemes that spells nothing has no inflections to be a form of.
+fn is_glued_from(lex: &Lexicon, whole: &str, x: &str, y: &str) -> bool {
     if whole.len() < MIN_PART * 2 {
         return false;
     }
     (MIN_PART..=whole.len() - MIN_PART).any(|cut| {
         let (left, right) = whole.split_at(cut);
-        (same_family(left, x) && same_family(right, y))
-            || (same_family(left, y) && same_family(right, x))
+        (lex.same_family(left, x) && lex.same_family(right, y))
+            || (lex.same_family(left, y) && lex.same_family(right, x))
     })
 }
 
@@ -155,14 +162,14 @@ fn is_glued_from(whole: &str, x: &str, y: &str) -> bool {
 ///
 /// Family-aware, which is the whole point: `coast → coastlands → lands` was always
 /// caught, but `nations → carnations → cars` was not, and it is the same move.
-pub fn is_compound_swap(a: &str, b: &str, c: &str) -> bool {
+pub fn is_compound_swap(lex: &Lexicon, a: &str, b: &str, c: &str) -> bool {
     // A run is only worth splitting up if something could glue back together, and the
     // shortest compound is two parts of MIN_PART. Checked first because this rejects
     // most triples for the price of two integer comparisons.
     if b.len() < MIN_PART * 2 && a.len() < MIN_PART * 2 {
         return false;
     }
-    is_glued_from(b, a, c) || is_glued_from(a, b, c)
+    is_glued_from(lex, b, a, c) || is_glued_from(lex, a, b, c)
 }
 
 #[cfg(test)]
@@ -218,17 +225,23 @@ mod tests {
         }
     }
 
+    /// The letters alphabet, which is what these cases are written in.
+    fn spelling() -> Lexicon {
+        Lexicon::letters(Vec::new(), Vec::new())
+    }
+
     #[test]
     fn catches_compound_swaps_through_an_inflection() {
+        let lex = spelling();
         // The case that was always caught: exact concatenation.
-        assert!(is_compound_swap("coast", "coastlands", "lands"));
+        assert!(is_compound_swap(&lex, "coast", "coastlands", "lands"));
         // The case that was missed: "car" arrives, "cars" leaves.
-        assert!(is_compound_swap("nations", "carnations", "cars"));
+        assert!(is_compound_swap(&lex, "nations", "carnations", "cars"));
         // And with the inflection on the other side.
-        assert!(is_compound_swap("lands", "borderlands", "borders"));
-        assert!(is_compound_swap("day", "daydreams", "dreams"));
+        assert!(is_compound_swap(&lex, "lands", "borderlands", "borders"));
+        assert!(is_compound_swap(&lex, "day", "daydreams", "dreams"));
         // A word found strictly inside another is not a swap.
-        assert!(!is_compound_swap("courage", "cage", "rage"));
-        assert!(!is_compound_swap("showed", "shadowed", "sowed"));
+        assert!(!is_compound_swap(&lex, "courage", "cage", "rage"));
+        assert!(!is_compound_swap(&lex, "showed", "shadowed", "sowed"));
     }
 }

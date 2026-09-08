@@ -11,14 +11,20 @@
  * the same two words and the same two numbers.
  */
 
-import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { bandName } from '../i18n/bands';
+import { bandName, boardName, gameName } from '../i18n/bands';
 import { header } from '../i18n/messages/header';
-import { Caret, Diamond, Dot, Wordmark } from './marks';
+import { rules as rulesSays } from '../i18n/messages/rules';
+import { Caret, Diamond, Dot, GameIcon, Query, Wordmark, hasGameIcon } from './marks';
 
 interface Band {
+  /** The flat identifier — `phonemes-long`. Not drawn; see `label`. */
   name: string;
+  /** The word a player reads: `short`, `medium`, `long`. Both games have all three. */
+  label: string;
+  /** Which game it belongs to: an index into `games`. */
+  mode: number;
   minPar: number;
   maxPar: number;
 }
@@ -66,8 +72,8 @@ const PANEL =
 const CHOICE = 'label hover:bg-noir-3 w-full px-3 py-2 text-left whitespace-nowrap transition-colors';
 
 /**
- * The three lengths a day offers, on the masthead line next to the day number, so what a
- * player reads across the top is one sentence: ReCurse, № 12, medium.
+ * Every board a day offers, on the masthead line next to the day number, so what a
+ * player reads across the top is one sentence: ReCurse, № 12, phonemes medium.
  *
  * They were three tabs in a row of their own under the title, which spent a whole band of
  * vertical space saying three words — on a phone, where the board is the thing actually
@@ -78,7 +84,18 @@ const CHOICE = 'label hover:bg-noir-3 w-full px-3 py-2 text-left whitespace-nowr
  * Drawn rather than a native `<select>`, whose menu is the operating system's and arrives
  * in the operating system's type, colour and corner radius — a grey rounded box in the
  * middle of a black Deco masthead. Only the closed state of a select can be styled, and the
- * closed state is the half that was already fine.
+ * closed state is the half that was already fine. It is also the only shape a *grouped* menu
+ * could take and still be drawn in the page's own hand — `optgroup` is as unstyleable as the
+ * rest of a select's menu.
+ *
+ * **Both games label their bands the same three words, so the menu groups rather than
+ * qualifies.** Six rows reading "letters short, letters medium, …" spend two thirds of their
+ * width on a word repeated three times, and the eye has to read to the second word every
+ * time; a heading says it once.
+ *
+ * **The closed state has no heading over it, so it says the game as a mark.** Spelled out it
+ * was a second word on a row that is three things wide on a phone; the menu's heading carries
+ * the mark and the name together, which is where the mark is learnt. See `GameIcon`.
  *
  * Ruled on all four sides, which nothing else in the chrome is. Quiet caps beside a day
  * number read as a caption, and nobody clicks a caption; the box and the caret together
@@ -86,10 +103,13 @@ const CHOICE = 'label hover:bg-noir-3 w-full px-3 py-2 text-left whitespace-nowr
  */
 function Lengths({
   bands,
+  games,
   band,
   onBand,
 }: {
   bands: readonly Band[];
+  /** The games, in the manifest's order. A band's `mode` indexes this. */
+  games: readonly { name: string }[];
   band: number;
   onBand: (band: number) => void;
 }) {
@@ -99,6 +119,9 @@ function Lengths({
   const here = bands[band];
 
   if (!here) return null;
+
+  /** The two lists back together, which is all `boardName` wants of a manifest. */
+  const naming = { modes: games, bands };
 
   /** What a length holds, in the smaller hand the tabs used for it. */
   const holds = (it: Band) => (
@@ -119,7 +142,23 @@ function Lengths({
           open ? 'border-gilt-dim text-gilt' : 'text-bone-dim'
         }`}
       >
-        {bandName(intl, here.name)}
+        {/*
+          The game as its mark, the length as a word.
+
+          Which game this is has to be said — there is nothing else on the line that says it —
+          and spelled out it was a second whole word on a row that is three things wide on a
+          phone. The mark is one character and the menu it opens repeats it over the heading,
+          so the two are learnt together. A game with no mark of its own falls back to its
+          name, which is wider and correct.
+        */}
+        <span className="flex items-baseline gap-1 sm:gap-1.5">
+          {hasGameIcon(games[here.mode]?.name ?? '') ? (
+            <GameIcon game={games[here.mode]?.name ?? ''} className="self-center opacity-80" />
+          ) : (
+            <span className="opacity-70">{gameName(intl, games[here.mode]?.name ?? '')}</span>
+          )}
+          {bandName(intl, here.label)}
+        </span>
         {/* Not on a phone, where the masthead is already three things wide. */}
         <span className="hidden sm:inline">{holds(here)}</span>
         <Caret />
@@ -132,22 +171,43 @@ function Lengths({
           className={`${PANEL} left-0`}
         >
           {bands.map((it, index) => (
-            <button
-              key={it.name}
-              type="button"
-              role="option"
-              aria-selected={index === band}
-              onClick={() => {
-                setOpen(false);
-                if (index !== band) onBand(index);
-              }}
-              className={`${CHOICE} flex items-baseline gap-2 ${
-                index === band ? 'text-gilt' : 'text-ash-lit hover:text-bone-dim'
-              }`}
-            >
-              {bandName(intl, it.name)}
-              {holds(it)}
-            </button>
+            // The band's index, which is its address here — two games both call a band
+            // "short", and a label reused as a key is two options React thinks are one.
+            <Fragment key={index}>
+              {/* A heading wherever the game changes, which is what turns a flat list of six
+                  into two lists of three. `role="presentation"` because it is not an option
+                  and must not be counted as one by anything reading the menu aloud; the
+                  options themselves are grouped for that purpose by their own labels. */}
+              {(bands[index - 1]?.mode ?? -1) !== it.mode && (
+                <p
+                  role="presentation"
+                  className="label text-ash border-rule mt-1 flex items-center gap-1.5 border-t px-3 pt-2 pb-1 first:mt-0 first:border-t-0"
+                >
+                  {/* The mark and the name together, which is the only place they appear
+                      together and so the only place the mark can be learnt. */}
+                  <GameIcon game={games[it.mode]?.name ?? ''} />
+                  {gameName(intl, games[it.mode]?.name ?? '')}
+                </p>
+              )}
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === band}
+                // Read out with its game, because a heading is presentation and a player
+                // hearing "short" alone has been told half of it.
+                aria-label={boardName(intl, index, naming)}
+                onClick={() => {
+                  setOpen(false);
+                  if (index !== band) onBand(index);
+                }}
+                className={`${CHOICE} flex items-baseline gap-2 pl-5 ${
+                  index === band ? 'text-gilt' : 'text-ash-lit hover:text-bone-dim'
+                }`}
+              >
+                {bandName(intl, it.label)}
+                {holds(it)}
+              </button>
+            </Fragment>
           ))}
         </div>
       )}
@@ -243,13 +303,26 @@ interface Props {
    */
   shortcuts?: number;
   /**
-   * The three lengths a day offers, and which one is on screen.
+   * Every board a day offers — both games' three lengths — and which one is on screen.
    *
-   * From the manifest, so what each holds is the builder's `RECURSE_BAND_CUTS` rather than
-   * anything decided here. The switch is the only way between them on a phone: the band is
+   * From the manifest, so what each holds is that mode's own `bandCuts` rather than anything
+   * decided here. The switch is the only way between them on a phone: the band is
    * deliberately not in the URL — a board is addressed by its id and nothing else.
    */
   bands: readonly Band[];
+  /** The games those bands belong to, in the manifest's order. */
+  games: readonly { name: string }[];
+  /**
+   * The game this board is of, named as the manifest names it — or null when that game has
+   * nothing of its own to say, which is the letters game and every game like it.
+   *
+   * Null rather than a second boolean prop, because "which game" and "is it worth a marker"
+   * are one question: the marker names the game, and there is nothing to name it for. App
+   * asks `hasModeRules`, which is the same list the page itself reads.
+   */
+  game: string | null;
+  /** To that game's rules page. See `ModeRules`. */
+  onModeRules: () => void;
   band: number;
   onBand: (band: number) => void;
   day: number;
@@ -285,6 +358,9 @@ export const Header = memo(function Header({
   par,
   shortcuts = 0,
   bands,
+  games,
+  game,
+  onModeRules,
   band,
   onBand,
   day,
@@ -298,6 +374,8 @@ export const Header = memo(function Header({
   onStats,
   onTutorial,
 }: Props) {
+  const intl = useIntl();
+
   /**
    * The bar's own colour, which is a statement about the round rather than decoration.
    *
@@ -324,7 +402,7 @@ export const Header = memo(function Header({
               <FormattedMessage {...header.day} values={{ day }} />
             </span>
           </h1>
-          <Lengths bands={bands} band={band} onBand={onBand} />
+          <Lengths bands={bands} games={games} band={band} onBand={onBand} />
         </span>
 
         {/* Written out where there is room for them, and behind the button where there is not. */}
@@ -380,6 +458,70 @@ export const Header = memo(function Header({
             <Diamond />
             <span className="word text-bone">{target}</span>
           </p>
+          {/*
+            Which game this is, spelled out, and the way to what makes it different.
+
+            Only for a game that *has* rules of its own — see `hasModeRules`. The letters game
+            has none, on purpose: a word being its spelling is what everyone assumes, and a
+            marker pointing at a page that says so is a marker pointing at nothing. So this is
+            not a fixture of the header; it is the header saying that there is something here
+            worth knowing, and it is absent whenever there is not.
+
+            **The whole marker is the link, `?` and all.** The words name the thing there is
+            something to read about, so they are the thing to click: a `?` that was the only
+            live part of the phrase left the phrase itself looking like a caption with a button
+            stuck to it, and made the target one small circle. The ring is still drawn, because
+            a wavy underline says "there is a note on this" and the `?` says what kind of note,
+            but it is a mark inside the link rather than a control beside it.
+
+            **It brightens on hover, text and squiggle together**, which is the only thing that
+            says "link" here — there is no other underlined text on this screen and nothing else
+            to compare it to. Both from the button, so they cannot get out of step.
+
+            The squiggle has to be `decoration-*` utilities rather than a border: an underline
+            follows the text across a line break and a border draws a box round it. It is on the
+            words alone, and the ring is outside that span — a wavy line under a circle reads as
+            a mistake.
+
+            Between the two words and the tally because that is the reading order — what the
+            puzzle is, what game it is played by, how it is scored.
+          */}
+          {game !== null && (
+            <p className="label mt-2 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={onModeRules}
+                // The tooltip says what it opens; the accessible name is the visible phrase,
+                // which is what a player would say out loud to ask for it.
+                title={intl.formatMessage(rulesSays.open, { game: gameName(intl, game) })}
+                // `uppercase` restated: the caps come from `.label` on the paragraph, and
+                // Tailwind's preflight resets `text-transform` on a button — so the phrase
+                // came out in sentence case in the middle of a line of small caps.
+                //
+                // The same ink as the tally at rest, brighter on hover. Dimmer than the
+                // caption around it would be a link that recedes, which is backwards.
+                className="group text-bone-dim hover:text-bone flex items-center gap-1.5 uppercase transition-colors"
+              >
+                <span className="decoration-gilt-dim group-hover:decoration-gilt underline decoration-wavy underline-offset-4 transition-colors">
+                  <FormattedMessage
+                    {...rulesSays.marker}
+                    values={{ game: gameName(intl, game) }}
+                  />
+                </span>
+                {/*
+                  `tracking-normal` because the caps around it are letter-spaced, and letter
+                  spacing is added *after* each glyph — so a `?` centred in a flex box sat half
+                  a letter-space left of the middle of its own ring.
+                */}
+                <span
+                  aria-hidden
+                  className="border-rule group-hover:border-gilt-dim group-hover:text-gilt flex size-4 shrink-0 items-center justify-center rounded-full border text-[0.625rem] leading-none tracking-normal transition-colors"
+                >
+                  <Query />
+                </span>
+              </button>
+            </p>
+          )}
           <p data-tour="tally" className="label mt-2.5">
             <FormattedMessage {...header.par} values={{ count: par }} />
             {shortcuts > 0 && (

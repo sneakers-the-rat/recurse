@@ -14,7 +14,8 @@
  */
 
 import { guess as says } from '../i18n/messages/guess';
-import type { EditShape, Graph, InsertionSpot, Judgement } from './types';
+import { PLAIN, type Lexicon } from './lexicon';
+import type { EditShape, Graph, InsertionSpot, Judgement, Move } from './types';
 
 /**
  * Every way a contiguous run could be inserted into `shorter` to give `longer`.
@@ -126,30 +127,101 @@ export function bestReading(
  *
  * The edge list is tried first because it is cheaper and already knows the answer.
  * Without `isWord`, wording avoids asserting anything it cannot check.
+ *
+ * **What the player types is not necessarily what the graph is indexed by.** In the phonemes
+ * mode a node is a pronunciation, so the typed spelling is resolved through the lexicon
+ * first — and a word said more than one way gives more than one token. **Every one that makes
+ * a move comes back**, in `also`, which is the same generosity `wordReading` shows one level
+ * down about which run a move removed: the game does not pick a reading and hope. If none
+ * makes a move, the refusal explains the most familiar one, because that is the one the
+ * player meant.
  */
 export function judgeGuess(
   graph: Graph,
   from: string,
   raw: string,
   isWord: ((word: string) => boolean) | null = null,
+  lexicon: Lexicon = PLAIN,
 ): Judgement {
-  const word = String(raw ?? '').trim().toLowerCase();
+  const typed = String(raw ?? '').trim().toLowerCase();
 
-  if (!word) return { ok: false, code: 'empty', reason: { message: says.empty } };
-  if (!/^[a-z]+$/.test(word)) {
+  if (!typed) return { ok: false, code: 'empty', reason: { message: says.empty } };
+  if (!/^[a-z]+$/.test(typed)) {
     return { ok: false, code: 'not-letters', reason: { message: says.notLetters } };
   }
+
+  const candidates = lexicon.parse(typed);
+  if (!candidates.length) {
+    // Only reachable in a translated alphabet, where a word can be perfectly real and still
+    // have no pronunciation in the corpus. That is a gap in the data rather than a verdict on
+    // the word, and saying "not in the word list" would be a lie about it.
+    return {
+      ok: false,
+      code: 'unknown-sound',
+      reason: { message: says.unknownSound, values: { word: typed } },
+    };
+  }
+
+  /*
+    **Every reading that works, not the first one that does.**
+
+    A spelling can name several tokens — `dissenters` is `/dɪsɛntɚz/` and `/dɪsɛnɚz/` — and
+    more than one of them can be a legal move from where the player is standing. Stopping at
+    the first was a bug you could lose a game to: on `does → dissenters` the reading that came
+    up first was the one that is *not* the goal, so typing the goal's own name walked to a
+    second node beside it and the round could not be finished at all.
+
+    So they all come back, and `applyGuess` puts all of them on the board as one guess. Which
+    one is `word` — the one the guess bar reports and the cursor moves to — is decided there
+    too, since it depends on the puzzle and this only knows the graph.
+
+    A rejection is still the *first* reading's, because a player who typed a word that no
+    reading can play wants one sentence about it and the readings mostly fail the same way.
+  */
+  let first: Judgement | null = null;
+  const made: { word: string; move: Move }[] = [];
+  for (const word of candidates) {
+    const verdict = judgeToken(graph, from, word, typed, isWord, lexicon);
+    if (verdict.ok) made.push({ word: verdict.word, move: verdict.move });
+    else first ??= verdict;
+  }
+  const [head, ...rest] = made;
+  if (head) return { ok: true, word: head.word, move: head.move, also: rest };
+  return first ?? { ok: false, code: 'no-move', reason: { message: says.empty } };
+}
+
+/**
+ * One reading of a guess: a token that is definitely in this alphabet, judged against the
+ * token being stood on.
+ *
+ * `typed` is what the player actually wrote, and is what every message quotes — nobody wants
+ * to be told that `bFe` is not a word. Subwords are the other way round: they are runs of the
+ * alphabet with no spelling of their own, so they are quoted through `transcribe`.
+ */
+function judgeToken(
+  graph: Graph,
+  from: string,
+  word: string,
+  typed: string,
+  isWord: ((word: string) => boolean) | null,
+  lexicon: Lexicon,
+): Judgement {
+  /** A run of the alphabet, as something a player can read. */
+  const say = (sub: string) => (lexicon.translated ? lexicon.transcribe(sub) : sub);
+  /** Whether the messages should talk about sounds rather than letters. */
+  const phonemes = String(lexicon.translated);
+
   if (word === from) {
     return {
       ok: false,
       code: 'identical',
-      reason: { message: says.identical, values: { from } },
+      reason: { message: says.identical, values: { from: lexicon.label(from) } },
     };
   }
 
   // Fast path: a move between two common words, with its subword already known.
   const move = graph.findMove(from, word);
-  if (move) return { ok: true, move, word };
+  if (move) return { ok: true, move, word, also: [] };
 
   const { minWord, minSub } = graph.params;
   const edit = analyzeEdit(from, word);
@@ -166,6 +238,9 @@ export function judgeGuess(
         ok: true,
         word,
         move: { to: word, sub: chosen.sub, pos: chosen.pos, kind: edit.shape },
+        // One reading of one token. Which *tokens* a spelling names is `judgeGuess`'s
+        // question, and it is the one that fills this in.
+        also: [],
       };
     }
   }
@@ -176,7 +251,10 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'swap',
-      reason: { message: says.swap, values: { word, from } },
+      reason: {
+        message: says.swap,
+        values: { word: typed, from: lexicon.label(from), phonemes },
+      },
     };
   }
 
@@ -189,7 +267,7 @@ export function judgeGuess(
       code: 'scattered',
       reason: {
         message: says.scattered,
-        values: { adding: String(edit.direction === 'add') },
+        values: { adding: String(edit.direction === 'add'), phonemes },
       },
     };
   }
@@ -199,7 +277,7 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'identical',
-      reason: { message: says.identicalShort, values: { from } },
+      reason: { message: says.identicalShort, values: { from: lexicon.label(from) } },
     };
   }
 
@@ -212,7 +290,10 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'sub-too-short',
-      reason: { message: says.subTooShort, values: { sub: subs[0], min: minSub } },
+      reason: {
+        message: says.subTooShort,
+        values: { sub: say(subs[0]), min: minSub, phonemes },
+      },
     };
   }
 
@@ -220,12 +301,16 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'too-short',
-      reason: { message: says.tooShort, values: { min: minWord } },
+      reason: { message: says.tooShort, values: { min: minWord, phonemes } },
     };
   }
 
   if (isWord && !isWord(word)) {
-    return { ok: false, code: 'not-a-word', reason: { message: says.notAWord, values: { word } } };
+    return {
+      ok: false,
+      code: 'not-a-word',
+      reason: { message: says.notAWord, values: { word: typed } },
+    };
   }
 
   // `word` is real (or unverifiable) and the edit is one clean run, so the run
@@ -235,13 +320,16 @@ export function judgeGuess(
     return {
       ok: false,
       code: 'sub-not-word',
-      reason: { message: says.subNotWord, values: { adding: String(adding), sub: named } },
+      reason: {
+        message: says.subNotWord,
+        values: { adding: String(adding), sub: say(named), phonemes },
+      },
     };
   }
 
   return {
     ok: false,
     code: 'no-move',
-    reason: { message: says.noMove, values: { from, word } },
+    reason: { message: says.noMove, values: { from: lexicon.label(from), word: typed } },
   };
 }

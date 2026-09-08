@@ -1077,22 +1077,58 @@
         "other": {
           "value": [
             {
-              "type": 0,
-              "value": "Those letters would be removed in more than one place. The word you remove has to be a single unbroken run."
+              "options": {
+                "other": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "Those letters would be removed in more than one place. The word you remove has to be a single unbroken run."
+                    }
+                  ]
+                },
+                "true": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "Those letters would be added in more than one place. The word you add has to be a single unbroken run."
+                    }
+                  ]
+                }
+              },
+              "type": 5,
+              "value": "adding"
             }
           ]
         },
         "true": {
           "value": [
             {
-              "type": 0,
-              "value": "Those letters would be added in more than one place. The word you add has to be a single unbroken run."
+              "options": {
+                "other": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "Those sounds would be removed in more than one place. The word you remove has to be a single unbroken run."
+                    }
+                  ]
+                },
+                "true": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "Those sounds would be added in more than one place. The word you add has to be a single unbroken run."
+                    }
+                  ]
+                }
+              },
+              "type": 5,
+              "value": "adding"
             }
           ]
         }
       },
       "type": 5,
-      "value": "adding"
+      "value": "phonemes"
     },
     {
       "type": 0,
@@ -1105,38 +1141,102 @@
         "other": {
           "value": [
             {
-              "type": 0,
-              "value": "That would remove “"
-            },
-            {
-              "type": 1,
-              "value": "sub"
-            },
-            {
-              "type": 0,
-              "value": "”, which isn’t a word."
+              "options": {
+                "other": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "That would remove “"
+                    },
+                    {
+                      "type": 1,
+                      "value": "sub"
+                    },
+                    {
+                      "type": 0,
+                      "value": "”, which isn’t a word."
+                    }
+                  ]
+                },
+                "true": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "That would add “"
+                    },
+                    {
+                      "type": 1,
+                      "value": "sub"
+                    },
+                    {
+                      "type": 0,
+                      "value": "”, which isn’t a word."
+                    }
+                  ]
+                }
+              },
+              "type": 5,
+              "value": "adding"
             }
           ]
         },
         "true": {
           "value": [
             {
-              "type": 0,
-              "value": "That would add “"
-            },
-            {
-              "type": 1,
-              "value": "sub"
-            },
-            {
-              "type": 0,
-              "value": "”, which isn’t a word."
+              "options": {
+                "other": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "That would remove “"
+                    },
+                    {
+                      "children": [
+                        {
+                          "type": 1,
+                          "value": "sub"
+                        }
+                      ],
+                      "type": 8,
+                      "value": "ipa"
+                    },
+                    {
+                      "type": 0,
+                      "value": "”, which isn’t a word."
+                    }
+                  ]
+                },
+                "true": {
+                  "value": [
+                    {
+                      "type": 0,
+                      "value": "That would add “"
+                    },
+                    {
+                      "children": [
+                        {
+                          "type": 1,
+                          "value": "sub"
+                        }
+                      ],
+                      "type": 8,
+                      "value": "ipa"
+                    },
+                    {
+                      "type": 0,
+                      "value": "”, which isn’t a word."
+                    }
+                  ]
+                }
+              },
+              "type": 5,
+              "value": "adding"
             }
           ]
         }
       },
       "type": 5,
-      "value": "adding"
+      "value": "phonemes"
     },
     {
       "type": 0,
@@ -1145,50 +1245,120 @@
   ],
   "guess.subTooShort": [
     {
-      "type": 0,
-      "value": "“"
-    },
-    {
-      "type": 1,
-      "value": "sub"
-    },
-    {
-      "type": 0,
-      "value": "” is too short — the word you add or remove needs at least "
-    },
-    {
-      "offset": 0,
       "options": {
-        "one": {
-          "value": [
-            {
-              "type": 7
-            },
-            {
-              "type": 0,
-              "value": " letter"
-            }
-          ]
-        },
         "other": {
           "value": [
             {
-              "type": 7
+              "type": 0,
+              "value": "“"
+            },
+            {
+              "type": 1,
+              "value": "sub"
             },
             {
               "type": 0,
-              "value": " letters"
+              "value": "” is too short — the word you add or remove needs at least "
+            },
+            {
+              "offset": 0,
+              "options": {
+                "one": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " letter"
+                    }
+                  ]
+                },
+                "other": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " letters"
+                    }
+                  ]
+                }
+              },
+              "pluralType": "cardinal",
+              "type": 6,
+              "value": "min"
+            },
+            {
+              "type": 0,
+              "value": "."
+            }
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": "“"
+            },
+            {
+              "children": [
+                {
+                  "type": 1,
+                  "value": "sub"
+                }
+              ],
+              "type": 8,
+              "value": "ipa"
+            },
+            {
+              "type": 0,
+              "value": "” is too short — the word you add or remove needs at least "
+            },
+            {
+              "offset": 0,
+              "options": {
+                "one": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " sound"
+                    }
+                  ]
+                },
+                "other": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " sounds"
+                    }
+                  ]
+                }
+              },
+              "pluralType": "cardinal",
+              "type": 6,
+              "value": "min"
+            },
+            {
+              "type": 0,
+              "value": "."
             }
           ]
         }
       },
-      "pluralType": "cardinal",
-      "type": 6,
-      "value": "min"
+      "type": 5,
+      "value": "phonemes"
     },
     {
       "type": 0,
-      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "guess.submit": [
@@ -1199,66 +1369,170 @@
   ],
   "guess.swap": [
     {
-      "type": 1,
-      "value": "word"
-    },
-    {
-      "type": 0,
-      "value": " is the same length as "
-    },
-    {
-      "type": 1,
-      "value": "from"
-    },
-    {
-      "type": 0,
-      "value": ". Each turn you add a whole word or remove one — you can’t swap letters.SSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
-  "guess.tooShort": [
-    {
-      "type": 0,
-      "value": "Words in this puzzle are at least "
-    },
-    {
-      "offset": 0,
       "options": {
-        "one": {
-          "value": [
-            {
-              "type": 7
-            },
-            {
-              "type": 0,
-              "value": " letter"
-            }
-          ]
-        },
         "other": {
           "value": [
             {
-              "type": 7
+              "type": 1,
+              "value": "word"
             },
             {
               "type": 0,
-              "value": " letters"
+              "value": " is the same length as "
+            },
+            {
+              "type": 1,
+              "value": "from"
+            },
+            {
+              "type": 0,
+              "value": ". Each turn you add a whole word or remove one — you can’t swap letters."
+            }
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 1,
+              "value": "word"
+            },
+            {
+              "type": 0,
+              "value": " has as many sounds as "
+            },
+            {
+              "type": 1,
+              "value": "from"
+            },
+            {
+              "type": 0,
+              "value": ". Each turn you add a whole word or remove one — you can’t swap sounds."
             }
           ]
         }
       },
-      "pluralType": "cardinal",
-      "type": 6,
-      "value": "min"
+      "type": 5,
+      "value": "phonemes"
     },
     {
       "type": 0,
-      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.tooShort": [
+    {
+      "options": {
+        "other": {
+          "value": [
+            {
+              "type": 0,
+              "value": "Words in this puzzle are at least "
+            },
+            {
+              "offset": 0,
+              "options": {
+                "one": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " letter"
+                    }
+                  ]
+                },
+                "other": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " letters"
+                    }
+                  ]
+                }
+              },
+              "pluralType": "cardinal",
+              "type": 6,
+              "value": "min"
+            },
+            {
+              "type": 0,
+              "value": "."
+            }
+          ]
+        },
+        "true": {
+          "value": [
+            {
+              "type": 0,
+              "value": "Words in this puzzle are at least "
+            },
+            {
+              "offset": 0,
+              "options": {
+                "one": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " sound"
+                    }
+                  ]
+                },
+                "other": {
+                  "value": [
+                    {
+                      "type": 7
+                    },
+                    {
+                      "type": 0,
+                      "value": " sounds"
+                    }
+                  ]
+                }
+              },
+              "pluralType": "cardinal",
+              "type": 6,
+              "value": "min"
+            },
+            {
+              "type": 0,
+              "value": " long."
+            }
+          ]
+        }
+      },
+      "type": 5,
+      "value": "phonemes"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "guess.unchanged": [
     {
       "type": 0,
       "value": "unchangedSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "guess.unknownSound": [
+    {
+      "type": 0,
+      "value": "We don’t know how "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " is said, so it can’t be played here.SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "header.chooseLength": [
@@ -1359,7 +1633,7 @@
   "header.lengthHolds": [
     {
       "type": 0,
-      "value": "par "
+      "value": "("
     },
     {
       "type": 1,
@@ -1375,7 +1649,7 @@
     },
     {
       "type": 0,
-      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": ")SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "header.lengthMenu": [
@@ -1958,6 +2232,36 @@
       "value": "Word ListsSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "modes.board": [
+    {
+      "type": 1,
+      "value": "game"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "type": 1,
+      "value": "band"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "modes.letters": [
+    {
+      "type": 0,
+      "value": "lettersSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "modes.phonemes": [
+    {
+      "type": 0,
+      "value": "phonemesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "round.alsoToday": [
     {
       "type": 0,
@@ -2228,6 +2532,506 @@
       "value": "under parSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "rules.back": [
+    {
+      "type": 0,
+      "value": "Back to the boardSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.marker": [
+    {
+      "type": 0,
+      "value": "Mode: "
+    },
+    {
+      "type": 1,
+      "value": "game"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.missing": [
+    {
+      "type": 0,
+      "value": "There is nothing written down about this game yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.open": [
+    {
+      "type": 0,
+      "value": "How "
+    },
+    {
+      "type": 1,
+      "value": "game"
+    },
+    {
+      "type": 0,
+      "value": " worksSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.phonemesIntro": [
+    {
+      "type": 0,
+      "value": "In phoneme mode, additions and removals use the pronunciation of the word rather than its letters: "
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "car"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " -> "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "c"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "robe"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "ar"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " => "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "crowbar"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/kɑɹ/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " -> "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/k/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/ɹoʊb/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/ɑɹ/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " => "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/kɹoʊbɑɹ/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "type": 0,
+      "value": " This is an experimental game mode and feedback is welcome!SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.phonemesTitle": [
+    {
+      "type": 0,
+      "value": "Phoneme mode - Playing by earSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.phonemesTyping": [
+    {
+      "type": 0,
+      "value": "Guesses are typed in ordinary spelling and resolved to a pronunciation. Each spelling resolves to one or multiple pronunciations, and each node represents one pronunciation (shown as the IPA transcription beneath the spelling): homophones are the same move, and the same word may have multiple nodes for its multiple pronunciations.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.phonemesTypingTitle": [
+    {
+      "type": 0,
+      "value": "GuessingSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.phonemesWords": [
+    {
+      "type": 0,
+      "value": "This game mode is based off CMUdict to map words to their pronunciation. CMUdict is substantially smaller than the real word list, and even some common words lack pronunciation. Only words with a valid phonetic transcription can be guessed, which is an unfortunate limitation of the mode. "
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "type": 0,
+      "value": " Some pronunciations are dialect and accent specific, and might not sound natural - e.g. \"and\" has one pronunciation "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "/ənd/"
+        }
+      ],
+      "type": 8,
+      "value": "ipa"
+    },
+    {
+      "type": 0,
+      "value": " (like \"uhnd\"), so it can be used to make words like "
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "and"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " -> "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "an"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "occupy"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "d"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " => "
+    },
+    {
+      "children": [
+        {
+          "type": 0,
+          "value": "unoccupied"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/ənd/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " -> "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/ən/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/ɑkjəpaɪ/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "add"
+    },
+    {
+      "type": 0,
+      "value": " + "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/d/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " => "
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "type": 0,
+              "value": "/ənɑkjəpaɪd/"
+            }
+          ],
+          "type": 8,
+          "value": "ipa"
+        }
+      ],
+      "type": 8,
+      "value": "w"
+    },
+    {
+      "type": 0,
+      "value": " "
+    },
+    {
+      "children": [
+      ],
+      "type": 8,
+      "value": "br"
+    },
+    {
+      "type": 0,
+      "value": " which is a bit counterintuitive. Treat pronunciations as approximate and be prepared to be surprised :)SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "rules.phonemesWordsTitle": [
+    {
+      "type": 0,
+      "value": "Word ListSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "stats.addsUpTo": [
     {
       "type": 0,
@@ -2262,6 +3066,12 @@
     {
       "type": 0,
       "value": "A stats file to importSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.chooseGame": [
+    {
+      "type": 0,
+      "value": "Which gameSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "stats.clear": [
@@ -2386,6 +3196,12 @@
     {
       "type": 0,
       "value": "Nothing here yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "stats.emptyGame": [
+    {
+      "type": 0,
+      "value": "No rounds of this game yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "stats.everyRound": [

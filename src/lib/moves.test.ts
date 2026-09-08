@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { testGraph } from '../test/fixture';
+import { buildLexicon, type RawLexicon } from './lexicon';
 import { analyzeEdit, bestReading, insertionSpots, judgeGuess, wordReading } from './moves';
 
 const graph = testGraph();
@@ -112,8 +113,9 @@ describe('judgeGuess', () => {
       // the values to put in it, and what English makes of that is the catalog's business.
       expect(verdict.reason.message.id).toBe('guess.scattered');
       // The direction still has to survive the trip, since both halves of that sentence
-      // turn on it.
-      expect(verdict.reason.values).toEqual({ adding: 'true' });
+      // turn on it — and so does which alphabet is being played, since the sentence says
+      // "letters" in one game and "sounds" in the other.
+      expect(verdict.reason.values).toEqual({ adding: 'true', phonemes: 'false' });
     }
   });
 
@@ -160,5 +162,77 @@ describe('wordReading', () => {
     expect(wordReading(spots, 2, null)).toBeUndefined();
     // A run that is a word but too short to be a legal move does not count.
     expect(wordReading(insertionSpots('all', 'ball'), 2, dict)).toBeUndefined();
+  });
+});
+
+/**
+ * A guess in a translated alphabet, where what is typed is not what the graph holds.
+ *
+ * The tokens here are made up rather than real transcriptions — what matters is that a
+ * spelling can name two of them and two spellings can name one, which is the whole of what
+ * the resolution step has to survive.
+ */
+describe('judgeGuess in a translated alphabet', () => {
+  // `AB` is `ball`; `xAB` is `baseball` and also `cannonball`, which are homophones here;
+  // `x` is `base`. `ball` is also said `AC`, a second pronunciation that joins nothing.
+  const graph = testGraph();
+  const words = graph.words;
+  const raw: RawLexicon = {
+    phonemes: [
+      { code: 'b', ipa: 'b', name: 'B' },
+      { code: 'a', ipa: 'ɑ', name: 'AA' },
+      { code: 'l', ipa: 'l', name: 'L' },
+    ],
+    // One line per dictionary token, in dictionary order: the primary flag, then the
+    // spellings that name it.
+    nodes: words
+      .map((word) =>
+        word === 'baseball' ? '1\tbaseball\tbasebawl' : `1\t${word}`,
+      )
+      .join('\n'),
+    guesses: words
+      .map((word, at) => (word === 'baseball' ? `baseball\t${at}\nbasebawl\t${at}` : `${word}\t${at}`))
+      .join('\n'),
+  };
+  const lex = buildLexicon(raw, words);
+
+  it('accepts a guess typed as any spelling of the token it names', () => {
+    // `basebawl` is not in the graph's word list at all — only the lexicon knows it names
+    // the same node as `baseball`. A homophone is the same move.
+    const verdict = judgeGuess(graph, 'base', 'basebawl', graph.isWord, lex);
+    expect(verdict.ok).toBe(true);
+    if (verdict.ok) expect(verdict.word).toBe('baseball');
+  });
+
+  it('refuses a word it has no pronunciation for, without calling it a non-word', () => {
+    const verdict = judgeGuess(graph, 'base', 'zzzz', graph.isWord, lex);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      // Not `not-a-word`: the gap is in the pronunciation corpus, and the refusal has to
+      // say so rather than accusing a perfectly good word.
+      expect(verdict.code).toBe('unknown-sound');
+      expect(verdict.reason.values).toEqual({ word: 'zzzz' });
+    }
+  });
+
+  it('quotes the run it refuses as a transcription, not as codes', () => {
+    // `bal` is not a word here, so the refusal names the run — and a run of the alphabet has
+    // no spelling, so it can only be read as a transcription.
+    const verdict = judgeGuess(graph, 'ball', 'bal', graph.isWord, lex);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok && verdict.reason.values && 'sub' in verdict.reason.values) {
+      expect(verdict.reason.values.sub).not.toContain('l');
+    }
+  });
+
+  it('tells the messages which alphabet they are being said in', () => {
+    // `ball` and `base` are both tokens and the same length, so this is the swap refusal —
+    // whose sentence says "sounds" here and "letters" in the other game.
+    const verdict = judgeGuess(graph, 'ball', 'base', graph.isWord, lex);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.code).toBe('swap');
+      expect(verdict.reason.values?.phonemes).toBe('true');
+    }
   });
 });

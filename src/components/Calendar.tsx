@@ -9,7 +9,7 @@
 
 import { memo, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { bandName as translateBand } from '../i18n/bands';
+import { boardName as translateBand } from '../i18n/bands';
 import { archive as says } from '../i18n/messages/archive';
 import {
   MONTHS,
@@ -48,12 +48,11 @@ export const Calendar = memo(function Calendar({
 
   const go = (to: Month) => setAt(clampMonth(to, range.first, range.last));
   const days = useMemo(() => monthDays(at, today, manifest.epoch), [at, today, manifest.epoch]);
-  const bandName = (band: number) => {
-    const name = manifest.bands[band]?.name;
-    return name ? translateBand(intl, name) : '';
-  };
+  // Named in full — "phonemes long" — because a card carries a date and two words and
+  // nothing else that says which game it is a board of.
+  const bandName = (band: number) => translateBand(intl, band, manifest);
 
-  /** The three boards of a date, or none until that year's calendar has arrived. */
+  /** Every board of a date, or none until that year's calendar has arrived. */
   const boardsOn = (date: string): Board[] => {
     const calendar = years.get(Number(date.slice(0, 4)));
     if (!calendar) return [];

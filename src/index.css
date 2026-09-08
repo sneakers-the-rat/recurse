@@ -20,6 +20,20 @@
 
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+  /*
+   * What a transcription is set in. **Change the face here and nowhere else.**
+   *
+   * Neither of the two faces above has the IPA symbols — see the note in fonts.css — so a
+   * transcription set in them sends the browser to the platform for a glyph, once per run of
+   * missing characters and once per renderer process. Gentium Plus is vendored whole, so every
+   * character a transcription can hold is in a file this app serves.
+   *
+   * The named fallbacks are the other two OFL faces most likely to be installed on a machine
+   * that reads phonetics, and then a generic serif: Gentium is a serif, and falling back to
+   * whatever the platform picks for `sans-serif` would change the shape of the thing rather
+   * than just the face.
+   */
+  --font-ipa: 'Gentium Plus', 'Charis SIL', 'Doulos SIL', serif;
 }
 
 :root {
@@ -66,6 +80,28 @@ body {
   font-family: var(--font-mono);
   font-variant-ligatures: none;
   letter-spacing: 0.04em;
+}
+
+/*
+ * A transcription, wherever one is drawn.
+ *
+ * **After `.word` on purpose**, and it has to stay there: a transcription is usually inside
+ * something already set in the mono face — the second line under a word on the plate, the run
+ * a refused guess quotes — and the later rule is the one that wins between two of equal
+ * weight. See `--font-ipa` for what it is set in and why.
+ *
+ * Never uppercased, whatever it sits in. `.label` uppercases, and IPA is case-significant:
+ * `/ən/` came out `/ƏN/` in the guess readout, which is a schwa nobody writes and a capital N
+ * that is not a symbol at all.
+ *
+ * Ligatures off and the same letter-spacing as `.word`, so a transcription under a word lines
+ * up with it rather than reading as a quotation from somewhere else.
+ */
+.ipa {
+  font-family: var(--font-ipa);
+  font-variant-ligatures: none;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 /*

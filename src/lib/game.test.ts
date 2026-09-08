@@ -3,6 +3,7 @@ import { testGraph } from '../test/fixture';
 import {
   applyGuess,
   fullyHinted,
+  guessedWords,
   hintCount,
   hintLabel,
   hintLevels,
@@ -15,6 +16,8 @@ import {
   useMoveHint,
   worthKeeping,
 } from './game';
+import type { Drawn } from './game';
+import type { Lexicon } from './lexicon';
 import type { Puzzle } from './types';
 
 const graph = testGraph();
@@ -35,6 +38,116 @@ const puzzle: Puzzle = {
   maxRank: 0,
   board: [],
 };
+
+/**
+ * A spelling that names two tokens, which is what a translated alphabet does.
+ *
+ * `both` parses to `baseball` and `cannonball` — both real moves from `ball` in the toy graph
+ * — so it is the shape of `dissenters`, which is `/dɪsɛnɚz/` and `/dɪsɛntɚz/` and where this
+ * was found. Everything else is the identity, because only `parse` is under test.
+ */
+const twoWays: Lexicon = {
+  translated: true,
+  label: (token) => token,
+  transcribe: () => '',
+  labels: (token) => [token],
+  knows: () => true,
+  parse: (typed) => (typed === 'both' ? ['baseball', 'cannonball'] : [typed]),
+};
+
+/** `ball` sits between the two words `both` names, so one guess can reach both of them. */
+const forked: Puzzle = { ...puzzle, source: 'ball', target: 'cannonball', par: 1 };
+
+describe('a guess that names more than one token', () => {
+  it('plays every reading that is a legal move, and charges for one guess', () => {
+    const out = applyGuess(newGame(forked), graph, 'both', dict, twoWays);
+    expect(out.kind).toBe('revealed');
+    // Two moves on the board...
+    expect(out.state.log.map((entry) => entry.to).sort()).toEqual(['baseball', 'cannonball']);
+    expect([...out.state.revealed.keys()].sort()).toEqual(['ball', 'baseball', 'cannonball']);
+    // ...and one guess against the score, because the player typed one word.
+    expect(out.state.guesses).toBe(1);
+    expect(out.state.log.every((entry) => entry.order === 1)).toBe(true);
+  });
+
+  /**
+   * The bug this was found as: on `does → dissenters` the reading that sorted first was not
+   * the goal, so typing the goal's own name walked to a node beside it and the round could
+   * not be finished at all.
+   */
+  it('lands on the goal when one of the readings is the goal', () => {
+    const out = applyGuess(newGame(forked), graph, 'both', dict, twoWays);
+    expect(out.kind).toBe('revealed');
+    if (out.kind !== 'revealed') return;
+    expect(out.word).toBe('cannonball');
+    expect(out.state.selected).toBe('cannonball');
+    expect(out.state.solved).toBe(true);
+  });
+
+  /** One word per guess for the trail and the word table, landed word first. */
+  it('reports one word per guess, and it is the one landed on', () => {
+    const out = applyGuess(newGame(forked), graph, 'both', dict, twoWays);
+    expect(guessedWords(out.state.log)).toEqual(['cannonball']);
+  });
+
+  it('keeps it one guess across a reload', () => {
+    const out = applyGuess(newGame(forked), graph, 'both', dict, twoWays);
+    const back = restore(forked, snapshot(out.state));
+    expect(back.guesses).toBe(1);
+    expect(back.log).toHaveLength(2);
+    expect(back.solved).toBe(true);
+    expect(guessedWords(back.log)).toEqual(['cannonball']);
+  });
+
+  it('charges nothing for typing it again, both readings being on the board', () => {
+    const first = applyGuess(newGame(forked), graph, 'both', dict, twoWays);
+    // Back to where it was typed from: from `cannonball` neither reading is a move at all,
+    // which is a refusal and a different question.
+    const again = applyGuess(select(first.state, 'ball'), graph, 'both', dict, twoWays);
+    expect(again.kind).toBe('already-known');
+    expect(again.state.guesses).toBe(1);
+    expect(again.state.log).toHaveLength(2);
+  });
+
+  /*
+    Where the cursor lands when neither reading is an endpoint.
+
+    `ball` is the source here and `cannon` the goal, so `baseball` and `cannonball` are both
+    ordinary words — and the answer runs ball → cannonball → cannon, which puts `cannonball` on
+    the spine and `baseball` off it. `both` names them in that order, so the *second* has to win
+    for the ranking to be doing anything.
+  */
+  const middling: Puzzle = { ...puzzle, source: 'ball', target: 'cannon', par: 2 };
+  const play = (drawn?: Drawn) =>
+    applyGuess(newGame(middling), graph, 'both', dict, twoWays, drawn ?? null);
+
+  it('lands on the spine over a word it has just invented', () => {
+    const out = play({ spine: new Set(['cannonball']), nodes: new Set(['cannonball']) });
+    expect(out.state.selected).toBe('cannonball');
+  });
+
+  it('lands on a word already drawn over one it has just invented', () => {
+    const out = play({ spine: new Set(), nodes: new Set(['cannonball']) });
+    expect(out.state.selected).toBe('cannonball');
+  });
+
+  it('prefers the spine to a drawn word that is off it', () => {
+    const out = play({ spine: new Set(['cannonball']), nodes: new Set(['baseball', 'cannonball']) });
+    expect(out.state.selected).toBe('cannonball');
+  });
+
+  /** Told nothing about the board, the most familiar reading wins — the lexicon orders them. */
+  it('falls back to the first reading when there is no board to ask', () => {
+    expect(play().state.selected).toBe('baseball');
+  });
+
+  /** The letters game never sees any of this: one spelling, one token, one move. */
+  it('is one move where a spelling names one token', () => {
+    const out = applyGuess(newGame(puzzle), graph, 'baseball', dict);
+    expect(out.state.log).toHaveLength(1);
+    expect(out.state.guesses).toBe(1);
+  });
+});
 
 describe('newGame', () => {
   it('starts with only the source revealed and selected', () => {

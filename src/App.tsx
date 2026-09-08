@@ -19,7 +19,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { say } from './i18n/format';
 import { board as boardSays } from './i18n/messages/board';
 import { dev as devSays } from './i18n/messages/dev';
-import { bandName } from './i18n/bands';
+import { boardName } from './i18n/bands';
 import { Result, Round } from './components/Completed';
 import { Opening } from './components/Opening';
 import { DevBar } from './components/DevBar';
@@ -29,6 +29,7 @@ import { Header } from './components/Header';
 import { HowTo } from './components/HowTo';
 import { Puzzles } from './components/Puzzles';
 import { ResetView } from './components/ResetView';
+import { ModeRules, hasModeRules } from './components/ModeRules';
 import { Stats } from './components/Stats';
 import { Toast } from './components/Toast';
 import { Tutorial } from './components/Tutorial';
@@ -38,6 +39,7 @@ import type { Moment } from './lib/tutorial';
 import { shortestPath, shortestRoutes } from './lib/graph';
 import {
   applyGuess,
+  guessedWords,
   hintCount,
   newGame,
   restore,
@@ -48,12 +50,15 @@ import {
   worthKeeping,
   type GameState,
 } from './lib/game';
+import { PLAIN } from './lib/lexicon';
 import {
   BANDS,
-  bandOf,
   idForDay,
   loadCalendar,
   loadGameData,
+  loadMode,
+  modeName,
+  modeOfBand,
   loadPairs,
   loadShard,
   type RawCalendar,
@@ -69,7 +74,15 @@ import {
   resolvePuzzle,
   type DailyPuzzle,
 } from './lib/daily';
-import { idFromPath, pageFromPath, pagePath, pathFor, shareUrl, type Page } from './lib/route';
+import {
+  idFromPath,
+  modeFromPath,
+  pageFromPath,
+  pagePath,
+  pathFor,
+  shareUrl,
+  type Page,
+} from './lib/route';
 import { markGuesses, shareText } from './lib/share';
 import {
   addCompletion,
@@ -322,6 +335,27 @@ function useOpening({
 export default function App() {
   const intl = useIntl();
   const [data, setData] = useState<GameData | null>(null);
+  /**
+   * The same thing, readable without being a dependency.
+   *
+   * `showBoard` needs the manifest and the mode currently loaded, and taking `data` as a
+   * dependency would rebuild it on every guess — which would in turn rebuild every callback
+   * that opens a board, and re-register the popstate listener, on every keystroke.
+   *
+   * **Written by `holdData`, not during render**, and that distinction is the whole reason it
+   * is a function. Assigning `dataRef.current = data` in the body only catches up when React
+   * gets round to rendering, and the first thing that happens after the data arrives is
+   * `showBoard` — in the same promise chain, before any render. It read `null`, decided there
+   * was nothing to show a board against, and returned; the game sat on the loading screen for
+   * ever, with no error, because every fetch had in fact succeeded.
+   */
+  const dataRef = useRef<GameData | null>(null);
+
+  /** Put the data in both places at once, so no caller can see a stale ref. */
+  const holdData = useCallback((next: GameData) => {
+    dataRef.current = next;
+    setData(next);
+  }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   // Where in the bank we are, and what number to call it. They differ: `day` is
@@ -363,11 +397,23 @@ export default function App() {
    * writes to it — a round recorded, an import, a clear — which is what makes the screen
    * re-read rather than what tells it what to show.
    */
+  /**
+   * How a token is written, which is what a hint is counted in.
+   *
+   * Hints are letters in every game — see `Spell` in game.ts — so anything that buys, caps or
+   * draws one needs this. `PLAIN.label` before the data lands, which is the identity and so
+   * right for the letters game and harmless before there is a board.
+   */
+  const spell = data?.lexicon.label ?? PLAIN.label;
+
   const [historyAt, setHistoryAt] = useState(0);
   const stats = useMemo(
-    () => (page === 'stats' ? loadStats() : []),
+    // The manifest is what repairs a record keyed under an older list of bands, so the read
+    // is redone when the bank arrives: the screen can open before it has, and the figures
+    // would otherwise be computed from keys nothing else agrees with. See `readCompletion`.
+    () => (page === 'stats' ? loadStats(data?.manifest) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [page, historyAt],
+    [page, historyAt, data],
   );
 
   const replaceHistory = useCallback((records: readonly Completion[]) => {
@@ -382,6 +428,24 @@ export default function App() {
 
   const openArchive = useCallback(() => openPage('archive'), [openPage]);
   const openStats = useCallback(() => openPage('stats'), [openPage]);
+
+  /**
+   * Which game's rules are being read, when that is what is on screen.
+   *
+   * Off the *path* and not off the board, because the page has a second segment and is a thing
+   * to link to: `rules/phonemes` says the same thing to whoever opens it, whatever board they
+   * happened to have up. Kept beside `page` rather than derived on render for the same reason
+   * `page` is — a popstate has to be able to change it.
+   */
+  const [rulesFor, setRulesFor] = useState<string | null>(() =>
+    modeFromPath(window.location.pathname),
+  );
+
+  const openModeRules = useCallback((mode: string) => {
+    window.history.pushState(null, '', pagePath('rules', window.location.search, undefined, mode));
+    setRulesFor(mode);
+    setPage('rules');
+  }, []);
 
   /**
    * Off a page, to the board underneath.
@@ -452,10 +516,23 @@ export default function App() {
       // tutorial is the one writing it. What must never happen is the two getting mixed up:
       // the game store is keyed by word pair, and the walkthrough's moves in that slot would
       // hand somebody this board three quarters solved.
+      // The manifest off the ref rather than off `data`, because this callback is built once
+      // and never rebuilt — and `holdData` writes the ref eagerly for exactly this reason: the
+      // first board opens before React has rendered. Without one there is no band name to key
+      // the store on, and a fresh game is the right answer rather than a guessed key.
+      const manifest = dataRef.current?.manifest;
+      // And the lexicon off the same ref, for the same reason: hints are counted in letters,
+      // so restoring one has to know how a token is written. `showBoard` has already loaded
+      // the right mode by the time this runs, so this is that board's own lexicon.
+      const spellNow = dataRef.current?.lexicon.label ?? PLAIN.label;
       setState(
         teaching
-          ? restore(chosen.puzzle, loadTutorial(chosen.puzzle.id)?.game ?? null)
-          : restore(chosen.puzzle, loadGame(gameKey(chosen.puzzle))),
+          ? restore(chosen.puzzle, loadTutorial(chosen.puzzle.id)?.game ?? null, spellNow)
+          : restore(
+              chosen.puzzle,
+              manifest ? loadGame(gameKey(chosen.puzzle, manifest)) : null,
+              spellNow,
+            ),
       );
       setError(null);
       // The query string is carried over, because `?dev` has to survive a step.
@@ -466,6 +543,31 @@ export default function App() {
       else window.history.replaceState(null, '', url);
     },
     [],
+  );
+
+  /**
+   * Put a board up, fetching its mode's graph first if this is a game we have not played yet.
+   *
+   * **Which mode a board belongs to is a finding, not an input.** A shared link carries an id
+   * and nothing else, and the header's switch names a band; either way the answer only exists
+   * once the shard says which band the puzzle is in. So every route to a board that came out
+   * of a shard goes through here, and `show` stays synchronous for the callers that already
+   * have the right graph in hand.
+   *
+   * `loadMode` remembers what it has fetched, so moving back and forth between two lengths of
+   * the same game costs nothing after the first time.
+   */
+  const showBoard = useCallback(
+    async (chosen: DailyPuzzle, how: 'push' | 'replace', as: 'play' | 'tutorial' = 'play') => {
+      const loaded = dataRef.current;
+      if (!loaded) return;
+      const wanted = modeOfBand(chosen.puzzle.band, loaded.manifest);
+      if (wanted !== loaded.mode) {
+        holdData({ ...loaded, ...(await loadMode(wanted, loaded.manifest)) });
+      }
+      show(chosen, how, as);
+    },
+    [show, holdData],
   );
 
   /**
@@ -488,12 +590,12 @@ export default function App() {
       void loadShard(shardOf(LESSON.puzzle), data.manifest.version)
         .then((bank) => {
           const taught = puzzleById(bank, LESSON.puzzle);
-          if (taught) show(taught, how, 'tutorial');
+          if (taught) void showBoard(taught, how, 'tutorial');
           else asPage();
         })
         .catch(asPage);
     },
-    [data, show],
+    [data, showBoard],
   );
 
   // A button hands its click event to whatever it is given, and `how` would swallow it —
@@ -581,11 +683,11 @@ export default function App() {
     const asked = arrived === 'tutorial' ? LESSON.puzzle : idFromPath(window.location.pathname);
     loadGameData(asked === null ? { band: loadBand(BANDS) } : { id: asked })
       .then(async (loaded) => {
-        setData(loaded);
+        holdData(loaded);
         if (arrived === 'tutorial') {
           const taught = puzzleById(loaded.puzzles, LESSON.puzzle);
           if (taught) {
-            show(taught, 'replace', 'tutorial');
+            await showBoard(taught, 'replace', 'tutorial');
             return;
           }
           // The lesson's board is not in this bank. Fall through to today's, which the
@@ -599,14 +701,21 @@ export default function App() {
           setLoadError(intl.formatMessage(devSays.outOfStep));
           return;
         }
-        show(chosen, 'replace');
+        await showBoard(chosen, 'replace');
         if (arrived) {
-          window.history.replaceState(null, '', pagePath(arrived, window.location.search));
+          // The mode goes back into the address for the one page that has one, or arriving at
+          // `rules/phonemes` would rewrite itself to a bare `rules` and lose which game.
+          const of = arrived === 'rules' ? (rulesFor ?? undefined) : undefined;
+          window.history.replaceState(
+            null,
+            '',
+            pagePath(arrived, window.location.search, undefined, of),
+          );
           setPage(arrived);
         }
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
-  }, [show, boardForPath]);
+  }, [showBoard, boardForPath, holdData]);
 
   /**
    * The back button, which moves between boards rather than out of the game.
@@ -629,17 +738,20 @@ export default function App() {
         return;
       }
       if (wanted) {
+        // The rules page carries which game in its second segment, so stepping back into one
+        // has to read it again — the two are one address.
+        if (wanted === 'rules') setRulesFor(modeFromPath(window.location.pathname));
         setPage(wanted);
         return;
       }
       setPage(null);
       void boardForPath(data, window.location.pathname, band).then((chosen) => {
-        if (chosen) show(chosen, 'replace');
+        if (chosen) void showBoard(chosen, 'replace');
       });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [data, show, boardForPath, band, openTutorial]);
+  }, [data, showBoard, boardForPath, band, openTutorial]);
 
   /**
    * Found words whose onward routes have been worked out.
@@ -827,6 +939,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, state?.puzzle, revealedKey, expanded, trail]);
 
+  /**
+   * The board as a pair of sets, for `applyGuess`.
+   *
+   * A guess that names several nodes has to land on the one the player already knows, and
+   * which words those are is the plate's question — see `Drawn`. Off the memo, so it costs
+   * nothing per guess and changes exactly when the figure does.
+   */
+  const drawn = useMemo(
+    () => (plate ? { spine: plate.routeNodes, nodes: new Set(plate.nodes) } : null),
+    [plate],
+  );
+
   const [plateRef, plateSize, plateEl] = usePlateSize();
 
   /**
@@ -986,7 +1110,9 @@ export default function App() {
   const handleGuess = useCallback(
     (raw: string) => {
       if (!data || !state) return;
-      const outcome = applyGuess(state, data.graph, raw, isWord);
+      // The board as it stands, so a guess that names several nodes lands on the one the
+      // player has already met rather than on one it has just invented. See `landing`.
+      const outcome = applyGuess(state, data.graph, raw, isWord, data.lexicon, drawn);
       setState(outcome.state);
       // The judge names the message; saying it is this layer's job, because this is the
       // first layer that knows what language the player reads. See `Phrase`.
@@ -996,7 +1122,7 @@ export default function App() {
       // already had, which is navigation and every bit as much a reason to look there.
       if (outcome.kind !== 'rejected') setFollow({ word: outcome.word, centre: narrow });
     },
-    [data, state, isWord, narrow, intl],
+    [data, state, isWord, narrow, intl, drawn],
   );
 
   const selectWord = useCallback((word: string) => {
@@ -1064,9 +1190,12 @@ export default function App() {
         setState((s) => (s ? useMoveHint(s, word, near) : s));
         return;
       }
-      setState((s) => (s ? useHint(s, word) : s));
+      // `lexicon.label`, because a hint is counted in *letters* — see `Spell` in game.ts.
+      // Capped on the token instead, a long word said in few sounds would stop selling
+      // letters half way through and a short one would charge for clicks that showed nothing.
+      setState((s) => (s ? useHint(s, word, spell) : s));
     },
-    [secretOnly, plate, intl],
+    [secretOnly, plate, intl, spell],
   );
 
   // Both go away on their own: the cross is over in under a second, the toast is read in two.
@@ -1105,9 +1234,9 @@ export default function App() {
    * by word pair, so there is nowhere else to put it.
    */
   useEffect(() => {
-    if (!state || page === 'tutorial') return;
-    saveGame(gameKey(state.puzzle), worthKeeping(state) ? snapshot(state) : null);
-  }, [state, page]);
+    if (!state || !data || page === 'tutorial') return;
+    saveGame(gameKey(state.puzzle, data.manifest), worthKeeping(state) ? snapshot(state) : null);
+  }, [state, data, page]);
 
   /**
    * One day of one length, whichever shard it is in.
@@ -1128,11 +1257,11 @@ export default function App() {
           const chosen = puzzleById(bank, id);
           // The day being opened, not the puzzle's own first day: a band shorter than the
           // calendar cycles, so one puzzle answers to several dates.
-          if (chosen) show({ puzzle: chosen.puzzle, day: on }, 'push');
+          if (chosen) void showBoard({ puzzle: chosen.puzzle, day: on }, 'push');
         });
       });
     },
-    [data, show],
+    [data, showBoard],
   );
 
   /**
@@ -1167,11 +1296,11 @@ export default function App() {
 
   /** Dev only: throw this board's saved progress away and start it again. */
   const resetPuzzle = useCallback(() => {
-    if (!state) return;
-    saveGame(gameKey(state.puzzle), null);
+    if (!state || !data) return;
+    saveGame(gameKey(state.puzzle, data.manifest), null);
     setState(newGame(state.puzzle));
     setError(null);
-  }, [state]);
+  }, [state, data]);
 
   /**
    * The answer, for the dev bar and its solve button: the best route through *ordinary*
@@ -1243,7 +1372,7 @@ export default function App() {
       if (!data) return;
       void loadShard(shardOf(id), data.manifest.version).then((bank) => {
         const chosen = puzzleById(bank, id);
-        if (chosen) show(chosen, 'push');
+        if (chosen) void showBoard(chosen, 'push');
       });
     },
     [data, show],
@@ -1274,11 +1403,15 @@ export default function App() {
         const bank = await loadShard(shardOf(id), manifest.version);
         const found = puzzleById(bank, id);
         if (!found) return null;
-        const saved = restore(found.puzzle, loadGame(gameKey(found.puzzle)));
+        const saved = restore(
+          found.puzzle,
+          loadGame(gameKey(found.puzzle, data.manifest)),
+          data.lexicon.label,
+        );
         if (saved.solved) return null;
         return {
           band: index,
-          name: bandName(intl, bandOf(index, manifest).name),
+          name: boardName(intl, index, manifest),
           guesses: saved.guesses,
         };
       }),
@@ -1332,7 +1465,10 @@ export default function App() {
     starred.delete(source);
     starred.delete(target);
     const marks = markGuesses(
-      state.log.map((entry) => entry.to),
+      // One mark per *guess*, not per move: a typed word that names two pronunciations puts
+      // two moves on the log and is one guess, and a trail with more marks than the score
+      // beside it reads as a miscount.
+      guessedWords(state.log),
       first.routeNodes,
       new Set(first.nodes),
       starred,
@@ -1345,7 +1481,7 @@ export default function App() {
       marks,
       text: shareText(intl, {
         day: at.day,
-        band: bandName(intl, bandOf(state.puzzle.band, data.manifest).name),
+        band: boardName(intl, state.puzzle.band, data.manifest),
         date,
         guesses: state.guesses,
         par: state.puzzle.par,
@@ -1369,8 +1505,10 @@ export default function App() {
   const devSolved = useRef(new Set<string>());
 
   useEffect(() => {
-    if (state && !state.solved) seenUnfinished.current.add(gameKey(state.puzzle));
-  }, [state]);
+    if (state && data && !state.solved) {
+      seenUnfinished.current.add(gameKey(state.puzzle, data.manifest));
+    }
+  }, [state, data]);
 
   /**
    * Write a finished round down.
@@ -1395,7 +1533,7 @@ export default function App() {
     // dev mode's solve button is not — so the tutorial is kept out of the history for the
     // same reason and by the same rule.
     if (page === 'tutorial') return;
-    const key = gameKey(state.puzzle);
+    const key = gameKey(state.puzzle, data.manifest);
     if (devSolved.current.has(key)) return;
     const written = addCompletion(
       recordOf(key, state, {
@@ -1405,7 +1543,9 @@ export default function App() {
         date: dateForDay(at.day, data.manifest.epoch),
         marks: result.marks,
         backfilled: !seenUnfinished.current.has(key),
+        label: data.lexicon.label,
       }),
+      data.manifest,
     );
     if (written) setHistoryAt((count) => count + 1);
   }, [data, state, result, at, page]);
@@ -1436,10 +1576,13 @@ export default function App() {
    */
   const solveIt = useCallback(() => {
     if (!data || !state || bestRoute.length === 0) return;
-    devSolved.current.add(gameKey(state.puzzle));
+    devSolved.current.add(gameKey(state.puzzle, data.manifest));
     let next = newGame(state.puzzle);
     for (const word of bestRoute.slice(1)) {
-      next = applyGuess(next, data.graph, word, null).state;
+      // `PLAIN` on purpose: a route out of the graph is already a list of *tokens*, and the
+      // mode's own lexicon would try to read each one as something a player typed — which in
+      // a translated alphabet it is not, so every step would be refused as an unknown word.
+      next = applyGuess(next, data.graph, word, null, PLAIN).state;
     }
     setState(next);
     setError(null);
@@ -1463,7 +1606,20 @@ export default function App() {
     );
   }
 
-  if (!data || !state || !plate || !laid || !at) {
+  /*
+    The board on screen and the graph under it have to belong to the same game.
+
+    `showBoard` loads the other mode and puts the board up in one go, and React batches the
+    two together — but "the batching held" is not something to draw a board on the strength
+    of. If they ever disagree, the source of the puzzle is not a node of the graph, and what
+    that produces is a plate built from nothing rather than an error. So it is checked, and a
+    mismatch reads as still loading, which is exactly what it is.
+  */
+  const paired = data === null || state === null
+    ? false
+    : data.mode === modeOfBand(state.puzzle.band, data.manifest);
+
+  if (!data || !state || !plate || !laid || !at || !paired) {
     return (
       <main className="flex min-h-dvh items-center justify-center">
         <p className="label">
@@ -1498,6 +1654,14 @@ export default function App() {
     );
   }
 
+  /**
+   * One game's rules, which is a page and not the how-to dialog: it is about *this* game
+   * rather than about ReCurse, and it is a thing to link somebody to. See `ModeRules`.
+   */
+  if (page === 'rules') {
+    return <ModeRules mode={rulesFor ?? ''} onClose={closePage} />;
+  }
+
   if (page === 'stats') {
     return (
       <Stats
@@ -1511,6 +1675,15 @@ export default function App() {
       />
     );
   }
+
+  /**
+   * Which game the board on screen is of, named as the manifest names it.
+   *
+   * Off the *board*, not off whatever the switch was last left on: a board arrived at by link
+   * carries its own band and that band names its mode. The same finding `showBoard` makes to
+   * decide which graph to fetch — see `modeOfBand`.
+   */
+  const hereMode = modeName(modeOfBand(state.puzzle.band, data.manifest), data.manifest);
 
   // The round is over *and* there is a result to show for it. Both, because `result` is
   // a second plate build and everything below keys off it existing.
@@ -1536,6 +1709,7 @@ export default function App() {
       <div className="flex h-dvh flex-col">
         {devMode && (
           <DevBar
+            lexicon={data.lexicon}
             index={at.day}
             total={data.manifest.days}
             puzzle={state.puzzle}
@@ -1555,11 +1729,17 @@ export default function App() {
         )}
 
         <Header
-          source={state.puzzle.source}
-          target={state.puzzle.target}
+          source={data.lexicon.label(state.puzzle.source)}
+          target={data.lexicon.label(state.puzzle.target)}
           par={state.puzzle.par}
           shortcuts={shortcut?.count ?? 0}
           bands={data.manifest.bands}
+          games={data.manifest.modes}
+          // Named only when that game has rules of its own, which is the same question the
+          // page answers — so the marker and the page cannot disagree about whether there is
+          // anything to read. The letters game has none and draws no marker.
+          game={hasModeRules(hereMode) ? hereMode : null}
+          onModeRules={() => openModeRules(hereMode)}
           band={band}
           // The day is kept and the length changes: a link to Tuesday's short board leads to
           // Tuesday's long one, not to today's.
@@ -1603,6 +1783,7 @@ export default function App() {
         >
           <GraphPlate
             state={state}
+            lexicon={data.lexicon}
             nodes={laid.drawn}
             edges={laid.edges}
             positions={laid.positions}
@@ -1633,8 +1814,8 @@ export default function App() {
 
           {opening && result === null && (
             <Opening
-              source={state.puzzle.source}
-              target={state.puzzle.target}
+              source={data.lexicon.label(state.puzzle.source)}
+              target={data.lexicon.label(state.puzzle.target)}
               day={at.day}
               date={dateForDay(at.day)}
               phase={opening}
@@ -1647,6 +1828,7 @@ export default function App() {
             from={state.selected}
             graph={data.graph}
             isWord={isWord}
+            lexicon={data.lexicon}
             error={error}
             onSubmit={handleGuess}
             onClearError={clearError}
@@ -1658,6 +1840,7 @@ export default function App() {
       {finished && result && (
         <Round
           state={state}
+          lexicon={data.lexicon}
           day={result.day}
           date={result.date}
           onPlayAgain={devMode ? playAgain : undefined}

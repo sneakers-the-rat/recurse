@@ -38,6 +38,11 @@ fn ensure_cached(cache: &Path, name: &str, url: &str) -> Result<PathBuf, String>
     Ok(path)
 }
 
+/// A cached corpus, as text. Downloads it the first time and then never again.
+pub fn fetch(cache: &Path, name: &str, url: &str) -> Result<String, String> {
+    read_lossy(&ensure_cached(cache, name, url)?)
+}
+
 /// A SCOWL list, lowercase entries only.
 ///
 /// SCOWL puts a prose header before the words and preserves capitalisation, so

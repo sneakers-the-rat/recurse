@@ -35,13 +35,23 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { board as says } from '../i18n/messages/board';
-import { moveSign } from './marks';
+import { moveSign, Said } from './marks';
 import { fullyHinted, hintLabel, isFront, moveHint, type GameState } from '../lib/game';
+import type { Lexicon } from '../lib/lexicon';
 import type { PlateEdge } from '../lib/plate';
 import type { Point } from '../lib/types';
 
 interface Props {
   state: GameState;
+  /**
+   * How a token is written and said — see lib/lexicon.ts.
+   *
+   * The plate draws *tokens*, which in the phonemes game are pronunciations rather than words.
+   * This is the only thing here that knows the difference: it turns a token into the spelling
+   * on the mark and the transcription under it, and it is what makes a subword on an edge
+   * readable. Everything else on this plate handles tokens without reading them.
+   */
+  lexicon: Lexicon;
   /** Every node to draw: routes on the board, plus anything found off it. */
   nodes: readonly string[];
   edges: readonly PlateEdge[];
@@ -204,6 +214,7 @@ function SpurFan({ count, awayFrom }: { count: number; awayFrom: number }) {
  */
 const PlateNode = memo(function PlateNode({
   word,
+  lexicon,
   isRevealed,
   isSource,
   isTarget,
@@ -221,6 +232,11 @@ const PlateNode = memo(function PlateNode({
   onInspect,
 }: {
   word: string;
+  /**
+   * How this word is written and said. A stable object per mode — `PLAIN` in the letters
+   * game — so it compares by identity and the memo above still holds.
+   */
+  lexicon: Lexicon;
   isRevealed: boolean;
   isSource: boolean;
   isTarget: boolean;
@@ -304,11 +320,52 @@ const PlateNode = memo(function PlateNode({
         ? 'var(--color-bone)'
         : 'var(--color-bone-dim)';
 
-  // The target is named from the start — it is the goal, not a secret. A word on the answer
-  // shows nothing: its hints are on its edges, and a level stored by a version that sold its
-  // letters must not surface them now.
-  const label =
-    isRevealed || isTarget || inspected ? word : onRoute ? null : hintLabel(word, level);
+  /*
+    What the plate writes, in one line or two.
+
+    A word whose identity is known — named, the goal, or spelled out by dev mode — is drawn as
+    its spelling with its transcription beneath, because in the phonemes game the spelling is
+    what a player types and the transcription is what the puzzle is actually about, and it is
+    the only thing telling two nodes apart when a word is said two ways.
+
+    **A hint is drawn in letters, in both games, and that is the whole of the special case.**
+    A hint is help naming the word; the count and the letters it turns up are of the
+    *spelling*, because nobody knows how many phonemes `thought` has or what `/θɔt/` looks
+    like — see `Spell` in game.ts, which is where the rest of this lives. So the hint text is
+    already written in the alphabet the player reads and must not be transcribed on its way
+    out: it was, and a partly-hinted word came out as a row of IPA with dots in it.
+
+    Which means nothing goes underneath a partial hint either. There is no transcription to
+    put there that would not hand over the answer the hint is being paid for a letter at a
+    time — and once the last letter is bought the word is simply there, and it gets the second
+    line like any other named word.
+
+    A word on the answer shows nothing at all: its hints are on its edges, and a level stored
+    by a version that sold its letters must not surface them now.
+
+    The letters game has nothing to say twice and draws exactly what it always did — `spell`
+    is the identity there and `translated` is false.
+  */
+  const spelling = lexicon.label(word);
+  const known = isRevealed || isTarget || inspected;
+  const hint = known || onRoute ? null : hintLabel(spelling, level);
+  /*
+    Where the word sits: above the mark once it is a word, inside it while it is still a
+    count or a row of dots — which is also true of a word bought letter by letter until it is
+    whole, since that is a word nobody has *reached*.
+
+    The transcription is one line under whichever of those it is, derived rather than written
+    down twice. Given its own constant it agreed with the named case only: a word spelled out
+    entirely by hints drew its letters inside the mark and how it is said above the mark, with
+    the whole node between the two halves of one label.
+  */
+  const labelY = named ? -NODE_R - 8 : 3.5;
+  const beneathY = labelY + 9.5;
+  // The word is on show — either because it is named, or because enough hints have been
+  // bought that nothing is left dotted out. Both are the same thing to read.
+  const whole = known || hint === spelling;
+  const label = known ? spelling : hint;
+  const beneath = whole && lexicon.translated ? lexicon.transcribe(word) : null;
 
   return (
     <>
@@ -383,8 +440,12 @@ const PlateNode = memo(function PlateNode({
 
         {label !== null && (
           <text
-            y={named ? -NODE_R - 8 : 3.5}
+            y={labelY}
             textAnchor="middle"
+            // Not a target: the hit area below is, and a long word overhangs it by a good
+            // deal. Left clickable, a tap on the tail of one word does nothing at all rather
+            // than reaching whatever it is lying over.
+            pointerEvents="none"
             className="word"
             fontSize={named ? 12.5 : 10}
             fontWeight={isEndpoint ? 600 : 400}
@@ -397,9 +458,58 @@ const PlateNode = memo(function PlateNode({
             {label}
           </text>
         )}
+
+        {/*
+          The transcription, on the line immediately under the spelling.
+
+          The two are one label and have to be read as one, so they are set as two lines of it
+          rather than as two things at opposite ends of the mark. It was below the mark, which
+          put the whole node — fourteen pixels of circle plus its ring — between a word and how
+          it is said, and at that distance the eye pairs the transcription with whatever is
+          under it instead.
+
+          So it **overlaps the mark**, and that is the trade: the second line crosses the top of
+          the circle. It costs nothing, because it is drawn before the hit area and so cannot
+          take a click meant for the node — see the note there — and because the mark is a disc
+          with nothing written on it.
+
+          Smaller than the spelling and in the same ink: the size is what says which of the two
+          lines is the word, and a second colour on top of that read as a footnote rather than
+          as the other half of one label.
+        */}
+        {beneath !== null && (
+          <text
+            y={beneathY}
+            textAnchor="middle"
+            pointerEvents="none"
+            // `ipa` after `word`, which is what puts it in the face that has the symbols —
+            // see `--font-ipa`. SVG takes a class like anything else; what it cannot take is
+            // the `<span>` the `<ipa>` message tag renders, which is why this says it here.
+            className="word ipa"
+            fontSize={9}
+            // The same ink as the spelling above it, because the two are one label. Size is
+            // what says which line is the word; a second colour on top of that made the
+            // transcription read as a footnote to it rather than as the other half of it.
+            fill={ink}
+            paintOrder="stroke"
+            stroke="var(--color-noir)"
+            strokeWidth="3"
+            strokeLinejoin="round"
+          >
+            <Said>{beneath}</Said>
+          </text>
+        )}
       </g>
 
-      {/* Hit area sized for thumbs, larger than the drawn mark. */}
+      {/*
+        Hit area sized for thumbs, larger than the drawn mark.
+
+        **Last, so it is on top of both lines of the label.** SVG paints in document order and
+        offers a click to whatever is uppermost, so the transcription crossing the mark is
+        crossed *by* this in turn and a tap on it reaches the node. The parts of either line
+        that overhang the circle are `pointer-events: none`, so they do not swallow a tap
+        meant for whatever is behind them either.
+      */}
       <circle
         r={NODE_R + 8}
         fill="transparent"
@@ -417,12 +527,16 @@ const PlateNode = memo(function PlateNode({
                 ? intl.formatMessage(says.onRoute)
                 : !hinted
                   ? intl.formatMessage(says.unhinted)
-                  : fullyHinted(word, level)
-                    ? intl.formatMessage(says.spelled, { word })
+                  : // Every one of these is about the *spelling*, because every one of them
+                    // is about a hint and a hint is always letters — the count a level-1 hint
+                    // bought, the letters after it, and the word once they are all bought.
+                    // Read out in phonemes it would be a count of sounds and a row of IPA.
+                    fullyHinted(word, level, lexicon.label)
+                    ? intl.formatMessage(says.spelled, { word: spelling })
                     : // What the next click buys, since that is the decision.
                       intl.formatMessage(says.partly, {
-                        count: word.length,
-                        shown: level >= 2 ? (hintLabel(word, level) ?? 'none') : 'none',
+                        count: spelling.length,
+                        shown: level >= 2 ? (hintLabel(spelling, level) ?? 'none') : 'none',
                       })
         }
         // Hovering a word lifts every move from it out of the background, so
@@ -465,6 +579,7 @@ const PlateNode = memo(function PlateNode({
 
 export function GraphPlate({
   state,
+  lexicon,
   nodes,
   edges,
   positions,
@@ -848,7 +963,22 @@ export function GraphPlate({
                   strokeLinejoin="round"
                 >
                   {moveSign(trail.kind)}
-                  {trail.sub}
+                  {/*
+                    The word the move added or removed, spelled.
+
+                    A move is a *word* going in or coming out, and the edge is where the game
+                    says which — so it says it the way the player would write it, not as the
+                    run of sounds it is made of. A run that is somehow not a word has no
+                    spelling and falls back to its transcription; on a walked edge that cannot
+                    happen, since the move was judged legal to get here.
+                  */}
+                  {lexicon.knows(trail.sub) ? (
+                    lexicon.label(trail.sub)
+                  ) : (
+                    // A run that is not a word has no spelling, so this is IPA and wants the
+                    // face that has the symbols. See `--font-ipa`.
+                    <tspan className="ipa">{lexicon.transcribe(trail.sub)}</tspan>
+                  )}
                 </text>
               )}
             </g>
@@ -929,6 +1059,7 @@ export function GraphPlate({
             <g key={word} data-word={word} transform={`translate(${p.x} ${p.y})`}>
               <PlateNode
                 word={word}
+                lexicon={lexicon}
                 isRevealed={isRevealed}
                 isSource={word === puzzle.source}
                 isTarget={word === puzzle.target}

@@ -82,8 +82,8 @@ export interface DailyPuzzle {
 /**
  * Wrap a day number into the calendar. Works for negatives too, unlike a bare `%`.
  *
- * `days` is the manifest's calendar length — one number now, for all three lengths, because
- * every band runs the whole calendar. It used to be per band, and the shortest band's length
+ * `days` is the manifest's calendar length — one number now, for every band of every game,
+ * because every band runs the whole calendar. It used to be per band, and the shortest band's length
  * was where the game started repeating itself; a band shorter than the calendar cycles inside
  * it instead, which the builder does when it writes the year files.
  *

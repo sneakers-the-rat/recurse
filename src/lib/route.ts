@@ -40,30 +40,55 @@ export function base(): string {
 /**
  * The paths that are not boards.
  *
- * Three of them: the archive of everything already played, the record of how the player
- * has done, and the walkthrough. Words rather than digests, so none can ever collide with
- * an id — `ID` is hex only, and `puzzles`, `stats` and `tutorial` are not. That is also why
- * they need no special case in `idFromPath`: a path this does not recognise as an id
- * already means "no board named here", and these are three of those.
+ * Four of them: the archive of everything already played, the record of how the player has
+ * done, the walkthrough, and one game's rules. Words rather than digests, so none can ever
+ * collide with an id — `ID` is hex only, and `puzzles`, `stats`, `tutorial` and `rules` are
+ * not. That is also why they need no special case in `idFromPath`: a path this does not
+ * recognise as an id already means "no board named here", and these are four of those.
  *
- * **The tutorial is the odd one of the three.** The other two replace the board; the
- * tutorial *is* a board — one particular puzzle, played for real, with a lesson over it —
- * so its path stays in the address bar rather than being rewritten to that puzzle's id.
- * Which board it teaches on is the lesson's business and not this module's; see
- * `lib/tutorial.ts`.
+ * **The tutorial is the odd one of the four.** The others replace the board; the tutorial *is*
+ * a board — one particular puzzle, played for real, with a lesson over it — so its path stays
+ * in the address bar rather than being rewritten to that puzzle's id. Which board it teaches
+ * on is the lesson's business and not this module's; see `lib/tutorial.ts`.
+ *
+ * **The rules page is the only one with a second segment**: `rules/phonemes`, because the rules
+ * it states are one game's and there is more than one game. The mode is carried in the path
+ * rather than off the board on screen so the page can be linked to — it is a thing somebody
+ * sends somebody else, which is the whole reason it is a page and not a panel.
  */
-export type Page = 'archive' | 'stats' | 'tutorial';
+export type Page = 'archive' | 'stats' | 'tutorial' | 'rules';
 
 const PAGES: Record<Page, string> = {
   archive: 'puzzles',
   stats: 'stats',
   tutorial: 'tutorial',
+  rules: 'rules',
 };
 
 /** The first segment of a path, with the base and any trailing segments taken off. */
 function segment(path: string, from: string): string {
+  return segments(path, from)[0]?.toLowerCase() ?? '';
+}
+
+/** Every segment, for the one page that has more than one. */
+function segments(path: string, from: string): string[] {
   const withoutBase = path.startsWith(from) ? path.slice(from.length) : path.replace(/^\//, '');
-  return withoutBase.split('/')[0]?.toLowerCase() ?? '';
+  return withoutBase.split('/');
+}
+
+/**
+ * The mode a `rules/{mode}` path names, or null when it names none.
+ *
+ * A bare `rules` answers null rather than guessing at a game, and so does any other path.
+ * Which mode names are real is the manifest's business, not this module's — a name it does
+ * not know is a page with nothing to say, the same way an unknown id is a board that is not
+ * there.
+ */
+export function modeFromPath(path: string, from: string = base()): string | null {
+  const parts = segments(path, from);
+  if (parts[0]?.toLowerCase() !== PAGES.rules) return null;
+  const mode = parts[1]?.toLowerCase() ?? '';
+  return mode === '' ? null : mode;
 }
 
 /** The id a path names, or null if it names none. */
@@ -79,9 +104,19 @@ export function pageFromPath(path: string, from: string = base()): Page | null {
   return found ?? null;
 }
 
-/** Where a page lives. `search` is carried through so `?dev` survives a visit to it. */
-export function pagePath(page: Page, search: string = '', from: string = base()): string {
-  return `${from}${PAGES[page]}${search}`;
+/**
+ * Where a page lives. `search` is carried through so `?dev` survives a visit to it.
+ *
+ * `of` is the second segment, which only the rules page has: `pagePath('rules', '', base,
+ * 'phonemes')`. Left off, a page is its bare name, which is what the other three are.
+ */
+export function pagePath(
+  page: Page,
+  search: string = '',
+  from: string = base(),
+  of?: string,
+): string {
+  return `${from}${PAGES[page]}${of === undefined ? '' : `/${of}`}${search}`;
 }
 
 /**

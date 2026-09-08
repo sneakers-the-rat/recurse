@@ -28,6 +28,18 @@ export const stats = defineMessages({
     defaultMessage: 'Nothing here yet.',
     description: 'Shown when no round has been finished.',
   },
+  emptyGame: {
+    id: 'stats.emptyGame',
+    defaultMessage: 'No rounds of this game yet.',
+    description:
+      'Shown when rounds have been finished, but none in the game the switcher is currently on. The figures are per game, so this is the page saying "you have played, just not this one" rather than "you have never played".',
+  },
+  chooseGame: {
+    id: 'stats.chooseGame',
+    defaultMessage: 'Which game',
+    description:
+      'Names the switcher between the games, for a screen reader. Every figure on the page is about one game at a time.',
+  },
 
   /* The four figures at the top. */
   rounds: {

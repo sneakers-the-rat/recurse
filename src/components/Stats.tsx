@@ -10,15 +10,22 @@
  * this file does is choose which of them are worth a player's attention and say each one in a
  * sentence rather than as a number floating beside a caption.
  *
- * Three of those choices are arguments, and they are the reason the screen looks like this:
+ * Four of those choices are arguments, and they are the reason the screen looks like this:
  *
- * - **±par is three numbers, never one.** The three lengths are not evenly stocked — the
- *   build reports 44 / 37 / 19 — so a blended average is mostly a statement about which
- *   lengths came up.
+ * - **One game at a time, chosen by the switcher.** Every figure below it is computed over
+ *   that game's rounds alone. The two banks are different sizes and their par distributions
+ *   are different shapes, so a number blended across both is mostly a statement about which
+ *   game came up more often — the same argument as the next bullet, one level up. It is also
+ *   what keeps the chart to three mark shapes rather than one per band. The export is the
+ *   deliberate exception: a history leaves with every game in it.
+ * - **±par is three numbers, never one.** A game's three lengths are not evenly stocked — the
+ *   build reports 44 / 37 / 19 for the letters game — so a blended average is mostly a
+ *   statement about which lengths came up.
  * - **Shortcuts get their denominator.** "3 found" is meaningless; "3 of the 11 you were
  *   offered" is a score. Rounds on boards with no shortcut are in neither number.
  * - **One streak, not three.** Three parallel streaks is three ways to feel bad about a day
- *   somebody played one board and enjoyed it.
+ *   somebody played one board and enjoyed it. It is a streak within the game on screen, for
+ *   the reason every other figure here is.
  *
  * The history at the foot draws the same `PuzzleCard` the archive does, so a board looks the
  * same wherever it is met. It knows about rounds the *game* store has already evicted — that
@@ -32,7 +39,7 @@
 
 import { memo, useMemo, useRef, useState } from 'react';
 import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
-import { bandName } from '../i18n/bands';
+import { bandName, gameName } from '../i18n/bands';
 import { say, type Phrase } from '../i18n/format';
 import { archive as archiveSays } from '../i18n/messages/archive';
 import { stats as says } from '../i18n/messages/stats';
@@ -140,17 +147,44 @@ export const Stats = memo(function Stats({
   onClose,
 }: Props) {
   const intl = useIntl();
-  const bands = manifest.bands.map((band) => bandName(intl, band.name));
 
-  const overall = useMemo(() => summary(records), [records]);
-  const lengths = useMemo(() => byBand(records, bands.length), [records, bands.length]);
-  const short = useMemo(() => secrets(records), [records]);
-  const straight = useMemo(() => directness(records), [records]);
-  const bought = useMemo(() => hintsByKind(records), [records]);
-  const run = useMemo(() => streaks(records, today), [records, today]);
-  const swept = useMemo(() => sweeps(records, bands.length), [records, bands.length]);
-  const words = useMemo(() => wordCounts(records, 12), [records]);
-  const recovered = useMemo(() => records.some((one) => one.backfilled), [records]);
+  /**
+   * Which game the figures are about.
+   *
+   * **Every number on this page is per game, and that is the whole shape of the screen.** The
+   * two banks are different sizes with differently shaped par distributions, so an average
+   * across both is mostly a statement about which game came up more — the same argument that
+   * makes ±par three numbers rather than one, one level up. It also keeps the chart to three
+   * mark shapes, which is as many as anyone can tell apart at three pixels.
+   *
+   * The exception is the export, below: a history is a history and leaves with every game in
+   * it. Nothing here filters what is *stored*, only what is being read.
+   */
+  const [game, setGame] = useState(0);
+
+  /** This game's lengths: what each is called, and which band of the manifest it is. */
+  const bands = useMemo(
+    () =>
+      manifest.bands
+        .map((band, at) => ({ at, mode: band.mode, name: bandName(intl, band.label) }))
+        .filter((band) => band.mode === game),
+    [manifest, game, intl],
+  );
+  const at = useMemo(() => bands.map((band) => band.at), [bands]);
+  /** The rounds of this game, which every figure below is computed over. */
+  const mine = useMemo(
+    () => records.filter((one) => manifest.bands[one.band]?.mode === game),
+    [records, manifest, game],
+  );
+
+  const overall = useMemo(() => summary(mine), [mine]);
+  const lengths = useMemo(() => byBand(mine, at), [mine, at]);
+  const short = useMemo(() => secrets(mine), [mine]);
+  const straight = useMemo(() => directness(mine), [mine]);
+  const bought = useMemo(() => hintsByKind(mine), [mine]);
+  const run = useMemo(() => streaks(mine, today), [mine, today]);
+  const swept = useMemo(() => sweeps(mine, at), [mine, at]);
+  const words = useMemo(() => wordCounts(mine, 12), [mine]);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-16">
@@ -168,9 +202,44 @@ export const Stats = memo(function Stats({
         </span>
       </div>
 
-      {records.length === 0 ? (
+      {/*
+        The switcher, on its own line under the title rather than up beside the two links: it
+        is not a way off this page, it is what the page is *of*, and reading "Stats — letters"
+        down the left is the order the questions come in. Drawn as the tabs it is, since there
+        are two of them and both fit — a menu would hide half the screen behind a click.
+
+        Only when there is more than one game, because one tab is a label pretending to be a
+        control. That also keeps the whole thing invisible in a bank built from a config with
+        a single mode, which is what the letters game was.
+      */}
+      {records.length > 0 && manifest.modes.length > 1 && (
+        <div
+          role="tablist"
+          aria-label={intl.formatMessage(says.chooseGame)}
+          className="mt-4 flex flex-wrap gap-1.5"
+        >
+          {manifest.modes.map((one, index) => (
+            <button
+              key={one.name}
+              type="button"
+              role="tab"
+              aria-selected={index === game}
+              onClick={() => setGame(index)}
+              className={`label border px-2.5 py-1 transition-colors ${
+                index === game
+                  ? 'border-gilt-dim text-gilt'
+                  : 'border-rule text-ash-lit hover:border-gilt-dim hover:text-bone-dim'
+              }`}
+            >
+              {gameName(intl, one.name)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {records.length === 0 || mine.length === 0 ? (
         <p className="text-bone-dim mt-8 text-sm">
-          <FormattedMessage {...says.empty} />
+          <FormattedMessage {...(records.length === 0 ? says.empty : says.emptyGame)} />
         </p>
       ) : (
         <>
@@ -189,8 +258,8 @@ export const Stats = memo(function Stats({
             <div className="grid grid-cols-3 gap-2">
               {lengths.map((band, index) => (
                 <BandFigure
-                  key={bands[index] ?? index}
-                  name={bands[index] ?? String(index)}
+                  key={bands[index]?.at ?? index}
+                  name={bands[index]?.name ?? String(index)}
                   value={
                     band.played === 0 ? intl.formatMessage(says.noneYet) : signed(band.diff)
                   }
@@ -214,11 +283,11 @@ export const Stats = memo(function Stats({
 
           <Section title={says.history}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <ScorePlot records={records} bands={bands} />
-              <ParHistogram records={records} />
+              <ScorePlot records={mine} bands={bands} />
+              <ParHistogram records={mine} />
             </div>
             <div className="mt-3">
-              <HintPlot records={records} />
+              <HintPlot records={mine} />
             </div>
           </Section>
 
@@ -283,7 +352,7 @@ export const Stats = memo(function Stats({
             </Section>
           )}
 
-          <History records={records} bands={bands} onOpen={onOpen} />
+          <History records={mine} bands={bands} onOpen={onOpen} />
         </>
       )}
 
@@ -305,7 +374,8 @@ const History = memo(function History({
   onOpen,
 }: {
   records: readonly Completion[];
-  bands: readonly string[];
+  /** This game's lengths: what each is called, and which band of the manifest it is. */
+  bands: readonly { at: number; name: string }[];
   onOpen: (id: string) => void;
 }) {
   const intl = useIntl();
@@ -344,7 +414,7 @@ const History = memo(function History({
         </h2>
         <span className="flex flex-wrap gap-1.5">
           {choice(intl.formatMessage(says.allLengths), null)}
-          {bands.map((name, band) => choice(name, band))}
+          {bands.map((one) => choice(one.name, one.at))}
         </span>
       </div>
 
@@ -357,7 +427,9 @@ const History = memo(function History({
               <div className="min-w-0 flex-1">
                 <PuzzleCard
                   date={one.date}
-                  band={bands[one.band] ?? String(one.band)}
+                  // By the band's index in the manifest, not its place in this list: the list
+                  // is one game's three, and a record carries the global number.
+                  band={bands.find((band) => band.at === one.band)?.name ?? String(one.band)}
                   source={source}
                   target={target}
                   known
@@ -470,7 +542,9 @@ const Keeping = memo(function Keeping({
       setOffer({ ok: false, reason: { message: says.notAFile } });
       return;
     }
-    const read = parseStats(parsed);
+    // The manifest, because an import is a history from another device and is exactly where a
+    // record keyed under an older list of bands turns up. See `readCompletion`.
+    const read = parseStats(parsed, manifest);
     if (!read.ok) {
       setOffer(read);
       return;

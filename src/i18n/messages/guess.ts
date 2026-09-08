@@ -84,29 +84,30 @@ export const guess = defineMessages({
   swap: {
     id: 'guess.swap',
     defaultMessage:
-      '{word} is the same length as {from}. Each turn you add a whole word or remove one — you can’t swap letters.',
+      '{phonemes, select, true {{word} has as many sounds as {from}. Each turn you add a whole word or remove one — you can’t swap sounds.} other {{word} is the same length as {from}. Each turn you add a whole word or remove one — you can’t swap letters.}}',
     description:
-      'Refusing a same-length guess. Worth its own message because swapping is a different kind of move rather than an illegal one.',
+      'Refusing a same-length guess. Worth its own message because swapping is a different kind of move rather than an illegal one. {phonemes} is true in the game played by ear, where a word is its pronunciation and “length” means how many sounds it has.',
   },
   scattered: {
     id: 'guess.scattered',
     defaultMessage:
-      '{adding, select, true {Those letters would be added in more than one place. The word you add has to be a single unbroken run.} other {Those letters would be removed in more than one place. The word you remove has to be a single unbroken run.}}',
+      '{phonemes, select, true {{adding, select, true {Those sounds would be added in more than one place. The word you add has to be a single unbroken run.} other {Those sounds would be removed in more than one place. The word you remove has to be a single unbroken run.}}} other {{adding, select, true {Those letters would be added in more than one place. The word you add has to be a single unbroken run.} other {Those letters would be removed in more than one place. The word you remove has to be a single unbroken run.}}}}',
     description:
-      'Refusing a guess whose letters differ in more than one place, so no single word was inserted or deleted. This is the case players most need explained.',
+      'Refusing a guess whose letters differ in more than one place, so no single word was inserted or deleted. This is the case players most need explained. {phonemes} is true in the game played by ear.',
   },
   subTooShort: {
     id: 'guess.subTooShort',
     defaultMessage:
-      '“{sub}” is too short — the word you add or remove needs at least {min, plural, one {# letter} other {# letters}}.',
+      '{phonemes, select, true {“<ipa>{sub}</ipa>” is too short — the word you add or remove needs at least {min, plural, one {# sound} other {# sounds}}.} other {“{sub}” is too short — the word you add or remove needs at least {min, plural, one {# letter} other {# letters}}.}}',
     description:
-      'Refusing a guess whose added or removed piece is shorter than the minimum. {sub} is that piece.',
+      'Refusing a guess whose added or removed piece is shorter than the minimum. {sub} is that piece — a run of letters, or a transcription in the game played by ear, which is why the phonemes branch wraps it in <ipa>. {phonemes} is true in that game.',
   },
   tooShort: {
     id: 'guess.tooShort',
     defaultMessage:
-      'Words in this puzzle are at least {min, plural, one {# letter} other {# letters}}.',
-    description: 'Refusing a guessed word shorter than the puzzle’s minimum word length.',
+      '{phonemes, select, true {Words in this puzzle are at least {min, plural, one {# sound} other {# sounds}} long.} other {Words in this puzzle are at least {min, plural, one {# letter} other {# letters}}.}}',
+    description:
+      'Refusing a guessed word shorter than the puzzle’s minimum word length. {phonemes} is true in the game played by ear, where the minimum counts sounds.',
   },
   notAWord: {
     id: 'guess.notAWord',
@@ -116,9 +117,15 @@ export const guess = defineMessages({
   subNotWord: {
     id: 'guess.subNotWord',
     defaultMessage:
-      '{adding, select, true {That would add “{sub}”, which isn’t a word.} other {That would remove “{sub}”, which isn’t a word.}}',
+      '{phonemes, select, true {{adding, select, true {That would add “<ipa>{sub}</ipa>”, which isn’t a word.} other {That would remove “<ipa>{sub}</ipa>”, which isn’t a word.}}} other {{adding, select, true {That would add “{sub}”, which isn’t a word.} other {That would remove “{sub}”, which isn’t a word.}}}}',
     description:
-      'Refusing a guess where the edit is one clean run but the run itself is not a word. {sub} is the reading the player most likely intended.',
+      'Refusing a guess where the edit is one clean run but the run itself is not a word. {sub} is the reading the player most likely intended — a run of letters, or a transcription in the game played by ear, which is why {phonemes} picks a branch that wraps it in <ipa>.',
+  },
+  unknownSound: {
+    id: 'guess.unknownSound',
+    defaultMessage: 'We don’t know how {word} is said, so it can’t be played here.',
+    description:
+      'Only in the game played by ear. Refusing a word that may well be a real word but has no pronunciation in the dictionary the sounds are taken from. Deliberately not “that isn’t a word”, which would be a false accusation: the gap is in our data.',
   },
   noMove: {
     id: 'guess.noMove',

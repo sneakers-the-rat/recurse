@@ -21,6 +21,26 @@
  *
  * The vietnamese subset of Space Grotesk is deliberately absent. Its range is not in any
  * word the game can draw, and the file is only ever a download nobody reads.
+ *
+ * **A third face, for IPA only.** Neither of the two above has the symbols a transcription is
+ * written in — thirteen of the thirty-seven the phoneme table uses are in neither, including
+ * `ɪ`, `ɛ`, `ʌ`, `ɹ` and `ɡ`, which is to say most transcriptions. A character with no glyph in
+ * any declared face sends the browser to the platform to find one, which on macOS is a query
+ * to `fontd` per run of missing characters, per renderer process — and 95% of the tokens in
+ * the phonemes dictionary contain at least one, 1.8 runs apiece. Under Playwright, which
+ * starts renderers by the hundred, that is most of what the machine was doing.
+ *
+ * Gentium Plus, because it is an OFL face built for exactly this and it has every symbol.
+ * What uses it is `--font-ipa` in index.css, so swapping the face is one line there and one
+ * `@font-face` here.
+ *
+ * **Whole, not subsetted.** The other two faces are split because Google splits them and the
+ * accented half is a download most pages do not need. This one is 290 KB entire against about
+ * four for the symbols the phoneme table can produce — and it is fetched once, by a URL that
+ * never changes, and cached for as long as the browser feels like keeping it. Cutting it would
+ * buy a saving nobody experiences twice at the cost of a build step, a generated artefact to
+ * keep in step with `PHONEMES`, and a font that silently lacks a glyph the day a phoneme is
+ * added.
  */
 
 @font-face {
@@ -69,4 +89,26 @@
     U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
     U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
     U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/*
+ * The IPA face.
+ *
+ * **No `unicode-range`, deliberately.** The other two carry Google's own ranges so the browser
+ * can skip a file it will not need. This one is asked for by name and by nothing else — only
+ * `.ipa` names it — so a range would filter a set nothing else is drawing from, and getting it
+ * wrong is the failure the note above describes: a claimed character the file has not got
+ * costs the download *and* the platform lookup.
+ *
+ * `font-display: swap` like the others, which for a transcription means the second line under
+ * a word arrives a beat late rather than blocking the board. Weight 400 only: a transcription
+ * is never bold, and a face that ships one weight must not be asked for another — see
+ * `font-synthesis-weight` in index.css.
+ */
+@font-face {
+  font-family: 'Gentium Plus';
+  src: url('/fonts/gentium-plus.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }

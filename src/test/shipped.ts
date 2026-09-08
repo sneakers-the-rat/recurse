@@ -29,6 +29,7 @@ import {
   type RawManifest,
 } from '../lib/data';
 import { dateForDay, dayIndex, dayNumber, dayOfYear } from '../lib/daily';
+import type { RawLexicon } from '../lib/lexicon';
 import type { Puzzle } from '../lib/types';
 import type { PlateOptions } from '../lib/plate';
 
@@ -37,7 +38,8 @@ const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'publi
 const read = <T,>(name: string): T =>
   JSON.parse(readFileSync(join(dataDir, name), 'utf8')) as T;
 
-let cached: GameData | null = null;
+/** One entry per band asked for; a run of tests touches one or two. */
+const cached = new Map<number, GameData>();
 
 /**
  * Every shard, read off disk.
@@ -46,14 +48,34 @@ let cached: GameData | null = null;
  * sound board needs all of them, and reading 10MB from a local disk is a fraction of
  * the second the graph costs anyway.
  */
-export function shippedBank(): Puzzle[] {
+export function shippedBank(mode?: number): Puzzle[] {
   const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
   const puzzles: Puzzle[] = [];
   for (let index = 0; index < manifest.shards; index++) {
     const path = join(dataDir, 'puzzles', shardName(index, manifest.version));
     puzzles.push(...decodeShard(readFileSync(path, 'utf8')));
   }
-  return puzzles;
+  // A shard holds every mode's puzzles, so anything measuring a *graph* has to say which game
+  // it means — the letters graph knows nothing of a phonemes puzzle's endpoints, and asking it
+  // about them quietly counts nothing rather than failing.
+  if (mode === undefined) return puzzles;
+  return puzzles.filter((puzzle) => manifest.bands[puzzle.band]?.mode === mode);
+}
+
+/** The bank the shipped files currently hold: its version, and how big it is. */
+export function shippedVersion(): { version: string; puzzles: number } {
+  const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
+  return { version: manifest.version, puzzles: manifest.puzzles };
+}
+
+/** The modes the bank holds, in manifest order, with the first band of each. */
+export function shippedModes(): { mode: number; name: string; band: number }[] {
+  const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
+  return manifest.modes.map((one, mode) => ({
+    mode,
+    name: one.name,
+    band: manifest.bands.findIndex((band) => band.mode === mode),
+  }));
 }
 
 /** One shard, read off disk, decoded. */
@@ -104,29 +126,44 @@ export function shippedIdForDay(band: number, day: number): string | null {
  */
 export const DEFAULT_BAND = 0;
 
-export function shippedData(): GameData {
-  if (!cached) {
-    const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
-    const shard = readFileSync(
-      join(
-        dataDir,
-        'puzzles',
-        shardName(
-          shardOf(shippedIdForDay(DEFAULT_BAND, dayNumber(new Date(), manifest.epoch)) ?? ''),
-          manifest.version,
-        ),
+/**
+ * One mode's shipped data, with today's shard of the bank.
+ *
+ * **Per mode**, because a mode's three files live in a directory of its own and hold that
+ * mode's alphabet — see *Modes* in CLAUDE.md. `DEFAULT_BAND` is a letters band, so the default
+ * is the letters mode and every test written before there was more than one still means what
+ * it did.
+ */
+export function shippedData(band: number = DEFAULT_BAND): GameData {
+  const held = cached.get(band);
+  if (held) return held;
+
+  const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
+  const shard = readFileSync(
+    join(
+      dataDir,
+      'puzzles',
+      shardName(
+        shardOf(shippedIdForDay(band, dayNumber(new Date(), manifest.epoch)) ?? ''),
+        manifest.version,
       ),
-      'utf8',
-    );
-    cached = decodeGameData({
-      dictionary: read<RawDictionary>('dictionary.json'),
-      graph: read<RawGraph>('graph.json'),
-      manifest,
-      common: read<RawCommon>('common.json'),
-      puzzles: decodeShard(shard),
-    });
-  }
-  return cached;
+    ),
+    'utf8',
+  );
+  const mode = manifest.bands[band]?.mode ?? 0;
+  const dir = manifest.modes[mode]?.name ?? 'letters';
+  const translated = manifest.modes[mode]?.alphabet !== 'letters';
+  const built = decodeGameData({
+    dictionary: read<RawDictionary>(join(dir, 'dictionary.json')),
+    graph: read<RawGraph>(join(dir, 'graph.json')),
+    manifest,
+    mode,
+    common: read<RawCommon>(join(dir, 'common.json')),
+    lexicon: translated ? read<RawLexicon>(join(dir, 'lexicon.json')) : undefined,
+    puzzles: decodeShard(shard),
+  });
+  cached.set(band, built);
+  return built;
 }
 
 /**

@@ -29,6 +29,18 @@
 export const Dot = () => <span className="text-ash-lit mx-2">·</span>;
 
 /**
+ * The slashes a transcription is written between: `/kuləst/`.
+ *
+ * Not language — it is the convention for "this is a pronunciation and not a spelling", and
+ * it is the same convention in every language that writes IPA at all. The transcription
+ * inside comes from the mode's lexicon rather than from a catalog, so there is nothing here
+ * for a translator either way.
+ */
+export const Said = ({ children }: { children: string }) => (
+  <>/{children}/</>
+);
+
+/**
  * The ornament between the two words a puzzle is about.
  *
  * `aria-hidden`, because what a screen reader should hear is the two words, and "black
@@ -125,3 +137,99 @@ export const Wordmark = () => (
     Re<span className="text-blood-lit italic">Curse</span>
   </span>
 );
+
+/**
+ * Which game a board belongs to, as a shape rather than as a word.
+ *
+ * The masthead switch reads "ReCurse, № 12, short" and had to say which of two games that
+ * was, which put a whole second word on a row already three things wide on a phone. A mark
+ * takes the width of one character and says the same thing, and it is the same mark over the
+ * menu's heading, so the two readings are learnt together.
+ *
+ * **Files, masked.** Each icon is an `.svg` of its own, used as a CSS mask over `bg-current` —
+ * so the shape is filled by whatever colour the surrounding text is in and keeps the gilt/bone
+ * grammar the rest of the chrome is drawn in. An inlined `<svg fill="currentColor">` would
+ * colour the same way at the cost of putting artwork in the middle of a component; an `<img>`
+ * would keep the file and lose the colour. Sized in `em`, so it is the height of the caps it
+ * sits beside at any size.
+ *
+ * **Served from `public/`, like the fonts, and for a sharper reason than tidiness.** Imported
+ * from `src/` these are small enough for Vite to inline, and an inlined SVG arrives as a data
+ * URI whose quotes and newlines do not survive being written into a `url()` in an inline style:
+ * the browser drops the declaration, `mask-image` computes to `none`, and the mark renders as
+ * the solid square its `bg-current` was always going to be behind the mask. A path to a real
+ * file has nothing to escape. The base is read at call time for the reason `route.ts` gives.
+ *
+ * Unicode was the first thing tried and is the same trap the masthead menu's hamburger avoids:
+ * 🔤 and 🔊 are outside both vendored subsets, so they arrive in whatever emoji face the
+ * platform keeps — full colour, its own metrics, beside a Deco masthead. Neither can be *set*
+ * as type either, for the same reason: an SVG used as a mask resolves fonts against the
+ * platform, so `<text>ABC</text>` would be a different mark on every machine.
+ *
+ * **The letters mark is three glyphs and not one**, stepping down to the right. It was a single
+ * capital A, which is not a symbol for letters — it is the letter A, and the masthead read
+ * "A short" and the menu heading "A letters". Three of them cascading say *alphabet*, and the
+ * stepped diagonal is what survives at fourteen pixels even once the B's counters have closed
+ * up: the shape is doing the work, not the letterforms.
+ *
+ * **Both are drawn at the same stroke weight**, which is what makes them a pair rather than two
+ * icons. The letters mark carries far more detail in the same box and so reads heavier at the
+ * same weight; that is the cost of the two being legibly one system.
+ *
+ * **A game with no icon draws nothing**, and the caller falls back to its name. Same rule as
+ * `bandName`: adding a mode must not be able to break a screen that has never heard of it.
+ */
+const GAME_ICONS: Record<string, string> = {
+  letters: 'icons/letters.svg',
+  phonemes: 'icons/phonemes.svg',
+};
+
+export function GameIcon({ game, className = '' }: { game: string; className?: string }) {
+  const file = GAME_ICONS[game];
+  if (!file) return null;
+  const icon = `${import.meta.env?.BASE_URL ?? '/'}${file}`;
+  const mask = {
+    maskImage: `url(${icon})`,
+    WebkitMaskImage: `url(${icon})`,
+    maskRepeat: 'no-repeat',
+    WebkitMaskRepeat: 'no-repeat',
+    maskSize: 'contain',
+    WebkitMaskSize: 'contain',
+    maskPosition: 'center',
+    WebkitMaskPosition: 'center',
+  };
+  return (
+    <span
+      aria-hidden
+      className={`inline-block size-[1em] shrink-0 bg-current ${className}`}
+      style={mask}
+    />
+  );
+}
+
+/** Whether a game has a mark of its own, for callers that must know before laying one out. */
+export function hasGameIcon(game: string): boolean {
+  return game in GAME_ICONS;
+}
+
+/**
+ * The question mark on the masthead's mode marker.
+ *
+ * Punctuation and not language: every locale this game is likely to reach asks with the same
+ * glyph, and the button's own label — which *is* language — says what it opens.
+ */
+export const Query = () => <>?</>;
+
+/**
+ * The cross that shuts a page.
+ *
+ * Same argument as `Query`: the glyph is the same everywhere and the button carries the words.
+ * Which means the label is still in the catalog and still says where shutting it *goes* — a
+ * cross on its own says "not this" and not "back to the board", and a screen reader should
+ * hear the latter.
+ *
+ * `×`, the multiplication sign, rather than a letter x or `✕`: it is the one of the three that
+ * is centred on the maths axis, is in both vendored subsets, and is not a character somebody
+ * might be reading as a word.
+ */
+export const Close = () => <>×</>;

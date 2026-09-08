@@ -25,6 +25,7 @@
 
 import { dateForDay, dayIndex, dayNumber, dayOfYear } from './daily';
 import { buildGraph, type Rows } from './graph';
+import { buildLexicon, PLAIN, type Lexicon, type RawLexicon } from './lexicon';
 import type { Graph, GraphParams, Puzzle } from './types';
 
 /** `dictionary.json`. */
@@ -60,6 +61,17 @@ export interface RawCommon {
   common: number[];
 }
 
+/** One game in the bank: an alphabet, a data directory, and the bounds of its search. */
+export interface RawMode {
+  /** Also the directory its three files live in. */
+  name: string;
+  /** `letters` or `phonemes`. What a token *is* — see lexicon.ts. */
+  alphabet: string;
+  slack: number;
+  minPar: number;
+  maxPar: number;
+}
+
 /**
  * `puzzles/manifest.json`: how to find a shard, and how much calendar there is.
  *
@@ -70,15 +82,39 @@ export interface RawManifest {
   /** Digest of the whole bank, and part of every shard's filename. */
   version: string;
   shards: number;
+  /** The games this bank holds. A band belongs to exactly one of them. */
+  modes: RawMode[];
   /**
-   * The three lengths, in order: short, medium, long.
+   * Every band of every mode, flattened, in order.
    *
-   * The pars are what the band holds, which the header shows and which is
-   * `RECURSE_BAND_CUTS` rather than anything the client decides. There is no per-band length
-   * any more: every band runs the whole calendar, so the length is `days` below.
+   * **One list across every mode**, because a band index is a puzzle's own `band`, the
+   * position of a run in a calendar year, and the thing a stored preference names. Each
+   * mode's three lengths sit in it in order, so the letters game is 0, 1, 2 and the
+   * phonemes game is 3, 4, 5.
+   *
+   * The pars are what the band holds, which the header shows and which is that mode's
+   * `bandCuts` rather than anything the client decides. There is no per-band length: every
+   * band runs the whole calendar, so the length is `days` below.
    */
   bands: {
+    /**
+     * The flat identifier of this game variant: `letters-short`, `phonemes-long`.
+     *
+     * **This is what a band *is*, and it is what anything storing or comparing one uses** —
+     * `gameKey` and the stats record key are both built on it. The index cannot do that job:
+     * it is a position in a list, so appending a mode is safe but reordering one silently
+     * reassigns every stored game to a different game. The name survives that.
+     */
     name: string;
+    /**
+     * And what a player reads: `short`, `medium`, `long`.
+     *
+     * Both modes have all three, so a label does not identify a band and is never stored.
+     * Which game it belongs to is said by the menu grouping them, not by the word.
+     */
+    label: string;
+    /** Which mode it belongs to: an index into `modes`. */
+    mode: number;
     minPar: number;
     maxPar: number;
   }[];
@@ -93,12 +129,6 @@ export interface RawManifest {
   days: number;
   /** First and last calendar year on disk, inclusive. One file each. */
   years: [number, number];
-  params: {
-    /** Selection's neighbourhood measure on the common graph. Not a draw budget. */
-    slack: number;
-    minPar: number;
-    maxPar: number;
-  };
 }
 
 /** The files needed before a board can be drawn, however they were obtained. */
@@ -109,10 +139,27 @@ export interface RawFiles {
   common: RawCommon;
   /** One shard's worth of puzzles: whichever shard the board being opened is in. */
   puzzles: Puzzle[];
+  /** The mode these files belong to: an index into `manifest.modes`. */
+  mode?: number | undefined;
+  /** Present only for a translated alphabet. See lexicon.ts. */
+  lexicon?: RawLexicon | undefined;
 }
 
-export interface GameData {
+/**
+ * One mode's graph and alphabet.
+ *
+ * Fetched per mode and kept, because a session touches one or two: playing the phonemes board
+ * costs its own dictionary and graph, and nothing on the way to today's letters board pays
+ * for them.
+ */
+export interface ModeData {
+  /** Index into `manifest.modes`. */
+  mode: number;
   graph: Graph;
+  lexicon: Lexicon;
+}
+
+export interface GameData extends ModeData {
   /** The puzzles in the loaded shard, not the whole bank. */
   puzzles: Puzzle[];
   manifest: RawManifest;
@@ -127,18 +174,43 @@ export function shardOf(id: string): number {
 }
 
 /**
- * The three lengths a day offers, mirrored from the builder's `BANDS`.
+ * How many bands there are before the manifest can say.
  *
- * Needed before the manifest arrives — the band a bare visit opens is read from storage on
- * the first render — and checked against `manifest.bands.length` everywhere after that.
+ * The band a bare visit opens is read from storage on the first render, which happens before
+ * any fetch has finished, so the stored number has to be bounded by something. It is checked
+ * against `manifest.bands.length` everywhere after that, and a stored band past the end
+ * simply falls back to the first — so this being stale costs a preference and never a board.
  */
-export const BANDS = 3;
+export const BANDS = 6;
 
 /** What a band is called and what pars it holds. */
 export function bandOf(band: number, manifest: RawManifest): RawManifest['bands'][number] {
   return (
-    manifest.bands[band] ?? manifest.bands[0] ?? { name: 'short', minPar: 0, maxPar: 0 }
+    manifest.bands[band] ??
+    manifest.bands[0] ?? { name: 'letters-short', label: 'short', mode: 0, minPar: 0, maxPar: 0 }
   );
+}
+
+/**
+ * A band's flat identifier, which is what a stored game or a stats record is keyed on.
+ *
+ * Falls back to the index written as a string, for the one case that has to keep working:
+ * a record stored before the manifest could be consulted, or a band past the end of a
+ * manifest this build has not fetched yet. A key that matches nothing ages out, which is
+ * the same thing that happens to any other stale key here.
+ */
+export function bandId(band: number, manifest: RawManifest): string {
+  return manifest.bands[band]?.name ?? String(band);
+}
+
+/** Which mode a band belongs to. Out-of-range falls back to the first, like `bandOf`. */
+export function modeOfBand(band: number, manifest: RawManifest): number {
+  return manifest.bands[band]?.mode ?? 0;
+}
+
+/** What a mode is called, which is also the directory its files are in. */
+export function modeName(mode: number, manifest: RawManifest): string {
+  return manifest.modes[mode]?.name ?? manifest.modes[0]?.name ?? 'letters';
 }
 
 /**
@@ -300,7 +372,13 @@ export function decodeRows(raw: RawRows): Rows {
   return { degrees, targets, offsets };
 }
 
-/** Build the game's view of the data. The one definition every reader shares. */
+/**
+ * Build the game's view of one mode's data. The one definition every reader shares.
+ *
+ * **It has no idea what alphabet it is reading.** The dictionary, the rows and the common
+ * list have the same shapes whether their "words" are spellings or pronunciations, which is
+ * what makes a second mode cost a lexicon and nothing else here.
+ */
 export function decodeGameData(files: RawFiles): GameData {
   // Ids are how boards are addressed, and data built before they existed has none:
   // the game would start, then rewrite its URL to `/undefined` and lose the player
@@ -315,6 +393,7 @@ export function decodeGameData(files: RawFiles): GameData {
     if (word !== undefined) common.add(word);
   }
   return {
+    mode: files.mode ?? 0,
     graph: buildGraph(
       files.graph.params,
       words,
@@ -322,6 +401,7 @@ export function decodeGameData(files: RawFiles): GameData {
       decodeRows(files.graph.common),
       common,
     ),
+    lexicon: files.lexicon ? buildLexicon(files.lexicon, words) : PLAIN,
     puzzles: files.puzzles,
     manifest: files.manifest,
   };
@@ -352,33 +432,85 @@ async function getJson<T>(name: string, immutable = true): Promise<T> {
 }
 
 /**
- * The dictionary and the graph, shared by every caller.
+ * One mode's dictionary, graph and lexicon, fetched once.
  *
  * Immutable and the better part of a second to fetch and decode, so a second request is
- * always a waste. It happens: React's StrictMode runs effects twice in development,
- * which meant every page load in dev and every one of the hundred-odd end-to-end tests
- * built a 269k-edge graph *twice*.
+ * always a waste. It happens: React's StrictMode runs effects twice in development, which
+ * meant every page load in dev and every one of the hundred-odd end-to-end tests built a
+ * 269k-edge graph *twice*.
  *
- * The promise is cached, not the result, so two callers arriving together share one
- * fetch rather than starting two. A failure clears it, so a retry is still possible.
+ * The promise is cached, not the result, so two callers arriving together share one fetch
+ * rather than starting two. A failure clears it, so a retry is still possible.
+ *
+ * **Per mode, and only on demand.** A session touches one mode or two, and the phonemes
+ * graph is a second dictionary the size of the first — nothing on the way to today's
+ * letters board should pay for it.
  */
-let loading: Promise<GameData> | null = null;
+const modes = new Map<number, Promise<ModeData>>();
+
+export function loadMode(mode: number, manifest: RawManifest): Promise<ModeData> {
+  const cached = modes.get(mode);
+  if (cached) return cached;
+  const wanted = fetchMode(mode, manifest).catch((error: unknown) => {
+    modes.delete(mode);
+    throw error;
+  });
+  modes.set(mode, wanted);
+  return wanted;
+}
+
+async function fetchMode(mode: number, manifest: RawManifest): Promise<ModeData> {
+  const dir = modeName(mode, manifest);
+  const translated = manifest.modes[mode]?.alphabet !== 'letters';
+  const [dictionary, graph, common, lexicon] = await Promise.all([
+    getJson<RawDictionary>(`${dir}/dictionary.json`),
+    getJson<RawGraph>(`${dir}/graph.json`),
+    getJson<RawCommon>(`${dir}/common.json`),
+    translated ? getJson<RawLexicon>(`${dir}/lexicon.json`) : Promise.resolve(undefined),
+  ]);
+  // No puzzles: a shard holds every mode's, so it is fetched separately and joined by the
+  // caller. `decodeGameData` is the shared definition and takes both.
+  const { mode: at, graph: built, lexicon: read } = decodeGameData({
+    dictionary,
+    graph,
+    common,
+    lexicon,
+    manifest,
+    mode,
+    puzzles: [],
+  });
+  return { mode: at, graph: built, lexicon: read };
+}
 
 /**
- * Load what a board needs: the graph, the manifest, and one shard.
+ * The manifest, fetched once.
  *
- * `want` says which shard — an id, or a day whose number names it. Omitted, it loads the
- * shard today's board is in. The first call decides which shard arrives with the graph;
- * `loadShard` fetches any others later, which is what dev mode's stepping needs.
+ * It names everything else, so nothing can be asked for until its version is known — and it
+ * is the one file with a fixed name, so it is the only thing a repeat visit waits on.
+ */
+let head: Promise<RawManifest> | null = null;
+
+export function loadManifest(): Promise<RawManifest> {
+  head ??= getJson<RawManifest>('puzzles/manifest.json', false).catch((error: unknown) => {
+    head = null;
+    throw error;
+  });
+  return head;
+}
+
+/**
+ * Load what a board needs: the manifest, one shard, and the graph of whichever mode that
+ * board turns out to belong to.
+ *
+ * `want` says which board — an id, or a band and day. **The mode is a finding rather than an
+ * input**: a shared link carries an id and nothing else, so which game it is can only be
+ * known once the shard says which band the puzzle is in. Failing that — a dead id, or a
+ * first visit — the band asked for decides, since that is the board about to be shown.
  */
 export function loadGameData(
   want?: { id?: string; day?: number; band?: number },
 ): Promise<GameData> {
-  loading ??= fetchGameData(want).catch((error: unknown) => {
-    loading = null;
-    throw error;
-  });
-  return loading;
+  return fetchGameData(want);
 }
 
 /** Every shard fetched so far, by index. A session touches one or two. */
@@ -481,27 +613,27 @@ export function loadPairs(version: string): Promise<Pair[]> {
 async function fetchGameData(
   want?: { id?: string; day?: number; band?: number },
 ): Promise<GameData> {
-  // The manifest first and alone: it names everything else, and nothing can be asked for until
-  // its version is known.
-  const manifest = await getJson<RawManifest>('puzzles/manifest.json', false);
+  const manifest = await loadManifest();
 
-  // Which shard holds the board being opened. An id names its own, in one hop. A date needs the
-  // calendar year first — that is the one extra request a date costs, and what it buys is that
-  // every puzzle in the bank has a date at all. See `idForDay`.
+  // Which shard holds the board being opened. An id names its own, in one hop. A date needs
+  // the calendar year first — that is the one extra request a date costs, and what it buys is
+  // that every puzzle in the bank has a date at all. See `idForDay`.
+  const wantedBand = want?.band ?? 0;
   const asked =
     want?.id ??
-    (await idForDay(want?.band ?? 0, want?.day ?? dayNumber(new Date(), manifest.epoch), manifest));
+    (await idForDay(wantedBand, want?.day ?? dayNumber(new Date(), manifest.epoch), manifest));
   // `shardOf` of nothing is shard 0, which is the right shape of failure: the caller looks the
   // board up in what arrived and shows today's when it is not there. `idForDay` only comes back
   // empty if the calendar files and the manifest disagree, which is a broken deploy rather than
   // a state a player can reach.
-  const index = shardOf(asked ?? '');
+  const puzzles = await loadShard(shardOf(asked ?? ''), manifest.version);
 
-  const [dictionary, graph, common, puzzles] = await Promise.all([
-    getJson<RawDictionary>('dictionary.json'),
-    getJson<RawGraph>('graph.json'),
-    getJson<RawCommon>('common.json'),
-    loadShard(index, manifest.version),
-  ]);
-  return decodeGameData({ dictionary, graph, manifest, common, puzzles });
+  // The board's own band if the shard really holds it, and the band asked for otherwise —
+  // which covers a link shared before a rebuild, where the fallback is today's board of
+  // whatever length the player last chose.
+  const found = asked === null ? undefined : puzzles.find((puzzle) => puzzle.id === asked);
+  const mode = modeOfBand(found?.band ?? wantedBand, manifest);
+
+  const loaded = await loadMode(mode, manifest);
+  return { ...loaded, puzzles, manifest };
 }

@@ -55,7 +55,14 @@ function place(value: number, from: number, to: number, low: number, high: numbe
 export interface Dot {
   x: number;
   y: number;
-  /** Which of the three lengths, which is what the mark's *shape* says. */
+  /**
+   * Which of the three lengths, which is what the mark's *shape* says.
+   *
+   * **Counted within the game being shown, not across the manifest.** A chart is of one mode
+   * at a time, so this is 0, 1 or 2 whichever game it is, and three shapes cover every chart
+   * there will ever be. Numbering it globally would need a new shape per mode added, and the
+   * fourth was already one more than anybody can name.
+   */
   band: number;
   /** Guesses minus par: negative is under par, below the line, and drawn gilt. */
   diff: number;
@@ -101,7 +108,20 @@ function inOrder(records: readonly Completion[]): Completion[] {
   return [...records].sort((a, b) => a.day - b.day || a.band - b.band);
 }
 
-export function scoreChart(records: readonly Completion[], frame: Frame): ScoreChart | null {
+/**
+ * Score against par over the calendar, one mark per round.
+ *
+ * `bands` is the game's own bands, as indices into the manifest, in the order they should be
+ * told apart — so a record's `band` becomes its position in that list and the shapes start
+ * again from the first for every game. A record whose band is not in the list is drawn as the
+ * first shape rather than dropped: it is a round somebody played, and the chart is of when
+ * they played it.
+ */
+export function scoreChart(
+  records: readonly Completion[],
+  frame: Frame,
+  bands: readonly number[],
+): ScoreChart | null {
   const rounds = inOrder(records);
   if (rounds.length === 0) return null;
 
@@ -134,7 +154,7 @@ export function scoreChart(records: readonly Completion[], frame: Frame): ScoreC
     dots: rounds.map((one) => ({
       x: xOf(one.day),
       y: yOf(one.guesses - one.par),
-      band: one.band,
+      band: Math.max(0, bands.indexOf(one.band)),
       diff: one.guesses - one.par,
       date: one.date,
       key: one.key,

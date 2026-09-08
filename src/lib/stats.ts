@@ -30,7 +30,8 @@
 
 import type { Phrase } from '../i18n/format';
 import { stats as says } from '../i18n/messages/stats';
-import type { GameState } from './game';
+import type { RawManifest } from './data';
+import { guessedWords, type GameState } from './game';
 import type { Mark } from './share';
 
 /**
@@ -41,11 +42,16 @@ import type { Mark } from './share';
  */
 export interface Completion {
   /**
-   * The puzzle's word pair, `source>target` — what `gameKey` builds.
+   * The puzzle this round was played on: `letters-short:source>target` — what `gameKey` builds.
    *
-   * The identifier, because it is the only one that survives a rebuild: an id is a digest of
-   * the answer and changes when the answer does. Merging and "first write per pair wins" are
-   * both keyed on this.
+   * The word pair is the identifier because it is the only one that survives a rebuild: an id
+   * is a digest of the answer and changes when the answer does. Merging and "first write per
+   * pair wins" are both keyed on this.
+   *
+   * The band is in front of it because a pair is only unique within one alphabet, and it is
+   * there **by name and not by index** — an index is a position in the manifest's list and
+   * means a different game the moment that list changes. A record written in either older
+   * form, the bare pair or the index, is repaired on the way in by `readCompletion`.
    */
   key: string;
   /** The address the round was played at. A convenience for reopening it, and may go stale. */
@@ -59,7 +65,15 @@ export interface Completion {
    * and then the dates are what the timeline still agrees about. See `EPOCH` in daily.ts.
    */
   date: string;
-  /** Which of the three lengths: 0 short, 1 medium, 2 long. */
+  /**
+   * Which band, indexing the manifest's flattened list: the letters game's three lengths are
+   * 0, 1, 2 and the phonemes game's are 3, 4, 5.
+   *
+   * Kept as well as the name in `key` because every figure that splits by band — the chart's
+   * mark shapes, ±par, the sweeps — is looking one up in the manifest, and an index is what
+   * that takes. `readCompletion` re-derives it from the record's own par, so a record written
+   * under an older list is right rather than merely readable.
+   */
   band: number;
   par: number;
   /**
@@ -130,7 +144,22 @@ export function unpackMarks(packed: string): Mark[] {
 export function recordOf(
   key: string,
   state: GameState,
-  where: { day: number; date: string; marks: readonly Mark[]; backfilled: boolean },
+  where: {
+    day: number;
+    date: string;
+    marks: readonly Mark[];
+    backfilled: boolean;
+    /**
+     * How to write a token down. `PLAIN.label` in the letters game.
+     *
+     * The record stores **labels, not tokens**, and it is the only part of a round that does.
+     * `/stats` spans every mode at once and has no lexicon in hand — it cannot, since it is a
+     * list of rounds from different games — so a token stored here is a row of phoneme codes
+     * nothing on that screen can read. The same reasoning as the pair index: a screen that
+     * crosses modes gets words.
+     */
+    label: (token: string) => string;
+  },
 ): Completion {
   let letters = 0;
   for (const level of state.hints.values()) letters += level;
@@ -148,7 +177,10 @@ export function recordOf(
     letters,
     shapes: state.edgeHints.size,
     marks: packMarks(where.marks),
-    words: state.log.map((entry) => entry.to),
+    // One per *guess*, not per move: a typed word naming two pronunciations is one word the
+    // player met, and both readings label back to the same spelling — so counting the log
+    // would put it in this table twice for having been typed once.
+    words: guessedWords(state.log).map((word) => where.label(word)),
     backfilled: where.backfilled,
   };
 }
@@ -168,18 +200,62 @@ function whole(value: unknown, least = 0): number | null {
  * a player pasted in from somewhere. A record that does not make sense is dropped, because a
  * screen of figures computed from half a record is worse than a screen missing a round.
  */
-export function readCompletion(value: unknown): Completion | null {
+/**
+ * Which band of its own game a round at this par belongs to, and what that band is called.
+ *
+ * The mode comes from the index the record carries and the band comes from its par, because
+ * those are the two halves that age differently: a mode keeps its place in the list when a
+ * band is added to it, while the band's own position does not. Null when the index names no
+ * mode this manifest has, or when no band of that mode holds that par — a record from a bank
+ * whose par range has since moved, which is left exactly as it was stored rather than filed
+ * under the nearest guess.
+ */
+function bandForPar(
+  band: number,
+  par: number,
+  manifest: RawManifest,
+): { at: number; name: string } | null {
+  const mode = manifest.bands[band]?.mode;
+  if (mode === undefined) return null;
+  const at = manifest.bands.findIndex(
+    (one) => one.mode === mode && par >= one.minPar && par <= one.maxPar,
+  );
+  const found = manifest.bands[at];
+  return found ? { at, name: found.name } : null;
+}
+
+export function readCompletion(value: unknown, manifest?: RawManifest): Completion | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
 
-  const key = typeof raw.key === 'string' && raw.key.length > 0 ? raw.key : null;
+  const stored = typeof raw.key === 'string' && raw.key.length > 0 ? raw.key : null;
   const date = typeof raw.date === 'string' && DATE.test(raw.date) ? raw.date : null;
   const day = whole(raw.day, Number.NEGATIVE_INFINITY);
-  const band = whole(raw.band);
+  const stamped = whole(raw.band);
   const par = whole(raw.par, 1);
   const guesses = whole(raw.guesses);
-  if (key === null || date === null || day === null || band === null) return null;
+  if (stored === null || date === null || day === null || stamped === null) return null;
   if (par === null || guesses === null) return null;
+
+  // The key has been written three ways: the bare pair, then the band's *index* in front of
+  // it, and now the band's name. Left alone, an older one would never match the key the same
+  // board produces today — so replaying an already-finished round would file a second record
+  // of it and every figure on the screen would count it twice.
+  //
+  // Repaired here rather than migrated, because a record carries its own band, par and pair,
+  // which is everything the current key needs. `readCompletion` is where every record enters,
+  // whether from this browser or from a pasted export, so there is one place that knows.
+  //
+  // **The repair goes through par, which is what makes it exact and idempotent.** An index
+  // written under an older manifest cannot simply be looked up — the phonemes game was one
+  // band spanning par 3–10 before it was three, so index 3 alone does not say which of them a
+  // round belongs to. Its *mode* is what the index still reliably gives, and within a mode the
+  // par says the band. A record already in the current form asks the same question and gets
+  // the same answer back.
+  const repaired = manifest ? bandForPar(stamped, par, manifest) : null;
+  const band = repaired?.at ?? stamped;
+  const pair = stored.slice(stored.lastIndexOf(':') + 1);
+  const key = repaired ? `${repaired.name}:${pair}` : stored;
 
   return {
     key,
@@ -199,10 +275,19 @@ export function readCompletion(value: unknown): Completion | null {
   };
 }
 
-/** Every readable record in whatever this is, in the order they were written. */
-export function readCompletions(value: unknown): Completion[] {
+/**
+ * Every readable record in whatever this is, in the order they were written.
+ *
+ * The manifest is optional and its absence is not an error: it is what the band repair reads,
+ * and without one every record keeps the key and band it was stored with. That is the right
+ * answer while the bank is still being fetched — the alternative is re-keying a history
+ * against a list of bands nobody has seen yet.
+ */
+export function readCompletions(value: unknown, manifest?: RawManifest): Completion[] {
   if (!Array.isArray(value)) return [];
-  return value.map(readCompletion).filter((one): one is Completion => one !== null);
+  return value
+    .map((one) => readCompletion(one, manifest))
+    .filter((one): one is Completion => one !== null);
 }
 
 /* ---------------------------------------------------------------- the figures */
@@ -245,14 +330,17 @@ export function summary(records: readonly Completion[]): Summary {
 /**
  * ±par per length, always all three, never one blended number.
  *
- * The bands are out of tune — the build reports 44 / 37 / 19 — so a single average is mostly
- * a statement about which lengths the player happens to have been offered. Three numbers is
- * the smallest honest answer, and a band with nothing in it says so rather than being left out.
+ * The bands are out of tune — the build reports 44 / 37 / 19 for the letters game — so a
+ * single average is mostly a statement about which lengths the player happens to have been
+ * offered. Three numbers is the smallest honest answer, and a band with nothing in it says so
+ * rather than being left out.
+ *
+ * `bands` names them by their index in the manifest, so this asks about one game's lengths and
+ * the answer comes back in the order asked. Blending two games would be the same mistake one
+ * level up: their banks are different sizes and their par distributions are different shapes.
  */
-export function byBand(records: readonly Completion[], bands: number): Summary[] {
-  return Array.from({ length: bands }, (_, band) =>
-    summary(records.filter((one) => one.band === band)),
-  );
+export function byBand(records: readonly Completion[], bands: readonly number[]): Summary[] {
+  return bands.map((band) => summary(records.filter((one) => one.band === band)));
 }
 
 /**
@@ -346,21 +434,30 @@ export function streaks(
 }
 
 /**
- * Days all three lengths fell on.
+ * Days every band of one game fell.
  *
  * Counted over every record, backfilled ones included, because a clean sweep is a fact about
- * a day's three boards being solved rather than about turning up on that day — which is what
+ * a day's boards being solved rather than about turning up on that day — which is what
  * `streaks` is for, and the reason the two are separate functions.
+ *
+ * **One game's bands, not the manifest's.** Asked across every mode, this was "all of today's
+ * boards in all of the games", which is a different and much harder thing to have done — and
+ * one that would get harder every time a game was added, so a figure somebody had earned would
+ * quietly stop being reachable. Per game it asks the question it always meant, and the day a
+ * game nobody plays daily is added it says nothing about the games they do play.
  */
-export function sweeps(records: readonly Completion[], bands: number): number {
+export function sweeps(records: readonly Completion[], bands: readonly number[]): number {
+  if (bands.length === 0) return 0;
+  const wanted = new Set(bands);
   const byDay = new Map<number, Set<number>>();
   for (const one of records) {
+    if (!wanted.has(one.band)) continue;
     const had = byDay.get(one.day) ?? new Set<number>();
     had.add(one.band);
     byDay.set(one.day, had);
   }
   let swept = 0;
-  for (const found of byDay.values()) if (found.size >= bands) swept += 1;
+  for (const found of byDay.values()) if (found.size >= wanted.size) swept += 1;
   return swept;
 }
 
@@ -464,7 +561,7 @@ export type Import =
  * other problem is survivable: a record that cannot be read is dropped and counted, and the
  * rest of the file is imported, exactly as a stored game drops a move it cannot replay.
  */
-export function parseStats(value: unknown): Import {
+export function parseStats(value: unknown, manifest?: RawManifest): Import {
   if (typeof value !== 'object' || value === null) {
     return { ok: false, reason: { message: says.notOurs } };
   }
@@ -483,7 +580,9 @@ export function parseStats(value: unknown): Import {
     };
   }
   const offered = Array.isArray(raw.records) ? raw.records : [];
-  const records = readCompletions(offered);
+  // An import is a history from another device, so it is exactly where a record written under
+  // a different list of bands turns up. Same repair as a record read out of this browser.
+  const records = readCompletions(offered, manifest);
   return {
     ok: true,
     file: {

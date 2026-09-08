@@ -45,6 +45,28 @@ const INKS = {
   b: (chunks: ReactNode) => <span className="text-bone font-bold">{chunks}</span>,
   /** Emphasis that is not loudness — the game uses it for "any", "every", and the like. */
   em: (chunks: ReactNode) => <em className="text-bone not-italic">{chunks}</em>,
+  /**
+   * A transcription, inside a sentence: `<ipa>ənd</ipa>`.
+   *
+   * **Every IPA symbol the game shows goes through this or through `.ipa`**, because neither
+   * of the two faces the game is set in has them — see the note in fonts.css — and a
+   * character with no glyph anywhere costs a platform font lookup every time it is drawn.
+   * Which face it is is `--font-ipa` in index.css, and that is the only place to change it.
+   *
+   * A tag rather than a convention, so a translator moves the coloured piece and the
+   * transcription together and cannot leave one behind. It wraps the symbols alone — the
+   * slashes a transcription is written between are punctuation and belong to the sentence.
+   */
+  ipa: (chunks: ReactNode) => <span className="ipa">{chunks}</span>,
+  /**
+   * A line break, for the one thing a paragraph cannot do: put a worked example on a line of
+   * its own without leaving the sentence that introduces it.
+   *
+   * **Written `<br/>` and never `<br>`.** ICU has no void elements — every tag it parses has
+   * to close — so the bare HTML form is `UNCLOSED_TAG` and `i18n:validate` refuses the whole
+   * catalog over it. It takes no children, which is why it ignores them.
+   */
+  br: () => <br />,
 } as const;
 
 /**

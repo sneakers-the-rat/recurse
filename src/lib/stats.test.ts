@@ -10,7 +10,9 @@
  * the right file.
  */
 
+import { PLAIN } from './lexicon';
 import { describe, expect, it } from 'vitest';
+import type { RawManifest } from './data';
 import type { GameState } from './game';
 import {
   EXPORT_VERSION,
@@ -107,6 +109,7 @@ describe('recordOf', () => {
       date: '2026-08-04',
       marks: ['route', 'stray'],
       backfilled: false,
+      label: PLAIN.label,
     });
     // Three letters bought on one word, and two move shapes.
     expect(one.letters).toBe(3);
@@ -121,6 +124,7 @@ describe('recordOf', () => {
       date: '2026-08-04',
       marks: [],
       backfilled: false,
+      label: PLAIN.label,
     });
     expect(one.day).toBe(9);
     expect(one.date).toBe('2026-08-04');
@@ -133,23 +137,81 @@ describe('recordOf', () => {
       date: '2026-08-04',
       marks: [],
       backfilled: false,
+      label: PLAIN.label,
     });
     expect(one.secret).toBe(4);
     expect(one.words).toEqual(['baseball', 'cannon']);
   });
 });
 
+/**
+ * Both games, three lengths each — what the shipped manifest looks like, and what the band
+ * repair reads. Written out here because `readCompletion` cannot ask for it.
+ */
+const manifest = {
+  bands: [
+    { name: 'letters-short', label: 'short', mode: 0, minPar: 3, maxPar: 4 },
+    { name: 'letters-medium', label: 'medium', mode: 0, minPar: 5, maxPar: 6 },
+    { name: 'letters-long', label: 'long', mode: 0, minPar: 7, maxPar: 10 },
+    { name: 'phonemes-short', label: 'short', mode: 1, minPar: 3, maxPar: 4 },
+    { name: 'phonemes-medium', label: 'medium', mode: 1, minPar: 5, maxPar: 6 },
+    { name: 'phonemes-long', label: 'long', mode: 1, minPar: 7, maxPar: 10 },
+  ],
+} as RawManifest;
+
 describe('readCompletions', () => {
   it('keeps what it can read and drops what it cannot', () => {
-    const kept = readCompletions([
-      done(),
-      null,
-      7,
-      { key: 'a>b' },
-      { ...done({ key: 'c>d' }), date: 'yesterday' },
-      done({ key: 'e>f' }),
+    const kept = readCompletions(
+      [
+        done(),
+        null,
+        7,
+        { key: 'a>b' },
+        { ...done({ key: 'c>d' }), date: 'yesterday' },
+        done({ key: 'e>f' }),
+      ],
+      manifest,
+    );
+    // Repaired on the way in: these are written as bare pairs, which is what `gameKey`
+    // produced before it carried the band.
+    expect(kept.map((one) => one.key)).toEqual([
+      'letters-short:base>baseball',
+      'letters-short:e>f',
     ]);
-    expect(kept.map((one) => one.key)).toEqual(['base>baseball', 'e>f']);
+  });
+
+  it('repairs a key written before the band was part of it', () => {
+    // Left alone, an old record would never match the key the same board makes now, and
+    // replaying an already-finished round would be counted as a second round. A record
+    // carries its own band and par, so the repair is exact rather than a guess.
+    const bare = { key: 'base>baseball', band: 2, par: 8, guesses: 8 };
+    const numbered = { key: '2:base>baseball', band: 2, par: 8, guesses: 8 };
+    const [old] = readCompletions([done(bare)], manifest);
+    const [now] = readCompletions([done(numbered)], manifest);
+    expect(old?.key).toBe('letters-long:base>baseball');
+    expect(now?.key).toBe('letters-long:base>baseball');
+  });
+
+  /**
+   * The case an index cannot answer on its own. The phonemes game was one band over par 3–10
+   * before it was three, so every round of it was written down as band 3 — which now means
+   * its *short* band. Read back through par, a par-8 round of it lands where it belongs.
+   */
+  it('re-bands a record whose game has been cut into lengths since', () => {
+    const [one] = readCompletions(
+      [done({ key: '3:cool>lust', band: 3, par: 8, guesses: 9 })],
+      manifest,
+    );
+    expect(one?.key).toBe('phonemes-long:cool>lust');
+    expect(one?.band).toBe(5);
+  });
+
+  it('leaves a record exactly as stored when there is no manifest to repair it against', () => {
+    // Which is what the stats screen reads while the bank is still arriving. Re-keying a
+    // history against a list of bands nobody has seen yet is worse than reading it late.
+    const [one] = readCompletions([done({ key: '2:base>baseball', band: 2 })]);
+    expect(one?.key).toBe('2:base>baseball');
+    expect(one?.band).toBe(2);
   });
 
   it('fills in what an older record simply did not have', () => {
@@ -179,7 +241,10 @@ describe('summary', () => {
 
 describe('byBand', () => {
   it('is always three numbers, including for a length never played', () => {
-    const found = byBand([done({ band: 0, guesses: 3, par: 4 }), done({ band: 2, guesses: 9, par: 7 })], 3);
+    const found = byBand(
+      [done({ band: 0, guesses: 3, par: 4 }), done({ band: 2, guesses: 9, par: 7 })],
+      [0, 1, 2],
+    );
     expect(found).toHaveLength(3);
     expect(found[0]!.diff).toBe(-1);
     expect(found[1]!.played).toBe(0);
@@ -267,7 +332,19 @@ describe('sweeps', () => {
       ...[0, 1, 2].map((band) => done({ key: `a${band}`, day: 1, band })),
       ...[0, 1].map((band) => done({ key: `b${band}`, day: 2, band })),
     ];
-    expect(sweeps(records, 3)).toBe(1);
+    expect(sweeps(records, [0, 1, 2])).toBe(1);
+  });
+
+  // The figure is per game, so the other game's boards are not a way to fail to sweep this
+  // one — nor a way to complete it. Asked across both, day 1 here would not have counted.
+  it('ignores every band that is not the game asked about', () => {
+    const records = [
+      ...[3, 4, 5].map((band) => done({ key: `a${band}`, day: 1, band })),
+      done({ key: 'other', day: 1, band: 0 }),
+      ...[3, 4].map((band) => done({ key: `b${band}`, day: 2, band })),
+    ];
+    expect(sweeps(records, [3, 4, 5])).toBe(1);
+    expect(sweeps(records, [0, 1, 2])).toBe(0);
   });
 });
 

@@ -186,26 +186,64 @@ export const dev = defineMessages({
 /**
  * What the three lengths are called.
  *
- * The builder writes "short", "medium" and "long" into the manifest from
- * `RECURSE_BAND_CUTS`, so these names arrive as *data* rather than from the code. The
- * client looks a name up here and falls back to whatever the data said, which means a band
- * renamed or added in the builder still draws — it simply draws untranslated until somebody
- * adds a message for it. See `bandName` in `src/i18n/bands.ts`.
+ * Every mode declares them in `recurse.yaml` and the builder writes them into the manifest,
+ * so these labels arrive as *data* rather than from the code. The client looks a label up here
+ * and falls back to whatever the data said, which means a band renamed or added in the builder
+ * still draws — it simply draws untranslated until somebody adds a message for it. See
+ * `bandName` in `src/i18n/bands.ts`.
+ *
+ * Both games offer all three, so these words say a length and nothing about which game. What
+ * says that is `modes` below, and the menu that groups one under the other.
  */
 export const bands = defineMessages({
   short: {
     id: 'bands.short',
     defaultMessage: 'short',
-    description: 'The day’s shortest board. Par 3–4 as the bank currently stands.',
+    description: 'The day’s shortest board in a game. Par 3–4 as the bank currently stands.',
   },
   medium: {
     id: 'bands.medium',
     defaultMessage: 'medium',
-    description: 'The day’s middle board.',
+    description: 'The day’s middle board in a game.',
   },
   long: {
     id: 'bands.long',
     defaultMessage: 'long',
-    description: 'The day’s longest board.',
+    description: 'The day’s longest board in a game.',
+  },
+});
+
+/**
+ * What the games are called.
+ *
+ * Same arrangement as `bands` and for the same reason: a mode's name is written in
+ * `recurse.yaml`, ships in the manifest, and falls back to itself when there is no message —
+ * which is what keeps adding a game a change to one file. See `gameName`.
+ */
+export const modes = defineMessages({
+  /**
+   * A board said in full, for the places a band has to stand on its own: an archive card, the
+   * share text, the list of a day's boards still going. Both games have a "short", so the
+   * length alone names two different boards there and the game has to come with it.
+   *
+   * A message rather than a template literal because the order is a translator's to decide.
+   */
+  board: {
+    id: 'modes.board',
+    defaultMessage: '{game} {band}',
+    description:
+      'Names one board in full: which game, and which of its three lengths. For example "phonemes long". Shown wherever there is nothing else on the line to say which game is meant.',
+  },
+  letters: {
+    id: 'modes.letters',
+    defaultMessage: 'letters',
+    description:
+      'The original game, where a word is its spelling and a move finds a word inside a word by the letters it is written with.',
+  },
+  phonemes: {
+    id: 'modes.phonemes',
+    defaultMessage: 'phonemes',
+    description:
+      'The game played by ear, where a word is its pronunciation and a move finds a word inside a word by sound: coolest − coo = lust.',
   },
 });

@@ -1,10 +1,15 @@
 /**
- * The three lengths a day offers, and the switch between them.
+ * The lengths a day offers, and the switch between them.
  *
  * In a browser because that is where the claims live: the switch is real navigation, the URL
  * has to keep naming the board on screen, and each length keeps its own progress. The band is
  * deliberately *not* in the URL — a board is addressed by its id and nothing else — so the
  * only way to check that the switch works is to work it.
+ *
+ * **Asserted on a band's `label`, never on its `name`.** The name is the flat identifier —
+ * `letters-short` — and is what a stored game is keyed on rather than anything drawn. What the
+ * chrome shows is the label, sometimes with its game in front of it, which is why every match
+ * here is a `toContainText` or an unanchored pattern rather than a whole string.
  */
 
 import { expect, test } from '@playwright/test';
@@ -18,10 +23,15 @@ const idInUrl = (url: string) => new URL(url).pathname.replace(/^\//, '').split(
 const current = (page: import('@playwright/test').Page) =>
   page.getByRole('button', { name: 'Choose a length' });
 
-/** Open it and take one, which is the only way to a different length in the chrome. */
-async function choose(page: import('@playwright/test').Page, name: string) {
+/**
+ * Open it and take one, which is the only way to a different length in the chrome.
+ *
+ * By the band's index, because both games label a band "short" and the menu draws six of them:
+ * an option is found by its position in the list rather than by a word two of them share.
+ */
+async function choose(page: import('@playwright/test').Page, band: number) {
   await current(page).click();
-  await page.getByRole('option', { name: new RegExp(`^${name}`) }).click();
+  await page.getByRole('option').nth(band).click();
 }
 
 test('a bare visit opens the short board, and says so', async ({ page }) => {
@@ -34,9 +44,11 @@ test('a bare visit opens the short board, and says so', async ({ page }) => {
   await expect.poll(() => idInUrl(page.url())).toBe(short.puzzle.id);
 
   // The switch says which length is on screen, and what that length holds — a name alone is
-  // a promise the player has no way to check.
-  await expect(current(page)).toContainText(band.name);
-  await expect(current(page)).toContainText(`par ${band.minPar}`);
+  // a promise the player has no way to check. The pars are bracketed rather than worded, so
+  // that both games' three lengths fit the masthead on a phone.
+  await expect(current(page)).toContainText(band.label);
+  await expect(current(page)).toContainText(`(${band.minPar}`);
+  await expect(current(page)).toContainText(`${band.maxPar})`);
 });
 
 test('switching length keeps the day and lands on that board', async ({ page }) => {
@@ -46,12 +58,12 @@ test('switching length keeps the day and lands on that board', async ({ page }) 
 
   for (const band of [1, 2]) {
     const wanted = boardOnDay(todayNumber(), band);
-    await choose(page, manifest.bands[band]!.name);
+    await choose(page, band);
 
     // The board changes, and so does the address: the URL always names what is on screen.
     await expect(page.locator('header')).toContainText(wanted.puzzle.source);
     await expect.poll(() => idInUrl(page.url())).toBe(wanted.puzzle.id);
-    await expect(current(page)).toContainText(manifest.bands[band]!.name);
+    await expect(current(page)).toContainText(manifest.bands[band]!.label);
     // And it is genuinely a board of that length.
     expect(wanted.puzzle.par).toBeGreaterThanOrEqual(manifest.bands[band]!.minPar);
     expect(wanted.puzzle.par).toBeLessThanOrEqual(manifest.bands[band]!.maxPar);
@@ -73,7 +85,7 @@ test('a link opens its own length, whatever the switch was left on', async ({ pa
   await page.goto(board(long.puzzle));
 
   await expect(page.locator('header')).toContainText(long.puzzle.source);
-  await expect(current(page)).toContainText(manifest.bands[2]!.name);
+  await expect(current(page)).toContainText(manifest.bands[2]!.label);
 });
 
 test('the day’s other lengths are offered once a round is finished', async ({ page }) => {
@@ -103,11 +115,12 @@ test('the day’s other lengths are offered once a round is finished', async ({ 
   // the row is an invitation, not a menu.
   await expect(result).toContainText('Also today');
   for (const band of [1, 2]) {
-    await expect(result).toContainText(manifest.bands[band]!.name);
+    await expect(result).toContainText(manifest.bands[band]!.label);
   }
 
-  // And taking the offer opens that board.
+  // And taking the offer opens that board. Named in full there — "letters medium" — because a
+  // row of bare lengths would not say which game each was of.
   const medium = boardOnDay(todayNumber(), 1);
-  await result.getByRole('button', { name: new RegExp(`^${manifest.bands[1]!.name}`) }).click();
+  await result.getByRole('button', { name: new RegExp(`${manifest.bands[1]!.label}\\b`) }).first().click();
   await expect(page.locator('header')).toContainText(medium.puzzle.source);
 });

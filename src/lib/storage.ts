@@ -24,6 +24,7 @@
  *   without remembering it, not to fail to start.
  */
 
+import { bandId, type RawManifest } from './data';
 import type { GameSnapshot } from './game';
 import { readCompletions, type Completion } from './stats';
 import type { Puzzle } from './types';
@@ -52,9 +53,28 @@ interface Entry {
   game: GameSnapshot;
 }
 
-/** The puzzle this game belongs to. Stable across a rebuild of the bank. */
-export function gameKey(puzzle: Puzzle): string {
-  return `${puzzle.source}>${puzzle.target}`;
+/**
+ * The puzzle this game belongs to. Stable across a rebuild of the bank.
+ *
+ * **The band is in it because a word pair is only unique within one alphabet.** A puzzle's
+ * endpoints are *tokens*, and in the phonemes mode a token is a pronunciation — so `put` is
+ * stored as `age`, which is also an ordinary word the letters mode can build a board from.
+ * Two different boards wanting one key is a game handed to the wrong puzzle, and the pair
+ * alone cannot rule it out.
+ *
+ * **The band by its flat name — `phonemes-long` — and not by its index.** The index is a
+ * position in the manifest's list, so it is only stable while that list is: appending a mode
+ * is safe, but reordering one, or giving a mode a second band, silently hands every stored
+ * game to a different game. The name says which game it was. `bandId` falls back to the index
+ * written out when there is no manifest to ask, which keys such a game to something that
+ * simply ages out rather than to somebody else's board.
+ *
+ * Both changes — the band, then the name — rewrote every key once, and the games stored
+ * before each are unreachable and age out at `KEEP`. Ten days of eviction against a
+ * collision that would silently corrupt a round is not a close trade.
+ */
+export function gameKey(puzzle: Puzzle, manifest: RawManifest): string {
+  return `${bandId(puzzle.band, manifest)}:${puzzle.source}>${puzzle.target}`;
 }
 
 function store(): Storage | null {
@@ -159,10 +179,19 @@ export function saveBand(band: number): void {
  */
 const STATS_KEY = 'recurse.stats.v1';
 
-export function loadStats(): Completion[] {
+/**
+ * Every round finished, repaired against the manifest where there is one.
+ *
+ * The manifest is what turns a stored band into the band it is now — see `readCompletion`.
+ * Reading without one is allowed and gives back the records exactly as stored, which is what
+ * the screen wants while the bank is still arriving; anything that then *writes* has to have
+ * passed one, or it will write those unrepaired keys back down. `addCompletion` is the only
+ * caller that does both.
+ */
+export function loadStats(manifest?: RawManifest): Completion[] {
   try {
     const raw = store()?.getItem(STATS_KEY);
-    return raw ? readCompletions(JSON.parse(raw)) : [];
+    return raw ? readCompletions(JSON.parse(raw), manifest) : [];
   } catch {
     // Unparseable, or storage that threw on being read. An empty history reads as a
     // player who has not played yet, which is wrong but harmless; a screen that will
@@ -189,8 +218,10 @@ export function replaceStats(records: readonly Completion[]): void {
  *
  * Returns whether anything was written, so a caller can tell "recorded" from "already had it".
  */
-export function addCompletion(record: Completion): boolean {
-  const records = loadStats();
+export function addCompletion(record: Completion, manifest: RawManifest): boolean {
+  // Repaired before the comparison, not after: an older record of *this* puzzle keyed by band
+  // index would not match the key this round produces, and the round would be filed twice.
+  const records = loadStats(manifest);
   if (records.some((one) => one.key === record.key)) return false;
   replaceStats([...records, record]);
   return true;

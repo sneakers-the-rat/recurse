@@ -3,19 +3,24 @@ name = "graphgen"
 version = "0.2.0"
 edition = "2021"
 
-# Two dependencies, both for things that must agree with an external definition
-# rather than with this crate's opinion:
+# Two of these are for things that must agree with an external definition rather than with
+# this crate's opinion, and the third is a file format:
 #
-#   blake2         puzzle ids are digests, and have to be the same digest every
-#                  other blake2s in the world computes.
-#   rust-stemmers  Snowball English (Porter2), which decides whether two words are
-#                  forms of the same word.
+#   blake2         puzzle ids are digests, and have to be the same digest every other
+#                  blake2s in the world computes.
+#   rust-stemmers  Snowball English (Porter2), which decides whether two words are forms of
+#                  the same word.
+#   yaml-rust2     recurse.yaml. A config file with a mode list in it is past what a
+#                  hand-rolled parser should be asked to get right, and this one is a parser
+#                  and nothing else — no serde, no derive.
 #
-# Threads, the fast hasher used for lookups, and JSON writing are a few dozen lines
-# of std each and stay that way.
+# Threads, the fast hasher used for lookups, and JSON *writing* are a few dozen lines of std
+# each and stay that way. A dependency that would sit in the graph or the id path needs a
+# reason the std version cannot meet.
 [dependencies]
 blake2 = "0.10"
 rust-stemmers = "1.2.0"
+yaml-rust2 = "0.12.0"
 
 [profile.release]
 opt-level = 3

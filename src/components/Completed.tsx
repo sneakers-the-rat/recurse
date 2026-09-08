@@ -32,6 +32,7 @@ import { memo, useEffect, useState } from 'react';
 import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
 import { round as says } from '../i18n/messages/round';
 import { hintCount, type GameState } from '../lib/game';
+import { PLAIN, type Lexicon } from '../lib/lexicon';
 import { emojiTrail, type Mark } from '../lib/share';
 import { Dot, MoveSign, Space } from './marks';
 
@@ -190,9 +191,12 @@ export const Result = memo(function Result({
         </div>
 
         {/*
-          What is left of the day. Each day offers three lengths and finishing one is exactly
-          when the other two are worth mentioning — before that it would be a distraction from
-          the board, and afterwards it is the obvious next thing.
+          What is left of the day. Each day offers six boards — three lengths of each game —
+          and finishing one is exactly when the others are worth mentioning: before that it
+          would be a distraction from the board, and afterwards it is the obvious next thing.
+
+          Each is named in full, "phonemes medium", because both games have a "short" and a row
+          of bare lengths would not say which board any of them was.
 
           Only the ones still going, and a started one says how far in it is, because "carry
           on" and "start" are different invitations.
@@ -244,11 +248,17 @@ export const Result = memo(function Result({
  */
 export const Round = memo(function Round({
   state,
+  lexicon = PLAIN,
   day,
   date,
   onPlayAgain,
 }: {
   state: GameState;
+  /**
+   * How the moves are written out. The log holds tokens, so in the phonemes game every line
+   * here is a pronunciation until this turns it back into words. See lib/lexicon.ts.
+   */
+  lexicon?: Lexicon;
   /** Days since the epoch, and that day's date — the share text's first line. */
   day: number;
   date: string;
@@ -278,16 +288,21 @@ export const Round = memo(function Round({
           {log.map((entry) => (
             <li key={entry.order} className="flex items-baseline gap-3 py-1.5">
               <span className="label text-ash-lit w-4 shrink-0 text-right">{entry.order}</span>
-              <span className="word text-bone-dim text-sm">{entry.from}</span>
+              <span className="word text-bone-dim text-sm">{lexicon.label(entry.from)}</span>
               <span
                 className={`label shrink-0 ${
                   entry.move.kind === 'add' ? 'text-gilt' : 'text-blood-lit'
                 }`}
               >
                 <MoveSign kind={entry.move.kind} />
-                {entry.move.sub}
+                {/* A run of the alphabet, which has no spelling of its own. */}
+                {lexicon.translated ? (
+                  <span className="ipa">{lexicon.transcribe(entry.move.sub)}</span>
+                ) : (
+                  entry.move.sub
+                )}
               </span>
-              <span className="word text-bone ml-auto text-sm">{entry.to}</span>
+              <span className="word text-bone ml-auto text-sm">{lexicon.label(entry.to)}</span>
             </li>
           ))}
         </ol>

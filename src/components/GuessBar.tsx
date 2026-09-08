@@ -11,6 +11,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { guess as says } from '../i18n/messages/guess';
 import { MoveReadout } from './MoveReadout';
+import { PLAIN, type Lexicon } from '../lib/lexicon';
 import type { Graph } from '../lib/types';
 
 /**
@@ -62,8 +63,15 @@ function useTypingGoesHere(inputRef: React.RefObject<HTMLInputElement | null>) {
 }
 
 interface Props {
-  /** The revealed word this guess starts from. */
+  /**
+   * The revealed word this guess starts from, as a **token**.
+   *
+   * What is drawn beside the field is its spelling, and what the player types is a spelling
+   * too — but the readout below marks the run inside the token, so both have to be here.
+   */
   from: string;
+  /** How that token is written and said. See lib/lexicon.ts. */
+  lexicon?: Lexicon;
   graph: Graph;
   /** The full word list, once loaded. */
   isWord?: ((word: string) => boolean) | null;
@@ -75,6 +83,7 @@ interface Props {
 
 export const GuessBar = memo(function GuessBar({
   from,
+  lexicon = PLAIN,
   graph,
   isWord = null,
   error,
@@ -115,7 +124,9 @@ export const GuessBar = memo(function GuessBar({
               {...says.from}
               values={{
                 word: (
-                  <span className="word text-bone ml-1 tracking-normal normal-case">{from}</span>
+                  <span className="word text-bone ml-1 tracking-normal normal-case">
+                    {lexicon.label(from)}
+                  </span>
                 ),
               }}
             />
@@ -123,6 +134,7 @@ export const GuessBar = memo(function GuessBar({
           <div className="min-w-0 flex-1 text-right">
             <MoveReadout
               from={from}
+              lexicon={lexicon}
               typed={value}
               graph={graph}
               isWord={isWord}
@@ -144,7 +156,7 @@ export const GuessBar = memo(function GuessBar({
               outline-none transition-colors placeholder:tracking-normal placeholder:normal-case
               ${error ? 'border-blood refuse' : 'border-rule focus:border-gilt'}`}
             placeholder={intl.formatMessage(says.field)}
-            aria-label={intl.formatMessage(says.fieldLabel, { from })}
+            aria-label={intl.formatMessage(says.fieldLabel, { from: lexicon.label(from) })}
             aria-invalid={error !== null}
             aria-describedby={error ? 'guess-error' : undefined}
             autoCapitalize="off"

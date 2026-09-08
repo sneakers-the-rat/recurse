@@ -10,7 +10,6 @@ dist-e2e/
 
 # Rust builder
 tools/graphgen/target/
-
 # Playwright: the report and the trace/video scratch dir. The screenshots in
 playwright-report/
 e2e/.results/
@@ -32,6 +31,7 @@ e2e/shots/
 
 
 # The cached search result, keyed on everything the search depends on. See bank.rs.
+tools/cache/
 tools/cache/bank-*.tsv
 
 public/data/

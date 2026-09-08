@@ -18,6 +18,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { dev as says } from '../i18n/messages/dev';
 import { Arrow, Space, TrackBack, TrackOn } from './marks';
 import type { Pair } from '../lib/data';
+import { PLAIN, type Lexicon } from '../lib/lexicon';
 import type { Puzzle } from '../lib/types';
 
 interface Props {
@@ -32,9 +33,15 @@ interface Props {
    * with a secret the bar showed a line of rare words that was shorter than the par beside
    * it and never showed the answer at all.
    */
+  /** The answer, as **tokens**. Written out through `lexicon` — see `say`. */
   path: readonly string[];
   /** Shortcuts: routes shorter than par, which exist because a rarer word cuts a corner. */
   secrets?: readonly (readonly string[])[];
+  /**
+   * How a token is written and said. The dev bar lists routes, and a route in the phonemes game
+   * is a row of phoneme codes until this turns it back into words.
+   */
+  lexicon?: Lexicon;
   /**
    * Every pair in the bank and its address, for finding a board by its two words — null until
    * it has been fetched, which is on the first keystroke into the lookup. See `loadPairs`.
@@ -204,6 +211,7 @@ export const DevBar = memo(function DevBar({
   drawn,
   path,
   secrets = [],
+  lexicon = PLAIN,
   pairs = null,
   onNeedPairs,
   onOpenId,
@@ -214,6 +222,14 @@ export const DevBar = memo(function DevBar({
   onReset,
   onHide,
 }: Props) {
+  /**
+   * A token as a person reads it: the word, and how it is said where that is not the same
+   * thing. The dev bar is the one place that wants both at once — it is for judging whether a
+   * puzzle is any good, and in the phonemes game that question is about the sounds.
+   */
+  const say = (token: string) =>
+    lexicon.translated ? `${lexicon.label(token)} /${lexicon.transcribe(token)}/` : token;
+
   const intl = useIntl();
   const [jump, setJump] = useState('');
 
@@ -305,7 +321,7 @@ export const DevBar = memo(function DevBar({
             <FormattedMessage {...says.answer} />
             <Space />
           </span>
-          {path.length ? path.join(' → ') : intl.formatMessage(says.noPath)}
+          {path.length ? path.map(say).join(' → ') : intl.formatMessage(says.noPath)}
         </p>
         {secrets.map((route, i) => (
           <p key={route.join(' ')} className="w-full break-words text-neutral-500">
@@ -316,7 +332,7 @@ export const DevBar = memo(function DevBar({
               />
               <Space />
             </span>
-            <span className="text-neutral-400">{route.join(' → ')}</span>
+            <span className="text-neutral-400">{route.map(say).join(' → ')}</span>
           </p>
         ))}
       </div>

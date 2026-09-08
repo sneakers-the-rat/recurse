@@ -14,6 +14,13 @@ import { parBuckets, type Completion } from './stats';
 const frame: Frame = { width: 300, height: 100, pad: { left: 20, right: 10, top: 10, bottom: 20 } };
 const area = areaOf(frame);
 
+/**
+ * One game's bands, as the chart is always given them: a mark's shape is its position in this
+ * list, so a chart of the second game numbers its lengths from zero the same way the first
+ * does. See `Dot.band`.
+ */
+const BANDS = [0, 1, 2];
+
 function done(over: Partial<Completion> = {}): Completion {
   return {
     key: 'base>baseball',
@@ -36,13 +43,14 @@ function done(over: Partial<Completion> = {}): Completion {
 
 describe('scoreChart', () => {
   it('has nothing to draw for no rounds', () => {
-    expect(scoreChart([], frame)).toBeNull();
+    expect(scoreChart([], frame, BANDS)).toBeNull();
   });
 
   it('dips below the zero line for a round that beat par', () => {
     const chart = scoreChart(
       [done({ key: 'a', day: 0, guesses: 3 }), done({ key: 'b', day: 1, guesses: 6 })],
       frame,
+      BANDS,
     )!;
     const [under, over] = chart.dots;
     expect(under!.diff).toBe(-1);
@@ -53,20 +61,20 @@ describe('scoreChart', () => {
   });
 
   it('keeps par in shot even when nothing came near it', () => {
-    const chart = scoreChart([done({ guesses: 9, par: 4 })], frame)!;
+    const chart = scoreChart([done({ guesses: 9, par: 4 })], frame, BANDS)!;
     expect(chart.zero).toBeGreaterThan(area.top);
     expect(chart.zero).toBeLessThanOrEqual(area.bottom);
     expect(chart.ticks.some((tick) => tick.diff === 0)).toBe(true);
   });
 
   it('puts a single round in the middle rather than dividing by nothing', () => {
-    const chart = scoreChart([done()], frame)!;
+    const chart = scoreChart([done()], frame, BANDS)!;
     expect(chart.dots[0]!.x).toBe((area.left + area.right) / 2);
     expect(Number.isFinite(chart.dots[0]!.y)).toBe(true);
   });
 
   it('runs left to right in calendar order, whatever order the log is in', () => {
-    const chart = scoreChart([done({ key: 'b', day: 8 }), done({ key: 'a', day: 2 })], frame)!;
+    const chart = scoreChart([done({ key: 'b', day: 8 }), done({ key: 'a', day: 2 })], frame, BANDS)!;
     expect(chart.dots.map((dot) => dot.key)).toEqual(['a', 'b']);
     expect(chart.dots[0]!.x).toBeLessThan(chart.dots[1]!.x);
   });
@@ -75,6 +83,7 @@ describe('scoreChart', () => {
     const chart = scoreChart(
       [done({ key: 'a', day: 0, guesses: 3 }), done({ key: 'b', day: 1, guesses: 5 })],
       frame,
+      BANDS,
     )!;
     expect(chart.mean).toBe(0);
     expect(chart.meanY).toBeCloseTo(chart.zero);
@@ -82,7 +91,7 @@ describe('scoreChart', () => {
 
   it('stops the axis becoming a ladder over a wide range', () => {
     const wide = [0, 20].map((extra, day) => done({ key: `k${day}`, day, guesses: 4 + extra }));
-    const chart = scoreChart(wide, frame)!;
+    const chart = scoreChart(wide, frame, BANDS)!;
     expect(chart.ticks.length).toBeLessThanOrEqual(9);
   });
 });
@@ -129,7 +138,7 @@ describe('hintChart', () => {
   it('shares the day axis with the score chart, so the two read as one timeline', () => {
     const records = [done({ key: 'a', day: 2 }), done({ key: 'b', day: 9 })];
     const hints = hintChart(records, frame)!;
-    const scores = scoreChart(records, frame)!;
+    const scores = scoreChart(records, frame, BANDS)!;
     for (let i = 0; i < 2; i++) {
       expect(hints.stacks[i]!.x + hints.stacks[i]!.width / 2).toBeCloseTo(scores.dots[i]!.x);
     }

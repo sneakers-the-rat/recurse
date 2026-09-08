@@ -18,7 +18,7 @@
 
 import { memo, useEffect, useMemo } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { bandName as translateBand } from '../i18n/bands';
+import { boardName as translateBand } from '../i18n/bands';
 import { archive as says } from '../i18n/messages/archive';
 import { archiveRange } from '../lib/archive';
 import { idOnDay, type Pair, type RawCalendar, type RawManifest } from '../lib/data';
@@ -84,11 +84,9 @@ export const Puzzles = memo(function Puzzles({
 
   const played = usePlayed(manifest, years, today);
   const intl = useIntl();
-  // The builder names the lengths; the client translates them if it has words for them.
-  const bandName = (band: number) => {
-    const name = manifest.bands[band]?.name;
-    return name ? translateBand(intl, name) : '';
-  };
+  // The builder names the games and the lengths; the client translates them if it has words
+  // for them. In full, because a card in a search result has nothing else saying which game.
+  const bandName = (band: number) => translateBand(intl, band, manifest);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-16">

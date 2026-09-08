@@ -126,7 +126,9 @@ export type Rejection =
   | 'sub-not-word'
   | 'not-a-word'
   | 'too-short'
-  | 'no-move';
+  | 'no-move'
+  /** Only in a translated alphabet: a real word the pronunciation corpus does not have. */
+  | 'unknown-sound';
 
 /** Shape of an edit, independent of whether it is legal. */
 export type EditShape =
@@ -151,8 +153,22 @@ export interface InsertionSpot {
  * The code is for tests to pin the reason. An `EditShape` used to ride along too, and
  * nothing ever looked at it.
  */
+/**
+ * What a typed guess came to.
+ *
+ * `word` and `move` are the reading the game *stands on* — one node and one move, which is
+ * what the guess bar reports and what every caller written before a word could be two nodes
+ * still asks for.
+ *
+ * **`also` is the rest of them, and it is the whole of why this is not just a pair.** A
+ * spelling can name several tokens in a translated alphabet — `dissenters` is `/dɪsɛntɚz/` and
+ * `/dɪsɛnɚz/` — and more than one of them can make a legal move from where the player is
+ * standing. Typing the word means all of them: the alternative is picking one and hoping, and
+ * the one picked was the one that is not the goal, so the goal could not be reached by typing
+ * its own name. Empty in the letters game, where a spelling is one node by construction.
+ */
 export type Judgement =
-  | { ok: true; move: Move; word: string }
+  | { ok: true; move: Move; word: string; also: { word: string; move: Move }[] }
   | { ok: false; code: Rejection; reason: Phrase };
 
 export interface Point {

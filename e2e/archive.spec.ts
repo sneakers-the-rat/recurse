@@ -66,9 +66,16 @@ test('opens a board from the calendar', async ({ page }) => {
   await openArchive(page);
 
   // Titled with the length and the pair, which is what a truncated square can still be found by.
+  //
+  // Matched on the *whole* pair and anchored, never on the source alone: a month is six boards
+  // a day and one word is a substring of plenty of others, so `[title*="strains"]` found
+  // `constrains → slanted` from six days earlier and opened that instead. The band is left out
+  // of the pattern because it is translated and this spec has no `intl`.
+  //
   // `:visible` because both layouts are in the DOM and only one of them is on screen — the grid
   // is `hidden sm:table`, so on a phone the match to click is the list's.
-  await page.locator(`[title*="${first.puzzle.source}"]:visible`).first().click();
+  const card = new RegExp(`: ${first.puzzle.source} → ${first.puzzle.target}$`);
+  await page.getByTitle(card).locator('visible=true').first().click();
 
   await expect(page.getByLabel(/Your guess/)).toBeVisible();
   expect(pathOf(page.url())).toBe(first.puzzle.id);

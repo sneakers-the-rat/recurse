@@ -86,10 +86,11 @@ export interface Result {
   /** Days since the epoch: what the game calls this puzzle. */
   day: number;
   /**
-   * Which of the day's three lengths this was — "short", "medium", "long".
+   * Which of the day's boards this was, named in full — "letters short", "phonemes long".
    *
-   * Named, because a day offers three and a score without it cannot be placed: two people
-   * posting "Day 42 · 6 guesses" may not have played the same board at all.
+   * Named, because a day offers six and a score without it cannot be placed: two people posting
+   * "Day 42 · 6 guesses" may not have played the same board at all. In full because both games
+   * label a band "short", so the length alone narrows it to two.
    */
   band: string;
   /** That day's date, `YYYY-MM-DD`. See `dateForDay`. */

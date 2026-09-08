@@ -11,9 +11,11 @@
 //! it has changed. What "determines it" means is the point: the digest below covers the
 //! corpora, the graph shape and every rule knob, and deliberately excludes
 //!
-//! * `RECURSE_SEED` and `RECURSE_MIN_GAP`, which only order the calendar,
+//! * `seed` and `minGap`, which only order the calendar, and
+//! * `bandCuts`, which only labels what was found — `build_mode` re-bands a bank it reads
+//!   back, so a cut can be moved and the whole calendar rewritten in seconds.
 //!
-//! so tuning either of those is instant. Change a rule and the digest moves, the cache
+//! so tuning any of those is instant. Change a rule and the digest moves, the cache
 //! misses, and the search runs — which is the only time it should.
 //!
 //! Tab separated, one puzzle per line, because the values are ASCII words and numbers
@@ -22,7 +24,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
+use crate::config::Mode;
 use crate::id::digest;
 use crate::select::{self, Rejections, Rule, Selection};
 
@@ -33,39 +35,73 @@ use crate::select::{self, Rejections, Rule, Selection};
 /// halfway test, how much of an answer has to find a word inside a word — moves nothing in the
 /// key, and a cached bank chosen by the old rules would be read straight back and shipped.
 /// Adding or changing one of those means bumping this.
-const FORMAT: u32 = 11;
+const FORMAT: u32 = 12;
 
-/// Everything the search's result depends on, as one hex string.
+/// Everything one mode's search depends on, as one hex string.
 ///
 /// The corpora are named by their SCOWL sizes rather than their contents: a tier is
 /// downloaded once and never edited. The blocklist *is* hashed, because it is a file in
 /// this repo that someone may add a word to.
-pub fn key(config: &Config, blocklist: &[String], id_chars: usize) -> String {
+///
+/// **Per mode, and the alphabet is in it.** Each mode searches its own graph and caches
+/// its own bank, so the key has to separate them — two modes with identical knobs and
+/// different alphabets are two entirely different banks, and sharing a cache file between
+/// them would serve one game's puzzles to the other.
+pub fn key(mode: &Mode, blocklist: &[String], id_chars: usize) -> String {
     let mut message = format!(
-        "v{FORMAT}|min_word={}|min_sub={}|legal={}|common={}|slack={}|min_par={}|max_par={}|\
-         min_source_moves={}|min_internal={}|max_swaps={}|min_alt_nodes={}|id_chars={}|\
-         alt_ways={}|alt_slack={}|min_divergence={}|around_percent={}|link_reach={}",
-        config.min_word,
-        config.min_sub,
-        config.legal_scowl,
-        config.common_scowl,
-        config.slack,
-        config.min_par,
-        config.max_par,
-        config.min_source_moves,
-        config.min_internal,
-        config.max_swaps,
-        config.min_alt_nodes,
+        "v{FORMAT}|mode={}|alphabet={}|min_word={}|min_sub={}|legal={}|common={}|slack={}|\
+         min_par={}|max_par={}|min_source_moves={}|min_internal={}|max_swaps={}|\
+         min_alt_nodes={}|id_chars={}|alt_ways={}|alt_slack={}|min_divergence={}|\
+         around_percent={}|link_reach={}",
+        mode.name,
+        mode.alphabet.name(),
+        mode.min_word,
+        mode.min_sub,
+        mode.legal_scowl,
+        mode.common_scowl,
+        mode.slack,
+        mode.min_par,
+        mode.max_par,
+        mode.min_source_moves,
+        mode.min_internal,
+        mode.max_swaps,
+        mode.min_alt_nodes,
         id_chars,
         // The board is part of the cached bank, so what shapes it has to be part of the key.
         // Left out, tuning an alternative-route knob silently reused boards built by the old
         // one — the numbers moved and the data did not.
-        config.max_alt_ways,
-        config.alt_slack,
-        config.min_divergence,
-        config.around_percent,
-        config.link_reach,
+        mode.max_alt_ways,
+        mode.alt_slack,
+        mode.min_divergence,
+        mode.around_percent,
+        mode.link_reach,
     );
+    // The ban lists are rules, so they belong in the key for the same reason every other
+    // knob does. They live in the config file rather than in this source, so a build that
+    // reused a bank chosen by yesterday's list would be the `FORMAT` trap with no bump to
+    // catch it.
+    for word in &mode.too_frequent {
+        message.push_str("|freq=");
+        message.push_str(word);
+    }
+    for set in &mode.too_frequent_clusters {
+        message.push_str("|cluster=");
+        message.push_str(&set.join(","));
+    }
+    // **The alphabet's own definition**, for a mode that has one. Splitting a phoneme in two
+    // changes every token in the corpus and so every puzzle in the bank, while moving no knob
+    // at all — exactly the `FORMAT` trap, and one that a bump cannot catch because the table
+    // is not a rule. Hashed in, so editing `PHONEMES` invalidates the cache by itself.
+    if mode.alphabet == crate::config::Alphabet::Phonemes {
+        for phoneme in &crate::phonetic::PHONEMES {
+            message.push_str("|ph=");
+            message.push_str(phoneme.arpabet);
+            message.push(phoneme.code);
+            if let Some((code, _)) = phoneme.stressed {
+                message.push(code);
+            }
+        }
+    }
     let mut blocked: Vec<&String> = blocklist.iter().collect();
     blocked.sort();
     for word in blocked {
@@ -106,8 +142,13 @@ pub fn save(path: &Path, selection: &Selection) -> Result<(), String> {
     }
     for puzzle in &selection.puzzles {
         out.push_str(&format!(
-            "p\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "p\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             puzzle.id,
+            // Which band, which is decided where the puzzle is built rather than by
+            // `schedule` — so unlike the day it survives the cache. Written for
+            // readability rather than because it is trusted: `build_mode` recomputes it
+            // from `par` on the way back in, since `bandCuts` is not in the key above.
+            puzzle.band,
             puzzle.source,
             puzzle.target,
             puzzle.par,
@@ -150,6 +191,7 @@ pub fn load(path: &Path) -> Option<Bank> {
             }
             "p" => {
                 let id = field.next()?.to_string();
+                let band = field.next()?.parse().ok()?;
                 let source = field.next()?.to_string();
                 let target = field.next()?.to_string();
                 let par = field.next()?.parse().ok()?;
@@ -178,8 +220,7 @@ pub fn load(path: &Path) -> Option<Bank> {
                     },
                     // Filled by the `b` line that follows.
                     board: String::new(),
-                    // Derived from par by `schedule`, along with the day.
-                    band: 0,
+                    band,
                 });
             }
             // The board of the puzzle just read. Its own line because it holds spaces and
