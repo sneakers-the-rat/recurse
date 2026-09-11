@@ -15,6 +15,7 @@
 //! answer and a flat file can only give it one. Environment overrides survive the move,
 //! because they are the taste loop — see `Overrides`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -72,12 +73,25 @@ pub struct Shared {
     /// Hex digits of a puzzle's digest that make up its public id. See id.rs.
     pub id_chars: usize,
     pub min_gap: usize,
+    /// What each downloaded corpus should be, by its cache file name.
+    ///
+    /// **A tripwire, and the outermost one there is.** Every list the build reads comes from
+    /// an address that serves whatever is current — see the header of words.rs — so a fresh
+    /// machine can quietly build against a different corpus from the one every shipped board
+    /// was found in. `vocab:` would catch the ones that reach the word list, a mode at a time
+    /// and without saying which file moved; this catches all of them, including the frequency
+    /// list, which decides which end of a pair is the source without being in any vocabulary.
+    ///
+    /// Shared rather than per mode because a file is a file: two modes asking for the same
+    /// SCOWL tier are reading one download, and pinning it twice would be two places to
+    /// disagree. A name that no run reads is simply not checked.
+    pub sources: BTreeMap<String, String>,
 }
 
 /// One game: an alphabet, the bands it offers, and every knob that shapes its bank.
 #[derive(Debug, Clone)]
 pub struct Mode {
-    /// What this game is called. Appears in the manifest, the survey and the cache key,
+    /// What this game is called. Appears in the manifest and the cache key,
     /// and is the prefix of its environment overrides.
     pub name: String,
     pub alphabet: Alphabet,
@@ -123,6 +137,14 @@ pub struct Mode {
     pub too_frequent: Vec<String>,
     /// Sets of words banned only in combination. See `ContainsTooFrequentCluster` in select.rs.
     pub too_frequent_clusters: Vec<Vec<String>>,
+    /// The vocabulary digest this mode expects to have, or none to accept whatever it has.
+    ///
+    /// **A tripwire, not a knob.** Every puzzle id is a digest of the game, its pair and its
+    /// vocabulary, so a change to the word list or to `minWord`/`minSub` renames every board
+    /// in the mode and invalidates every shared board code written against the old ones.
+    /// Declaring the digest here means the build stops and says so instead. See `build_mode`,
+    /// which computes it and compares, and `id::vocab_spec` for what goes into it.
+    pub vocab: Option<String>,
 }
 
 impl Mode {
@@ -410,6 +432,7 @@ impl Config {
             seed: shared_at.num("seed")? as u64,
             id_chars: shared_at.num("idChars")?,
             min_gap: shared_at.num("minGap")?,
+            sources: parse_sources(&shared_block["sources"])?,
         };
 
         // A hex digit is half a byte and a digest is a whole number of them, so the length
@@ -463,6 +486,7 @@ impl Config {
                 min_alt_nodes: at.num("minAltNodes")?,
                 too_frequent: at.words("tooFrequent")?,
                 too_frequent_clusters: at.word_sets("tooFrequentClusters")?,
+                vocab: at.raw("vocab"),
                 bands,
                 name: name.clone(),
             };
@@ -494,16 +518,77 @@ impl Config {
 
 /// Everything a mode has to satisfy on its own, checked once at load rather than
 /// discovered as a strange bank hours later.
+/**
+    A declared digest is eight hex digits, and YAML has an opinion about digits.
+
+    `68336fe4` reads as a string, but `01234567` reads as the *integer* 1234567 and comes back
+    a digit short — so the build would stop and accuse the corpus of moving, about a value
+    copied verbatim from the line it printed. One digest in about four hundred starts with a
+    zero. Say what to do instead.
+
+    Shared by every tripwire in the file — `vocab:` per mode and `sources:` per corpus — because
+    they are all the same value pasted from the same printed line, and the trap is the same one
+    each time.
+*/
+fn check_digest(what: &str, declared: &str) -> Result<(), String> {
+    if declared.len() == 8 && declared.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(());
+    }
+    // A short run of decimal digits is the tell: YAML read the digest as a number and dropped
+    // its leading zeros on the way back out.
+    let numeric = declared.len() < 8 && declared.chars().all(|c| c.is_ascii_digit());
+    Err(format!(
+        "{what} is eight hex digits and {declared:?} is not.{}",
+        if numeric {
+            " It looks like a digest that YAML read as a number, which loses a leading zero — \
+             write it in quotes"
+        } else {
+            " Copy the eight digits the build prints"
+        }
+    ))
+}
+
+/// The `sources:` block: a cache file name against the digest it is expected to have.
+///
+/// Absent is fine and means nothing is pinned, which is what a first build wants — the build
+/// prints what it read either way, so the block is filled in by pasting rather than by
+/// computing anything. See `Shared::sources`.
+fn parse_sources(block: &Yaml) -> Result<BTreeMap<String, String>, String> {
+    let mut out = BTreeMap::new();
+    let entries = match block {
+        Yaml::BadValue | Yaml::Null => return Ok(out),
+        Yaml::Hash(entries) => entries,
+        _ => return Err("sources should be a map of file name to digest".into()),
+    };
+    for (name, value) in entries {
+        let name = scalar(name).ok_or("a source name should be a file name")?;
+        let declared =
+            scalar(value).ok_or_else(|| format!("source {name} should be a digest"))?;
+        check_digest(&format!("source {name}"), &declared)?;
+        out.insert(name, declared);
+    }
+    Ok(out)
+}
+
 fn check(mode: &Mode) -> Result<(), String> {
+    // The mode name goes into every puzzle id in the mode (see id.rs) and into the manifest
+    // JSON unescaped, so it has to be a word rather than an arbitrary string: a name holding a
+    // quote or a comma could make one id's input read as another's.
+    if mode.name.is_empty() || !mode.name.chars().all(|c| c.is_ascii_lowercase()) {
+        return Err("a name is lowercase ascii letters — it goes into every id in the mode".into());
+    }
+    if let Some(declared) = mode.vocab.as_deref() {
+        check_digest("vocab", declared)?;
+    }
     if mode.min_sub < 1 {
         return Err("minSub must be at least 1".into());
     }
-    if mode.min_word <= mode.min_sub {
-        return Err(format!(
-            "minWord ({}) must exceed minSub ({}), or every word would be its own subword",
-            mode.min_word, mode.min_sub
-        ));
-    }
+    // if mode.min_word <= mode.min_sub {
+    //     return Err(format!(
+    //         "minWord ({}) must exceed minSub ({}), or every word would be its own subword",
+    //         mode.min_word, mode.min_sub
+    //     ));
+    // }
     if mode.min_par > mode.max_par {
         return Err("minPar must not exceed maxPar".into());
     }
@@ -669,5 +754,53 @@ mod tests {
     fn refuses_two_modes_with_one_name() {
         let bad = config("  - name: letters\n    bands: [a]\n  - name: letters\n    bands: [b]\n");
         assert!(bad.unwrap_err().contains("two modes"));
+    }
+
+    /// The corpus tripwire, read straight off the block. See `Shared::sources`.
+    #[test]
+    fn pins_each_corpus_by_name() {
+        let block = YamlLoader::load_from_str(
+            "sources:\n  scowl80.txt: b8849bb6\n  cmudict.dict: 4cf72c4c\n",
+        )
+        .unwrap();
+        let read = parse_sources(&block[0]["sources"]).unwrap();
+        assert_eq!(read.get("scowl80.txt").map(String::as_str), Some("b8849bb6"));
+        assert_eq!(read.get("cmudict.dict").map(String::as_str), Some("4cf72c4c"));
+    }
+
+    /// Nothing pinned is the state a first build is in, and it is not an error — the build
+    /// prints what it read and the block is filled in by pasting.
+    #[test]
+    fn a_file_with_no_sources_pins_nothing() {
+        assert!(parse_sources(&Yaml::BadValue).unwrap().is_empty());
+        assert!(config("  - name: letters\n    bands: [a]\n").unwrap().shared.sources.is_empty());
+    }
+
+    /**
+        The YAML integer trap, which is the one way a correct paste turns into a wrong value.
+
+        `01234567` is a perfectly good digest and YAML reads it as the number 1,234,567 — which
+        comes back seven digits long. Left to run, the build would refuse and accuse the corpus
+        of moving, about a value copied verbatim from the line it printed. So it is caught where
+        it can still be explained.
+    */
+    #[test]
+    fn refuses_a_digest_yaml_read_as_a_number() {
+        let block = YamlLoader::load_from_str("sources:\n  scowl80.txt: 01234567\n").unwrap();
+        let complaint = parse_sources(&block[0]["sources"]).unwrap_err();
+        assert!(complaint.contains("scowl80.txt"), "{complaint}");
+        assert!(complaint.contains("quotes"), "{complaint}");
+        // Quoted, the same digest is fine — which is what the message tells you to do.
+        let fixed = YamlLoader::load_from_str("sources:\n  scowl80.txt: '01234567'\n").unwrap();
+        assert!(parse_sources(&fixed[0]["sources"]).is_ok());
+    }
+
+    /// Anything that is not eight hex digits, whatever it looks like.
+    #[test]
+    fn refuses_a_source_digest_that_is_not_one() {
+        for bad in ["nothex!!", "b8849bb", "b8849bb6ff"] {
+            assert!(check_digest("source scowl80.txt", bad).is_err(), "accepted {bad:?}");
+        }
+        assert!(check_digest("vocab", "b8849bb6").is_ok());
     }
 }

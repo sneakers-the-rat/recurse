@@ -186,6 +186,9 @@ fn find_root() -> Result<PathBuf, String> {
 struct Built<'a> {
     mode: &'a Mode,
     lex: Lexicon,
+    /// The digest of this mode's vocabulary: what every puzzle id in it is taken over,
+    /// and what names its shipped dictionary and graph. See `id::vocab_spec`.
+    vocab: String,
     legal: graph::Graph,
     common: graph::Graph,
     /// Before `schedule`, which runs once over the merged bank.
@@ -212,6 +215,12 @@ struct Corpora {
     rank: FxMap<String, usize>,
     /// CMUdict, loaded only if some mode is in the phonemes alphabet.
     said: Option<phonetic::Pronunciations>,
+    /// A digest of each raw source this load actually read, for the tripwire in
+    /// recurse.yaml's `sources:` block. See `words::Sources::check`.
+    ///
+    /// The blocklist is deliberately not among them: it is a file in this repo rather than a
+    /// download, and it is already hashed into the bank cache key.
+    seen: words::Sources,
 }
 
 impl Corpora {
@@ -219,22 +228,23 @@ impl Corpora {
     /// only the letters game never downloads or parses a pronunciation dictionary.
     fn load(cache: &Path, root: &Path, modes: &[&Mode]) -> Result<Corpora, String> {
         let blocked = words::load_list(&root.join("tools").join("blocklist.txt"))?;
+        let mut seen = words::Sources::default();
         let mut scowl = HashMap::new();
         for mode in modes {
             for size in [mode.legal_scowl, mode.common_scowl] {
                 if !scowl.contains_key(&size) {
-                    scowl.insert(size, words::load_scowl(cache, size)?);
+                    scowl.insert(size, words::load_scowl(cache, size, &mut seen)?);
                 }
             }
         }
-        let rank: FxMap<String, usize> = words::load_frequency(cache)?
+        let rank: FxMap<String, usize> = words::load_frequency(cache, &mut seen)?
             .iter()
             .enumerate()
             .map(|(i, w)| (w.clone(), i))
             .collect();
         let wanted = modes.iter().any(|mode| mode.alphabet == Alphabet::Phonemes);
-        let said = if wanted { Some(phonetic::load(cache)?) } else { None };
-        Ok(Corpora { scowl, blocked, rank, said })
+        let said = if wanted { Some(phonetic::load(cache, &mut seen)?) } else { None };
+        Ok(Corpora { scowl, blocked, rank, said, seen })
     }
 
     /// One tier's spellings: in the list, not blocked, and long enough to be a subword.
@@ -325,6 +335,41 @@ fn build_mode<'a>(
         mode.common_scowl,
     );
 
+    /*
+        The vocabulary digest, and the tripwire on it.
+
+        Every puzzle id is a digest of the game, its pair and this — see id.rs — because a
+        shared board's code indexes into the legal moves from a word and into the dictionary,
+        and both of those are functions of exactly the word list and the two lengths hashed
+        here. So a change to any of them is a change to *which puzzles exist*, and the ids say
+        so rather than resolving to boards whose codes quietly mean something else.
+
+        Which makes it worth being told. `vocab` in recurse.yaml is a value the build refuses
+        to disagree with: declare it and every accidental change to the corpus or to `minWord`
+        or `minSub` stops the build with what it would have cost. Leave it out and the build
+        prints the digest and carries on, which is what a first build and a deliberate change
+        both want.
+    */
+    let vocab = id::digest(
+        id::vocab_spec(mode.alphabet.name(), mode.min_word, mode.min_sub, &lex.legal).as_bytes(),
+        8,
+    );
+    match mode.vocab.as_deref() {
+        Some(declared) if declared != vocab => {
+            return Err(format!(
+                "mode {}: the vocabulary is {vocab}, and recurse.yaml declares {declared}.\n\
+                 Every puzzle id in this mode is a digest of its vocabulary, so this rebuild \
+                 would rename every board and invalidate every shared board code written \
+                 against the old ones.\n\
+                 If that is intended, set `vocab: {vocab}` for this mode; if it is not, the \
+                 word list, minWord or minSub has moved since it was declared",
+                mode.name,
+            ));
+        }
+        Some(_) => eprintln!("  vocabulary: {vocab}, as declared"),
+        None => eprintln!("  vocabulary: {vocab} — declare it as `vocab:` to be told when it moves"),
+    }
+
     let legal_subs: FxSet<&str> =
         lex.legal.iter().filter(|w| w.len() >= mode.min_sub).map(String::as_str).collect();
     let common_subs: FxSet<&str> =
@@ -347,14 +392,14 @@ fn build_mode<'a>(
     let common = tier("common", &lex.common, &common_subs);
 
     if want == Want::Graphs {
-        return Ok(Built { mode, lex, legal, common, found: None });
+        return Ok(Built { mode, lex, vocab, legal, common, found: None });
     }
 
     // The search is the expensive half and its result is cached; the calendar and the output
     // files are rebuilt every run, because they are seconds and because their knobs are not
     // part of what the search depends on. See bank.rs.
     let phase = Instant::now();
-    let bank_path = bank::path(cache, &bank::key(mode, blocklist, config.shared.id_chars));
+    let bank_path = bank::path(cache, &bank::key(mode, blocklist, config.shared.id_chars, &vocab));
     let found = match bank::load(&bank_path) {
         Some(cached) if config.audit == Audit::Off => {
             eprintln!(
@@ -403,6 +448,7 @@ fn build_mode<'a>(
                 mode,
                 &lex,
                 &corpora.rank,
+                &vocab,
                 config.audit,
                 threads,
             )?;
@@ -422,7 +468,7 @@ fn build_mode<'a>(
         }
     };
 
-    Ok(Built { mode, lex, legal, common, found: Some(found) })
+    Ok(Built { mode, lex, vocab, legal, common, found: Some(found) })
 }
 
 fn run(command: Command, only: Option<&str>) -> Result<(), String> {
@@ -472,6 +518,7 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
     };
 
     let corpora = Corpora::load(&cache, &root, &asked)?;
+    corpora.seen.check(&config.shared.sources)?;
     let mut blocklist: Vec<String> = corpora.blocked.iter().cloned().collect();
     blocklist.sort();
 
@@ -499,7 +546,7 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
             for one in &built {
                 let path = bank::path(
                     &cache,
-                    &bank::key(one.mode, &blocklist, config.shared.id_chars),
+                    &bank::key(one.mode, &blocklist, config.shared.id_chars, &one.vocab),
                 );
                 eprintln!("\n=== {} ===", one.mode.name);
                 show_ngrams(one, &path, *k, *n)?;
@@ -565,7 +612,6 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
     // ----------------------------------------------------------------- output
     check_ids(&selection.puzzles, &config)?;
     write_outputs(&data, &config, &built, &selection)?;
-    write_survey(&root.join("tools").join("survey.txt"), &config, &built, &selection)?;
     progress::published_done();
     eprintln!("done in {:.1}s", started.elapsed().as_secs_f64());
     Ok(())
@@ -695,6 +741,7 @@ fn inspect_one(
             mode,
             &one.lex,
             rank,
+            &one.vocab,
             &tables[slot_of[&src]],
             &tables[slot_of[&tgt]],
             u8::MAX,
@@ -762,25 +809,10 @@ fn report_direction(one: &Built, verdict: &select::Verdict, from: &str, to: &str
         edges,
         edges as f64 / words.len().max(1) as f64,
     );
-    for route in &puzzle.routes {
-        eprintln!("    {}", readable(&one.lex, route));
-    }
     eprintln!(
         "  {}",
         words.iter().map(|w| show(&one.lex, w)).collect::<Vec<_>>().join("  ")
     );
-}
-
-/// A stored route — tokens joined by arrows — as something a person can read.
-fn readable(lex: &Lexicon, route: &str) -> String {
-    match lex.alphabet {
-        Alphabet::Letters => route.to_string(),
-        Alphabet::Phonemes => route
-            .split(" → ")
-            .map(|token| show(lex, token))
-            .collect::<Vec<_>>()
-            .join("  →  "),
-    }
 }
 
 /// Distance rows for the two ends of one pair, and the par between them.
@@ -844,7 +876,7 @@ fn show_routes(
         eprintln!("\n=== {} ===", one.mode.name);
         let path = bank::path(
             cache,
-            &bank::key(one.mode, blocklist, config.shared.id_chars),
+            &bank::key(one.mode, blocklist, config.shared.id_chars, &one.vocab),
         );
         show_routes_in(one, &path, words)?;
     }
@@ -1458,17 +1490,6 @@ fn rule_rows(selection: &select::Selection) -> Vec<(select::Rule, usize, usize)>
     rows
 }
 
-/// How the numbers in a rule table were arrived at. Both are exact counts over every
-/// candidate; they differ in whether a candidate is judged past its first failure.
-fn how_counted(config: &Config) -> &'static str {
-    match config.audit {
-        Audit::Off => "cascade — each candidate stops at its first failure, so a rule's \
-                       count is the candidates that reached it (RECURSE_AUDIT=1 for the \
-                       count that break it)",
-        Audit::On => "audited — every rule judged against every candidate",
-    }
-}
-
 /// What each rule cost, and which rules are actually doing the work.
 fn report_rules(selection: &select::Selection, audited: bool) {
     eprintln!(
@@ -1635,125 +1656,6 @@ fn par_histogram(selection: &select::Selection) -> Vec<(u32, usize)> {
     pars
 }
 
-/// The bank in calendar order, with the answers the filters let through.
-///
-/// Judging taste means reading the actual puzzles, and stepping a thousand of them
-/// through dev mode one at a time is not reading. This is the instrument for that:
-/// change a filter, rebuild, diff the survey, see exactly which puzzles the change
-/// let in or threw out. Each line carries the puzzle's id, so anything suspicious
-/// can be opened at `/<id>` and played; `№` is its place in the calendar, which is
-/// what dev mode steps through.
-fn write_survey(
-    path: &Path,
-    config: &Config,
-    built: &[Built],
-    selection: &select::Selection,
-) -> Result<(), String> {
-    let mut out = String::with_capacity(selection.puzzles.len() * 120);
-    out.push_str(&format!(
-        "{} puzzles over {} mode(s), seed {}\n",
-        selection.puzzles.len(),
-        built.len(),
-        config.shared.seed,
-    ));
-
-    // How even the bands came out, which is a property of the rules — see `report_bands`. In
-    // the survey as well as the build output, because this is the file a rule change gets
-    // diffed in.
-    let total = selection.puzzles.len().max(1);
-    for (mode, local) in config.bands() {
-        let band = mode.global_band(local);
-        let held = selection.puzzles.iter().filter(|p| p.band == band).count();
-        let (low, high) = mode.band_pars(local);
-        out.push_str(&format!(
-            "band {:<10} {:<8} par {low}-{high}: {held} puzzles ({:.1}%)\n",
-            mode.name,
-            mode.band_name(local),
-            100.0 * held as f64 / total as f64,
-        ));
-    }
-
-    // A rule table per mode. The tallies are about one graph each, so a sum of them would be a
-    // number describing no bank that exists.
-    for one in built {
-        let mode = one.mode;
-        out.push_str(&format!(
-            "\n=== {} ({}) ===\n{} candidates, {} passed, par {}-{}, SCOWL {} legal over {} \
-             common, minWord {} minSub {}\n",
-            mode.name,
-            mode.alphabet.name(),
-            one.bank().candidates,
-            one.bank().passed,
-            mode.min_par,
-            mode.max_par,
-            mode.legal_scowl,
-            mode.common_scowl,
-            mode.min_word,
-            mode.min_sub,
-        ));
-        out.push_str(&format!(
-            "by par: {}\n",
-            par_histogram(one.bank())
-                .iter()
-                .map(|(p, n)| format!("{p}:{n}"))
-                .collect::<Vec<_>>()
-                .join(" ")
-        ));
-        out.push_str(&format!("refused by each rule, {}:\n", how_counted(config)));
-        for (rule, refused, sole) in rule_rows(one.bank()) {
-            let (what, knob) = rule.describe();
-            out.push_str(&format!("  {refused:>7} ({sole:>6})  {what}  [{knob}]\n"));
-        }
-        out.push('\n');
-        out.push_str(&rule_grid(one.bank()));
-    }
-    out.push('\n');
-
-    // Which lexicon reads a puzzle back. Every mode's puzzles are in one calendar, so a line
-    // has to be readable without knowing which game it came from — hence the mode's name on
-    // it, and the answers rendered through its own alphabet.
-    let lex_for = |band: usize| -> Option<&Built> {
-        built.iter().find(|one| {
-            band >= one.mode.band_base && band < one.mode.band_base + one.mode.bands.len()
-        })
-    };
-
-    for (i, puzzle) in selection.puzzles.iter().enumerate() {
-        let one = lex_for(puzzle.band);
-        let name = one.map(|o| o.mode.name.as_str()).unwrap_or("?");
-        let say = |token: &str| match one {
-            Some(o) => show(&o.lex, token),
-            None => token.to_string(),
-        };
-        out.push_str(&format!(
-            "№{:<5} {}  {:<8} {} → {}   par {}{}  routes {}  board {}  rank {}\n",
-            i,
-            puzzle.id,
-            name,
-            say(&puzzle.source),
-            say(&puzzle.target),
-            puzzle.par,
-            if puzzle.secret > 0 {
-                format!(" (secret {})", puzzle.secret)
-            } else {
-                String::new()
-            },
-            puzzle.shortest_paths,
-            puzzle.corridor_size,
-            puzzle.max_rank,
-        ));
-        for route in &puzzle.routes {
-            match one {
-                Some(o) => out.push_str(&format!("        {}\n", readable(&o.lex, route))),
-                None => out.push_str(&format!("        {route}\n")),
-            }
-        }
-    }
-    words::write_file(path, &out)?;
-    eprintln!("  wrote tools/survey.txt ({} puzzles)", selection.puzzles.len());
-    Ok(())
-}
-
 /// The bank, split into one file per id prefix, plus the parameters and the calendar
 /// arithmetic the client needs to find a shard.
 ///
@@ -1782,6 +1684,8 @@ fn write_puzzle_shards(
     data: &Path,
     config: &Config,
     built: &[Built],
+    // The digest naming each mode's four data files, in `built` order. See `named`.
+    digests: &[String],
     puzzles: &[select::Puzzle],
 ) -> Result<(), String> {
     // Which mode a puzzle belongs to, from the band it is in. Only the pair index needs it —
@@ -1875,17 +1779,39 @@ fn write_puzzle_shards(
     //
     // The epoch ships because the client used to hard-code it, and a date that has to agree
     // between the builder and the browser should be written down once. See `epoch`.
-    let modes = config
-        .modes
+    /*
+        **Two digests per mode, and they do different jobs.**
+
+        `data` names the four files this mode ships, and is a digest of their bytes: it is how
+        the client asks for them, and why it cannot be served a stale one.
+
+        `vocab` is what every puzzle id in the mode was taken over — the legal word list and
+        the two lengths that decide which moves exist — so it is what a shared board's *code*
+        depends on. The client fetches nothing by it; it is here so that what an id pins is
+        written down where anyone can read it, and so a test can check the two agree.
+
+        Conflating them was the first attempt and was wrong: three of the four files depend on
+        the common tier as well, which the vocabulary deliberately does not cover. See `named`.
+
+        From `built` rather than from the config, because the config holds only what was
+        *declared* and a mode may decline to declare a vocabulary. Order is `built`'s, which is
+        `config.modes`' — a build refuses `--mode`, so the two cannot come apart, and the band
+        entries below index the same order.
+    */
+    let modes = built
         .iter()
-        .map(|mode| {
+        .zip(digests)
+        .map(|(one, data)| {
             format!(
-                "{{\"name\":\"{}\",\"alphabet\":\"{}\",\"slack\":{},\"minPar\":{},\"maxPar\":{}}}",
-                mode.name,
-                mode.alphabet.name(),
-                mode.slack,
-                mode.min_par,
-                mode.max_par,
+                "{{\"name\":\"{}\",\"alphabet\":\"{}\",\"data\":\"{}\",\
+                 \"vocab\":\"{}\",\"slack\":{},\"minPar\":{},\"maxPar\":{}}}",
+                one.mode.name,
+                one.mode.alphabet.name(),
+                data,
+                one.vocab,
+                one.mode.slack,
+                one.mode.min_par,
+                one.mode.max_par,
             )
         })
         .collect::<Vec<_>>()
@@ -1933,10 +1859,11 @@ fn write_puzzle_shards(
 
     // Every pair and the address it lives at, for dev mode's lookup by words.
     //
-    // A shard can only be found from an id, and an id is a digest of an answer, so there is
-    // no way to get from "the puzzle about `warming` and `scolding`" to a board without an
-    // index of the pairs — and the client holds one shard of the bank, not the bank. This is
-    // that index: the whole calendar, three fields a line, sorted so it reads.
+    // A shard can only be found from an id, and an id is a digest — of the game, the pair and
+    // the vocabulary, none of which the client can compute — so there is no way to get from
+    // "the puzzle about `warming` and `scolding`" to a board without an index of the pairs,
+    // and the client holds one shard of the bank rather than the bank. This is that index:
+    // the whole calendar, three fields a line, sorted so it reads.
     //
     // Nothing a player does fetches it. Dev mode asks for it when the lookup is used, which
     // is why it is one file rather than part of the shards: a build that ships it costs
@@ -2181,22 +2108,83 @@ fn write_outputs(
     built: &[Built],
     selection: &select::Selection,
 ) -> Result<(), String> {
+    // Each mode's four files, and the digest of them that names them. Collected here because
+    // the manifest has to say what to fetch, and the manifest is written by the shards.
+    let mut digests: Vec<String> = Vec::new();
     for one in built {
-        write_mode(&data.join(&one.mode.name), one)?;
+        digests.push(write_mode(&data.join(&one.mode.name), one)?);
     }
-    write_puzzle_shards(data, config, built, &selection.puzzles)?;
+    write_puzzle_shards(data, config, built, &digests, &selection.puzzles)?;
+    // Only once everything is written, because until then the manifest on disk is the old one
+    // and still names the old files. Sweeping first left a window where a build that died
+    // halfway had deleted the files its own manifest pointed at.
+    for (one, digest) in built.iter().zip(&digests) {
+        sweep_mode(&data.join(&one.mode.name), one, digest);
+    }
     Ok(())
 }
 
+/// A mode's data file, named by the digest of everything in the four of them.
+///
+/// **Its contents belong in its name**, because these are fetched `force-cache`: their names
+/// promise they cannot change, so a browser that has been to the site keeps whatever it has
+/// for ever. That rule is written down where the bank version is computed, and these four
+/// files were the ones breaking it — a returning visitor could pair a fresh shard with a
+/// dictionary from a build ago.
+///
+/// **Not the vocabulary digest, which was the first attempt and was a false promise.** The
+/// vocabulary is the legal word list and the two lengths, because that is what a shared
+/// board's *code* indexes into; but `common.json` is the common tier, `graph.json` carries the
+/// common rows too, and `lexicon.json` depends on the frequency ranking. All three can move
+/// while the vocabulary stands still, and then a name built from the vocabulary does not
+/// change and the stale copy is served for ever. So this is a digest of the bytes: nothing to
+/// reason about, and any change to any of the four renames all four.
+fn named(what: &str, digest: &str) -> String {
+    format!("{what}-{digest}.json")
+}
+
+/// Which of the four a mode ships. The lexicon is only for a translated alphabet.
+fn mode_files(one: &Built, digest: &str) -> Vec<String> {
+    let mut names = vec![
+        named("dictionary", digest),
+        named("graph", digest),
+        named("common", digest),
+    ];
+    if one.mode.alphabet != Alphabet::Letters {
+        names.push(named("lexicon", digest));
+    }
+    names
+}
+
+/// Anything in a mode's directory that this build did not write.
+///
+/// Six megabytes a stale build, and one of them is a name a browser may still be asking for.
+/// The same housekeeping `remove_stale_shards` does for the bank, and for the same reason.
+fn sweep_mode(dir: &Path, one: &Built, digest: &str) {
+    let ours = mode_files(one, digest);
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".json") && !ours.contains(&name) && std::fs::remove_file(entry.path()).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    if removed > 0 {
+        eprintln!("  removed {removed} file(s) from an older build of {}", one.mode.name);
+    }
+}
+
 /// One mode's dictionary, graphs, common list and — for a translated alphabet — lexicon.
-fn write_mode(dir: &Path, one: &Built) -> Result<(), String> {
+
+fn write_mode(dir: &Path, one: &Built) -> Result<String, String> {
     let mode = one.mode;
     let (legal, common, lex) = (&one.legal, &one.common, &one.lex);
 
     // The dictionary does double duty: the set of legal guesses, and the canonical index the
     // other two files refer to. One sorted list, so no word is ever stored twice.
     let dictionary = format!("{{\"words\":\"{}\"}}", lex.legal.join("\\n"));
-    words::write_file(&dir.join("dictionary.json"), &dictionary)?;
 
     let index: FxMap<&str, u32> = lex
         .legal
@@ -2266,7 +2254,7 @@ fn write_mode(dir: &Path, one: &Built) -> Result<(), String> {
         graph_json.push_str("]}");
     }
     graph_json.push('}');
-    words::write_file(&dir.join("graph.json"), &graph_json)?;
+    words::write_file(&dir.join(named("graph", &one.vocab)), &graph_json)?;
 
     // Which dictionary words are ordinary ones. The client draws the board from
     // these and no others: the whole 189k list is what a player may *guess*, but a
@@ -2282,19 +2270,19 @@ fn write_mode(dir: &Path, one: &Built) -> Result<(), String> {
     common_json.push_str("{\"common\":[");
     push_deltas(&mut common_json, common_ids);
     common_json.push_str("]}");
-    words::write_file(&dir.join("common.json"), &common_json)?;
 
-    let mut names = vec!["dictionary.json", "graph.json", "common.json"];
+    // Every body, then the digest of all of them, then the files. Named by their own bytes —
+    // see `named` — so this is the one order that can produce that name.
+    let mut bodies = vec![dictionary, graph_json, common_json];
     if mode.alphabet != Alphabet::Letters {
-        write_lexicon(&dir.join("lexicon.json"), one, &index)?;
-        names.push("lexicon.json");
+        bodies.push(lexicon_body(one, &index));
     }
-    for name in names {
-        let path = dir.join(name);
-        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        eprintln!("  wrote {}/{name} ({} KB)", mode.name, size / 1024);
+    let digest = id::digest(bodies.concat().as_bytes(), 8);
+    for (name, body) in mode_files(one, &digest).iter().zip(&bodies) {
+        words::write_file(&dir.join(name), body)?;
+        eprintln!("  wrote {}/{name} ({} KB)", mode.name, body.len() / 1024);
     }
-    Ok(())
+    Ok(digest)
 }
 
 /// How to read a token back: what to draw it as, and how to say it.
@@ -2312,7 +2300,7 @@ fn write_mode(dir: &Path, one: &Built) -> Result<(), String> {
 ///   spelling, which the client does not need — it builds a map once — but which makes the
 ///   file diffable, and a lexicon that changes shape between builds is worth being able to
 ///   read.
-fn write_lexicon(path: &Path, one: &Built, index: &FxMap<&str, u32>) -> Result<(), String> {
+fn lexicon_body(one: &Built, index: &FxMap<&str, u32>) -> String {
     let lex = &one.lex;
 
     // One row per *character* a token can hold, which is every symbol plus the two that are
@@ -2373,12 +2361,11 @@ fn write_lexicon(path: &Path, one: &Built, index: &FxMap<&str, u32>) -> Result<(
         }
     }
 
-    let body = format!(
+    format!(
         "{{\"phonemes\":[{phonemes}],\"nodes\":\"{}\",\"guesses\":\"{}\"}}",
         nodes.replace('\n', "\\n").replace('\t', "\\t"),
         typed.replace('\n', "\\n").replace('\t', "\\t"),
-    );
-    words::write_file(path, &body)
+    )
 }
 
 

@@ -153,8 +153,8 @@ pub type Pronunciations = FxMap<String, Vec<String>>;
 /// `word(2)` and a `#` comment allowed at the end. Entries that are not plain lowercase
 /// words are skipped in the same pass, which drops the abbreviations, the punctuation
 /// entries and the proper nouns SCOWL would have refused anyway.
-pub fn load(cache: &Path) -> Result<Pronunciations, String> {
-    let text = words::fetch(cache, "cmudict.dict", CMUDICT_URL)?;
+pub fn load(cache: &Path, seen: &mut words::Sources) -> Result<Pronunciations, String> {
+    let text = words::fetch(cache, "cmudict.dict", CMUDICT_URL, seen)?;
     let mut found: Pronunciations = FxMap::default();
     let mut unknown: Vec<String> = Vec::new();
 

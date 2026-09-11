@@ -1,9 +1,23 @@
-//! Puzzle identifiers: the address a shared board is reached at.
+//! Puzzle identifiers: the address a shared board is reached at, and the root of a
+//! small hash tree.
 //!
-//! A puzzle's id is a BLAKE2s digest of its answer, written as a canonical JSON
-//! array of the words, asked for at exactly `idChars` hex digits:
+//! A puzzle's id is a BLAKE2s digest of a canonical JSON array — the game it belongs
+//! to, its two words in sorted order, and the digest of the vocabulary they were
+//! found in — asked for at exactly `idChars` hex digits:
 //!
-//!     ["passing","starring"]  ->  5be37f57  ->  /recurse/5be37f57
+//!     ["letters","passing","starring","9f2c1e77"]  ->  a8ccda3b
+//!
+//! **The vocabulary digest is in there because a shared board's code depends on it.**
+//! A code (see src/lib/boardCode.ts) says "the third of the legal moves from here"
+//! and "dictionary word 3187", so it is only meaningful against the exact word list
+//! and edge rules it was written against. Putting that digest in the address makes
+//! the dependency a *parent* of the thing that depends on it: an id resolves only
+//! where its codes resolve, and a new vocabulary is honestly a new set of puzzles
+//! rather than the same ones quietly reinterpreted. See `vocab_spec`.
+//!
+//! Nothing else about the bank is in it, and that is the other half of the trade.
+//! Par, the answer, the words the board draws and every selection knob can move
+//! without touching an address, because none of them can change what a code means.
 //!
 //! Asked for, not cut down to: the digest length is one of BLAKE2's parameters and
 //! goes into the state before a byte of message does, so a 4-byte digest is its own
@@ -17,10 +31,12 @@
 //! whole calendar. A digest is a name that can be given away without also giving
 //! away its neighbours.
 //!
-//! **Why the answer and not the word pair.** The puzzle *is* its solution, so the
-//! id names what the player is meant to find. The consequence is that a rebuild
-//! which changes an answer changes that puzzle's address and old links to it stop
-//! resolving; one that leaves the answer alone keeps them working.
+//! **Why the pair sorted, and not as found.** A move is an insertion or a removal
+//! and the two are inverses, so `carts → heartens` and `heartens → carts` are one
+//! puzzle — and which of them the builder writes first is a *finding* of the rules
+//! (see `judge_candidates`), so it moves when a rule moves. Sorting makes the
+//! address blind to that, and the board format is blind to it for the same reason:
+//! a code counts its stands from the sorted pair, not from `source`.
 //!
 //! Eight hex digits is 32 bits, which over a bank of a few thousand puzzles makes
 //! a collision a fraction of a percent likely — small, but not zero, so `main.rs`
@@ -46,33 +62,65 @@ pub fn shard_of(id: &str) -> usize {
     usize::from_str_radix(id.get(..2).unwrap_or("0"), 16).unwrap_or(0)
 }
 
-/// The canonical JSON array of an answer — the exact bytes an id is a digest of.
+/// A canonical JSON array of words — the exact bytes a digest here is taken of.
 ///
-/// Words are letters, so nothing here needs escaping. Written out rather than
-/// hashing the words directly so the input stays a thing you can print, paste into
-/// any other blake2s and check by hand.
-pub fn answer_spec(answer: &[String]) -> String {
-    let mut spec = String::with_capacity(answer.iter().map(|w| w.len() + 3).sum::<usize>() + 2);
-    spec.push('[');
-    for (i, word) in answer.iter().enumerate() {
+/// Tokens are letters or phoneme codes, so nothing needs escaping. Written out
+/// rather than hashing the pieces directly so the input stays a thing you can
+/// print, paste into any other blake2s and check by hand.
+fn spec(parts: &[&str]) -> String {
+    let mut out = String::with_capacity(parts.iter().map(|p| p.len() + 3).sum::<usize>() + 2);
+    out.push('[');
+    for (i, part) in parts.iter().enumerate() {
         if i > 0 {
-            spec.push(',');
+            out.push(',');
         }
-        spec.push('"');
-        spec.push_str(word);
-        spec.push('"');
+        out.push('"');
+        out.push_str(part);
+        out.push('"');
     }
-    spec.push(']');
-    spec
+    out.push(']');
+    out
 }
 
-/// A puzzle's public address: a `chars`-digit BLAKE2s digest of its answer.
+/// The digest of a *vocabulary*: everything that decides which moves exist.
+///
+/// A board's code indexes into two lists and nothing else — the legal moves from a
+/// word, and the dictionary — and both are functions of exactly this: the sorted
+/// list of every token a player may guess, the alphabet those tokens are in, and
+/// the two lengths that decide whether a run inside a word counts as a move. Hash
+/// those and every index in every code is pinned; leave one out and a code can come
+/// back as a different legal move, which is worse than not coming back at all.
+///
+/// **What is deliberately absent is as important.** The common tier, the selection
+/// rules, the frequency lists, the calendar: all of them change what the bank
+/// *holds* and none of them can change what a code *means*, so none of them belongs
+/// in an address. That is the whole reason this is a separate digest and not the
+/// bank version — see `bank::key`, which covers the opposite set.
+///
+/// The words are the bulk of it and they are already sorted, so this is one pass
+/// over the shipped dictionary, once per mode per build.
+pub fn vocab_spec(alphabet: &str, min_word: usize, min_sub: usize, words: &[String]) -> String {
+    let mut out = String::with_capacity(words.iter().map(|w| w.len() + 1).sum::<usize>() + 32);
+    out.push_str(alphabet);
+    out.push('|');
+    out.push_str(&min_word.to_string());
+    out.push('|');
+    out.push_str(&min_sub.to_string());
+    for word in words {
+        out.push('\n');
+        out.push_str(word);
+    }
+    out
+}
+
+/// A puzzle's public address: the game, its two words sorted, and the vocabulary.
 ///
 /// `chars` must be even and between 2 and 64 — a hex digit is half a byte and the
 /// digest is a whole number of them. config.rs enforces that on the knob, so a bad
 /// value here is a programming error rather than a misconfiguration.
-pub fn puzzle_id(answer: &[String], chars: usize) -> String {
-    digest(answer_spec(answer).as_bytes(), chars)
+pub fn puzzle_id(mode: &str, a: &str, b: &str, vocab: &str, chars: usize) -> String {
+    let (first, second) = if a <= b { (a, b) } else { (b, a) };
+    digest(spec(&[mode, first, second, vocab]).as_bytes(), chars)
 }
 
 /// A BLAKE2s digest of `message`, `chars` hex digits long.
@@ -112,12 +160,11 @@ mod tests {
     /// perfectly well and produces confident nonsense.
     #[test]
     fn hashes_what_every_other_blake2s_hashes() {
-        let answer = vec!["abc".to_string()];
-        assert_eq!(answer_spec(&answer), r#"["abc"]"#);
-        assert_eq!(puzzle_id(&answer, 8), "679cceb4");
-        assert_eq!(puzzle_id(&answer, 12), "d882ea846e9f");
+        assert_eq!(spec(&["abc"]), r#"["abc"]"#);
+        assert_eq!(digest(spec(&["abc"]).as_bytes(), 8), "679cceb4");
+        assert_eq!(digest(spec(&["abc"]).as_bytes(), 12), "d882ea846e9f");
         assert_eq!(
-            puzzle_id(&answer, MAX_CHARS),
+            digest(spec(&["abc"]).as_bytes(), MAX_CHARS),
             "0e94fd51cc5e9cf0f8108cd2fc1a286a559c38edb404eacdf15f1a3b7607094c"
         );
     }
@@ -128,24 +175,55 @@ mod tests {
     /// distinction is easy to miss and worth a test of its own.
     #[test]
     fn a_shorter_id_is_its_own_digest_not_a_prefix() {
-        let answer = vec!["abc".to_string()];
-        let short = puzzle_id(&answer, 8);
+        let short = digest(spec(&["abc"]).as_bytes(), 8);
         assert_eq!(short.len(), 8);
-        assert!(!puzzle_id(&answer, MAX_CHARS).starts_with(&short));
+        assert!(!digest(spec(&["abc"]).as_bytes(), MAX_CHARS).starts_with(&short));
     }
 
+    /// The address names the game, the pair and the vocabulary — and nothing else,
+    /// which is what lets par and the drawn board move without breaking a link.
     #[test]
-    fn ids_name_the_answer_and_nothing_else() {
-        let short = vec!["passing".to_string(), "starring".to_string()];
-        assert_eq!(answer_spec(&short), r#"["passing","starring"]"#);
-        assert_eq!(puzzle_id(&short, 8), "5be37f57");
-        // Same endpoints, different route through them: a different puzzle, and so
-        // a different address.
-        let longer = vec![
-            "passing".to_string(),
-            "passings".to_string(),
-            "starring".to_string(),
-        ];
-        assert_ne!(puzzle_id(&longer, 8), puzzle_id(&short, 8));
+    fn ids_name_the_game_the_pair_and_the_vocabulary() {
+        let one = puzzle_id("letters", "passing", "starring", "9f2c1e77", 8);
+        // The literal from this file's own header, which claims the input is a thing you can
+        // paste into any other blake2s and check by hand:
+        //
+        //     python3 -c 'import hashlib; print(hashlib.blake2s(
+        //         b"[\"letters\",\"passing\",\"starring\",\"9f2c1e77\"]",
+        //         digest_size=4).hexdigest())'
+        //
+        // Asserted because the header said something else for a while and nothing noticed.
+        assert_eq!(one, "a8ccda3b");
+        // Read the other way round it is the same puzzle, so the same address: a
+        // move is its own inverse, and which end the builder wrote first is a
+        // finding of the rules rather than a fact about the puzzle.
+        assert_eq!(puzzle_id("letters", "starring", "passing", "9f2c1e77", 8), one);
+        // A different game, or a different vocabulary, is a different set of
+        // puzzles — and a code written against one cannot be read against another.
+        assert_ne!(puzzle_id("phonemes", "passing", "starring", "9f2c1e77", 8), one);
+        assert_ne!(puzzle_id("letters", "passing", "starring", "00000000", 8), one);
+    }
+
+    /// Every input is on its own side of a delimiter, so no two different sets of
+    /// parts can produce one address by running into each other.
+    #[test]
+    fn parts_cannot_run_together() {
+        assert_ne!(
+            puzzle_id("letters", "pass", "ingstarring", "9f2c1e77", 8),
+            puzzle_id("letters", "passing", "starring", "9f2c1e77", 8)
+        );
+    }
+
+    /// A vocabulary digest is a pass over the shipped dictionary, and the lengths
+    /// are in it because they decide which runs inside a word count as moves.
+    #[test]
+    fn a_vocabulary_is_its_words_and_its_lengths() {
+        let words = vec!["base".to_string(), "ball".to_string()];
+        let one = vocab_spec("letters", 3, 2, &words);
+        assert_eq!(one, "letters|3|2\nbase\nball");
+        assert_ne!(vocab_spec("letters", 4, 2, &words), one);
+        assert_ne!(vocab_spec("letters", 3, 3, &words), one);
+        assert_ne!(vocab_spec("phonemes", 3, 2, &words), one);
+        assert_ne!(vocab_spec("letters", 3, 2, &words[..1]), one);
     }
 }

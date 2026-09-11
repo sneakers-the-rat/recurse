@@ -3,7 +3,7 @@
 //! Finding the puzzles and shipping them are separate jobs, and they cost wildly
 //! different amounts. The search reads two graphs, enumerates 28 million candidate
 //! pairs and judges every answer of every one: eight minutes. Ordering the calendar,
-//! splitting the bank into shards and writing the survey are seconds of string
+//! splitting the bank into shards costs seconds of string
 //! formatting over the result. Keeping them in one pass meant that changing the *shape
 //! of a file* re-ran the whole search.
 //!
@@ -35,7 +35,7 @@ use crate::select::{self, Rejections, Rule, Selection};
 /// halfway test, how much of an answer has to find a word inside a word — moves nothing in the
 /// key, and a cached bank chosen by the old rules would be read straight back and shipped.
 /// Adding or changing one of those means bumping this.
-const FORMAT: u32 = 12;
+const FORMAT: u32 = 13;
 
 /// Everything one mode's search depends on, as one hex string.
 ///
@@ -43,13 +43,18 @@ const FORMAT: u32 = 12;
 /// downloaded once and never edited. The blocklist *is* hashed, because it is a file in
 /// this repo that someone may add a word to.
 ///
+/// **`vocab` is in it because the puzzle ids are.** An id is a digest of the game, the
+/// pair and the vocabulary (see id.rs), so a cached bank is only good for the vocabulary
+/// its ids were computed against — and the vocabulary digest is the one thing here that
+/// is taken over the corpus *contents* rather than its name.
+///
 /// **Per mode, and the alphabet is in it.** Each mode searches its own graph and caches
 /// its own bank, so the key has to separate them — two modes with identical knobs and
 /// different alphabets are two entirely different banks, and sharing a cache file between
 /// them would serve one game's puzzles to the other.
-pub fn key(mode: &Mode, blocklist: &[String], id_chars: usize) -> String {
+pub fn key(mode: &Mode, blocklist: &[String], id_chars: usize, vocab: &str) -> String {
     let mut message = format!(
-        "v{FORMAT}|mode={}|alphabet={}|min_word={}|min_sub={}|legal={}|common={}|slack={}|\
+        "v{FORMAT}|vocab={vocab}|mode={}|alphabet={}|min_word={}|min_sub={}|legal={}|common={}|slack={}|\
          min_par={}|max_par={}|min_source_moves={}|min_internal={}|max_swaps={}|\
          min_alt_nodes={}|id_chars={}|alt_ways={}|alt_slack={}|min_divergence={}|\
          around_percent={}|link_reach={}",
@@ -125,10 +130,10 @@ pub struct Bank {
 
 pub fn save(path: &Path, selection: &Selection) -> Result<(), String> {
     let mut out = String::with_capacity(selection.puzzles.len() * 128);
-    // Header: the counts and the rule tallies, which the survey prints and which
+    // Header: the counts and the rule tallies, which the report prints and which
     // cannot be recovered from the puzzles alone.
     out.push_str(&format!("candidates\t{}\n", selection.candidates));
-    // One line per rule per par, because that is the grid the survey prints and none of it
+    // One line per rule per par, because that is the grid the report prints and none of it
     // can be recovered from the puzzles that survived.
     for rule in Rule::ALL {
         for par in 0..select::PAR_SLOTS {
@@ -142,7 +147,7 @@ pub fn save(path: &Path, selection: &Selection) -> Result<(), String> {
     }
     for puzzle in &selection.puzzles {
         out.push_str(&format!(
-            "p\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "p\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             puzzle.id,
             // Which band, which is decided where the puzzle is built rather than by
             // `schedule` — so unlike the day it survives the cache. Written for
@@ -157,7 +162,6 @@ pub fn save(path: &Path, selection: &Selection) -> Result<(), String> {
             puzzle.alt_nodes,
             puzzle.shortest_paths,
             puzzle.max_rank,
-            puzzle.routes.join("|"),
         ));
         out.push_str(&format!("b\t{}\n", puzzle.board));
     }
@@ -200,7 +204,6 @@ pub fn load(path: &Path) -> Option<Bank> {
                 let alt_nodes = field.next()?.parse().ok()?;
                 let shortest_paths = field.next()?.parse().ok()?;
                 let max_rank = field.next()?.parse().ok()?;
-                let routes = field.next().unwrap_or("");
                 puzzles.push(crate::select::Puzzle {
                     id,
                     // Assigned by `spread`, which runs on every build.
@@ -213,11 +216,6 @@ pub fn load(path: &Path) -> Option<Bank> {
                     alt_nodes,
                     shortest_paths,
                     max_rank,
-                    routes: if routes.is_empty() {
-                        Vec::new()
-                    } else {
-                        routes.split('|').map(str::to_string).collect()
-                    },
                     // Filled by the `b` line that follows.
                     board: String::new(),
                     band,

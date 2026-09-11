@@ -17,7 +17,8 @@ use crate::word::{by_length, is_compound_swap, readings};
 
 #[derive(Debug, Clone)]
 pub struct Puzzle {
-    /// The puzzle's public address, a digest of `answer`. See id.rs.
+    /// The puzzle's public address: a digest of the game, the pair and the vocabulary
+    /// those words were found in. See id.rs.
     pub id: String,
     /// Which day of the calendar this puzzle is, assigned by `spread`. Metadata rather
     /// than an address — no URL carries it — but it is what the header calls the
@@ -38,9 +39,6 @@ pub struct Puzzle {
     /// away 33,000 candidates to protect a claim nobody needs: a player who finds
     /// one has done something better than solving it, and the game should say so.
     pub secret: u32,
-    /// A few of the best routes, as text, for the survey. Not shipped to the
-    /// client — it can derive them from the graph, and this is for reading.
-    pub routes: Vec<String>,
     /// The board this puzzle declares: its ways through and a little of what joins them,
     /// encoded for the shard files. See board.rs — the client draws exactly this.
     pub board: String,
@@ -306,10 +304,9 @@ fn has_internal_reading(a: &str, b: &str, is_word: &dyn Fn(&str) -> bool, min_su
 /// player was never expected to walk — `grand → grandmaster → ster → slaughter`
 /// passed on the strength of `ster`.
 ///
-/// Reports every rule any answer breaks, and the answers that survive. All of
-/// them, not the first: the audit needs to know that a puzzle would have been
-/// refused for two independent reasons, because a rule that only ever fires
-/// alongside another one is not earning its place.
+/// Reports every rule any answer breaks, not just the first: the audit needs to
+/// know that a puzzle would have been refused for two independent reasons, because
+/// a rule that only ever fires alongside another one is not earning its place.
 #[allow(clippy::too_many_arguments)]
 fn judge_solutions(
     common: &Graph,
@@ -321,19 +318,12 @@ fn judge_solutions(
     lex: &Lexicon,
     stop_early: bool,
     broken: &mut Vec<Rule>,
-) -> Vec<String> {
-    let mut shown: Vec<String> = Vec::new();
+) {
     // One buffer for the whole walk, pushed and popped as it descends. The answer
     // reads source-first, which is the order the swap rule is defined in.
     let mut path: Vec<u32> = Vec::with_capacity(mode.max_par + 1);
     path.push(src);
-    descend(
-        common, subs, tgt, depth_from_tgt, mode, lex, stop_early, broken, &mut shown, &mut path,
-    );
-
-    // Stable regardless of the order the DAG walk happened to find them.
-    shown.sort();
-    shown
+    descend(common, subs, tgt, depth_from_tgt, mode, lex, stop_early, broken, &mut path);
 }
 
 /// Walk every answer of exactly par, depth first, judging each as it completes.
@@ -356,20 +346,11 @@ fn descend(
     lex: &Lexicon,
     stop_early: bool,
     broken: &mut Vec<Rule>,
-    shown: &mut Vec<String>,
     path: &mut Vec<u32>,
 ) {
-    /// How many answers the survey shows per puzzle. Every one is still judged.
-    const SHOWN: usize = 3;
-
     let last = *path.last().expect("never empty");
     if last == tgt {
         judge_one_answer(common, subs, path, mode, lex, broken);
-        if broken.is_empty() && shown.len() < SHOWN {
-            shown.push(
-                path.iter().map(|&id| common.word(id)).collect::<Vec<_>>().join(" → "),
-            );
-        }
         return;
     }
 
@@ -383,9 +364,7 @@ fn descend(
         let closer = depth_from_tgt(next);
         if closer != UNREACHED && closer + 1 == depth {
             path.push(next);
-            descend(
-                common, subs, tgt, depth_from_tgt, mode, lex, stop_early, broken, shown, path,
-            );
+            descend(common, subs, tgt, depth_from_tgt, mode, lex, stop_early, broken, path);
             path.pop();
         }
     }
@@ -430,44 +409,6 @@ fn judge_one_answer(
     if internal < internal_wanted(mode, (path.len() - 1) as u32) {
         note(broken, Rule::NoInternalMove);
     }
-}
-
-/// The one answer that stands for the puzzle: the alphabetically first route of
-/// exactly par on the common graph.
-///
-/// A puzzle can have several equally short answers and they all passed the rules,
-/// so any of them would describe it — but the *id* is a digest of this one, and an
-/// address has to come out the same on every build of the same bank.
-/// `judge_solutions` cannot supply it: it keeps the first three routes its walk of
-/// the route DAG happens to find and sorts only those, so which route sorts first
-/// there depends on the order neighbours are stored in.
-///
-/// Greedy is exact here. Every candidate step is on some route of exactly par, so
-/// taking the alphabetically smallest available word at each step can never paint
-/// the route into a corner, and the sequence it builds is the smallest there is.
-fn canonical_answer(
-    common: &Graph,
-    src: u32,
-    tgt: u32,
-    par: u32,
-    from_src: &dyn Fn(u32) -> u32,
-    from_tgt: &dyn Fn(u32) -> u32,
-) -> Vec<String> {
-    let mut answer = vec![common.word(src).to_string()];
-    let mut at = src;
-    for step in 1..=par {
-        let next = common
-            .neighbors(at)
-            .iter()
-            .copied()
-            .filter(|&n| from_src(n) == step && from_tgt(n) == par - step)
-            .min_by_key(|&n| common.word(n))
-            .expect("par is the distance between the endpoints, so a next step exists");
-        answer.push(common.word(next).to_string());
-        at = next;
-    }
-    debug_assert_eq!(answer.last().map(String::as_str), Some(common.word(tgt)));
-    answer
 }
 
 /// How many of an answer's moves have to find a word *inside* a word, at this par.
@@ -1011,6 +952,7 @@ pub fn select(
     mode: &Mode,
     lex: &Lexicon,
     rank: &FxMap<String, usize>,
+    vocab: &str,
     audit: Audit,
     threads: usize,
 ) -> Result<Selection, String> {
@@ -1209,7 +1151,7 @@ pub fn select(
             let overexposed = &overexposed;
             handles.push(scope.spawn(move || {
                 judge_candidates(
-                    &stripe, common, common_subs, legal, mode, lex, rank, tables, slot_of,
+                    &stripe, common, common_subs, legal, mode, lex, rank, vocab, tables, slot_of,
                     unreachable_u8, full, overexposed, judging,
                 )
             }));
@@ -1343,6 +1285,7 @@ pub fn judge_candidates(
     mode: &Mode,
     lex: &Lexicon,
     rank: &FxMap<String, usize>,
+    vocab: &str,
     tables: &[Vec<u8>],
     slot_of: &FxMap<u32, usize>,
     unreachable_u8: u8,
@@ -1377,6 +1320,7 @@ pub fn judge_candidates(
                 mode,
                 lex,
                 rank,
+                vocab,
                 &tables[slot_of[&src]],
                 &tables[slot_of[&tgt]],
                 unreachable_u8,
@@ -1426,6 +1370,7 @@ pub fn judge_direction(
     mode: &Mode,
     lex: &Lexicon,
     rank: &FxMap<String, usize>,
+    vocab: &str,
     from_src_row: &[u8],
     from_tgt_row: &[u8],
     unreachable_u8: u8,
@@ -1447,9 +1392,6 @@ pub fn judge_direction(
     // at the first failure; auditing keeps going so each rule's cost is attributed
     // to it rather than to whichever rule happens to run earliest.
     let mut broken: Vec<Rule> = Vec::new();
-    // Empty until the answers have been walked, which is what the mirror rule skips: a
-    // duplicate never gets as far as having routes to show.
-    let mut routes_shown: Vec<String> = Vec::new();
     let mut drawn: Vec<u32> = Vec::new();
     let mut alt = 0usize;
 
@@ -1487,7 +1429,7 @@ pub fn judge_direction(
         // candidates. Everything after this point is a neighbourhood scan or a
         // graph search, and none of it is worth paying for a candidate that a
         // string test over seven words will reject.
-        routes_shown = judge_solutions(
+        judge_solutions(
             common,
             common_subs,
             src,
@@ -1616,19 +1558,16 @@ pub fn judge_direction(
     }
     let best = scratch.legal_from.get(legal_tgt).min(par);
 
-    let answer = canonical_answer(
-        common,
-        src,
-        tgt,
-        par,
-        &|word| at(from_src_row, word),
-        &|word| at(from_tgt_row, word),
-    );
-
     Verdict {
         broken,
         puzzle: Some(Puzzle {
-            id: puzzle_id(&answer, mode.id_chars),
+            id: puzzle_id(
+                &mode.name,
+                common.word(src),
+                common.word(tgt),
+                vocab,
+                mode.id_chars,
+            ),
             // Set by `spread`, which is what decides the calendar.
             day: 0,
             // Set here rather than in `schedule`, because par divides a mode's bands and
@@ -1649,7 +1588,6 @@ pub fn judge_direction(
                 .max()
                 .unwrap_or(0),
             secret: if best < par { best } else { 0 },
-            routes: routes_shown,
             board: drawn.iter().map(|&w| common.word(w)).collect::<Vec<_>>().join(" "),
         }),
     }
