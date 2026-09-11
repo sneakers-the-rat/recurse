@@ -11,6 +11,13 @@
  * Ids are addresses, not indices. `/12` invites reading `/13` — tomorrow's puzzle
  * — so nothing enumerable is ever in the path.
  *
+ * **A board can carry a round with it**, in a second segment: `{base}{id}/{code}`, where the
+ * code is what boardCode.ts writes — the guesses, the hints and the marks of a round somebody
+ * played. That is what a shared board is, and the id alone is still the address of the puzzle
+ * itself. The shape of a code is base64url and this module knows no more about it than that:
+ * whether it *means* anything is boardCode's question, the same way whether an id names a
+ * puzzle is the bank's.
+ *
  * Only `pathFor` and `idFromPath` know the shape, and they are inverses. Anything
  * that wants to know which puzzle a URL names asks daily.ts, which asks here.
  *
@@ -25,6 +32,16 @@
  * length would stop resolving every link shared at the old one.
  */
 const ID = /^[0-9a-f]{4,64}$/;
+
+/**
+ * A board state, as the second segment of a board's path.
+ *
+ * Base64url, which is the alphabet boardCode.ts writes in — case-sensitive, and every
+ * character of it safe in a path segment without escaping. Nothing here says how long one
+ * is: a code grows with the round, and a length limit here would be a rule about how much
+ * of a game may be shared.
+ */
+const CODE = /^[A-Za-z0-9_-]+$/;
 
 /**
  * Where the site is served from, with its trailing slash.
@@ -97,6 +114,21 @@ export function idFromPath(path: string, from: string = base()): string | null {
   return ID.test(first) ? first : null;
 }
 
+/**
+ * The board state a path carries, or null when it carries none.
+ *
+ * Only ever read for a path that names a board, because a code is about a puzzle and means
+ * nothing without one — `rules/phonemes` has a second segment too, and it is not this.
+ * Case is kept, unlike the id and the pages: the code is base64url, where `a` and `A` are
+ * different six-bit values, and lowercasing one would quietly decode to another board.
+ */
+export function stateFromPath(path: string, from: string = base()): string | null {
+  const parts = segments(path, from);
+  if (!ID.test((parts[0] ?? '').toLowerCase())) return null;
+  const code = parts[1] ?? '';
+  return CODE.test(code) ? code : null;
+}
+
 /** Which page a path names, or null when it names a board or nothing at all. */
 export function pageFromPath(path: string, from: string = base()): Page | null {
   const first = segment(path, from);
@@ -122,12 +154,32 @@ export function pagePath(
 /**
  * The path for a puzzle. `search` is carried through untouched, because `?dev`
  * has to survive stepping from one board to the next.
+ *
+ * `code` is a round to open the board with — see `stateFromPath`. Left off, the path is the
+ * puzzle and nothing else, which is what playing it is: the address always names the board on
+ * screen, so a player who takes a shared board over drops the segment by coming through here
+ * without one.
  */
-export function pathFor(id: string, search: string = '', from: string = base()): string {
-  return `${from}${id}${search}`;
+export function pathFor(
+  id: string,
+  search: string = '',
+  from: string = base(),
+  code?: string | undefined,
+): string {
+  return `${from}${id}${code ? `/${code}` : ''}${search}`;
 }
 
-/** The whole link, for copying. `origin` is `window.location.origin`. */
-export function shareUrl(id: string, origin: string, from: string = base()): string {
-  return `${origin}${pathFor(id, '', from)}`;
+/**
+ * The whole link, for copying. `origin` is `window.location.origin`.
+ *
+ * With a `code`, this is the link that carries a round with it — what the share text pastes,
+ * so that what somebody opens is the board, not a description of it.
+ */
+export function shareUrl(
+  id: string,
+  origin: string,
+  from: string = base(),
+  code?: string | undefined,
+): string {
+  return `${origin}${pathFor(id, '', from, code)}`;
 }

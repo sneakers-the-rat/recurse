@@ -27,7 +27,7 @@ export interface Phoneme {
   code: string;
   /** How a dictionary would print it. */
   ipa: string;
-  /** CMUdict's name for it, for the survey and for anyone reading the data. */
+  /** CMUdict's name for it, for anyone reading the data. */
   name: string;
 }
 

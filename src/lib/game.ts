@@ -32,9 +32,9 @@
  * meant finishing under par without finding a shortcut.
  */
 
-import { PLAIN, type Lexicon } from './lexicon';
-import { judgeGuess } from './moves';
-import type { Graph, Judgement, Move, Puzzle, Revealed } from './types';
+import { PLAIN, type Lexicon } from "./lexicon";
+import { judgeGuess } from "./moves";
+import type { Graph, Judgement, Move, Puzzle, Revealed } from "./types";
 
 export interface LogEntry {
   from: string;
@@ -59,6 +59,17 @@ export interface GameState {
    * nothing has been asked about it. See `hintLabel` for what each level shows.
    */
   hints: Map<string, number>;
+  /**
+   * Hints bought on words that have since been named, which nothing on the figure shows.
+   *
+   * Zero in a game that was played here: every hint is in `hints`, against the word it was
+   * asked about. It is only ever set by a game that arrived through a **shared link**, whose
+   * code drops those words to stay short — a board somebody sends is for looking at, and a
+   * hint on a word that is now spelled out in full is invisible on it. The tally is the one
+   * thing that would notice, so the tally is what this keeps whole. See `hintCount`, and
+   * `written` in boardCode.ts for the trade.
+   */
+  spentHints: number;
   /**
    * Moves given away, as `"from to"` — directed, because what a hint on a move says is which
    * way the letters go *from the word that was asked*.
@@ -204,8 +215,10 @@ const ITSELF: Spell = (word) => word;
 export function hintLabel(word: string, level: number): string | null {
   if (level <= 0) return null;
   if (level === 1) return String(word.length);
-  const shown = new Set(revealOrder(word).slice(0, Math.min(level - 1, word.length)));
-  return [...word].map((letter, i) => (shown.has(i) ? letter : '·')).join('');
+  const shown = new Set(
+    revealOrder(word).slice(0, Math.min(level - 1, word.length)),
+  );
+  return [...word].map((letter, i) => (shown.has(i) ? letter : "·")).join("");
 }
 
 /**
@@ -220,7 +233,11 @@ export function hintLevels(word: string, spell: Spell = ITSELF): number {
 }
 
 /** Has this word been spelled out completely? */
-export function fullyHinted(word: string, level: number, spell: Spell = ITSELF): boolean {
+export function fullyHinted(
+  word: string,
+  level: number,
+  spell: Spell = ITSELF,
+): boolean {
   return level >= hintLevels(word, spell);
 }
 
@@ -232,8 +249,15 @@ export function fullyHinted(word: string, level: number, spell: Spell = ITSELF):
  * through here at all — it is an inspection of the board, not help with it, and when
  * it *was* a hint one tap on a ten-letter word put ten on the tally.
  */
+/**
+ * What a round's hints came to: one per level of every word, one per move marked.
+ *
+ * `spentHints` is in it because a shared board's code does not carry a level for a word it has
+ * since named — see `GameState.spentHints`. Everything that shows a score comes through here,
+ * so the figure can lose those levels without the score losing them too.
+ */
 export function hintCount(state: GameState): number {
-  let total = state.edgeHints.size;
+  let total = state.edgeHints.size + state.spentHints;
   for (const level of state.hints.values()) total += level;
   return total;
 }
@@ -249,15 +273,26 @@ export function newGame(puzzle: Puzzle): GameState {
     misses: 0,
     solved: false,
     hints: new Map(),
+    spentHints: 0,
     edgeHints: new Set(),
     log: [],
   };
 }
 
 export type GuessOutcome =
-  | { kind: 'revealed'; state: GameState; move: Move; word: string; solved: boolean }
-  | { kind: 'already-known'; state: GameState; move: Move; word: string }
-  | { kind: 'rejected'; state: GameState; judgement: Extract<Judgement, { ok: false }> };
+  | {
+      kind: "revealed";
+      state: GameState;
+      move: Move;
+      word: string;
+      solved: boolean;
+    }
+  | { kind: "already-known"; state: GameState; move: Move; word: string }
+  | {
+      kind: "rejected";
+      state: GameState;
+      judgement: Extract<Judgement, { ok: false }>;
+    };
 
 /**
  * Somewhere a guess may be made from: everywhere the player has been, and the goal.
@@ -297,7 +332,9 @@ export interface Drawn {
  * move: logged twice under one order they would draw one edge, restore as one — `restore`
  * drops a repeated edge — and leave a reload disagreeing with the game it restored.
  */
-function dedupe(readings: { word: string; move: Move }[]): { word: string; move: Move }[] {
+function dedupe(
+  readings: { word: string; move: Move }[],
+): { word: string; move: Move }[] {
   const seen = new Set<string>();
   const once: { word: string; move: Move }[] = [];
   for (const reading of readings) {
@@ -328,7 +365,7 @@ export function applyGuess(
 
   if (!judgement.ok) {
     return {
-      kind: 'rejected',
+      kind: "rejected",
       state: { ...state, misses: state.misses + 1 },
       judgement,
     };
@@ -349,9 +386,16 @@ export function applyGuess(
     same rule a repeated move has always had — and if *none* survives, the whole guess is the
     free navigation it always was.
   */
-  const readings = dedupe([{ word: judgement.word, move: judgement.move }, ...judgement.also]);
-  const known = new Set(state.log.map((entry) => edgeKey(entry.from, entry.to)));
-  const fresh = readings.filter(({ word }) => !known.has(edgeKey(state.selected, word)));
+  const readings = dedupe([
+    { word: judgement.word, move: judgement.move },
+    ...judgement.also,
+  ]);
+  const known = new Set(
+    state.log.map((entry) => edgeKey(entry.from, entry.to)),
+  );
+  const fresh = readings.filter(
+    ({ word }) => !known.has(edgeKey(state.selected, word)),
+  );
 
   /*
     Which reading the cursor ends up on, and which one the guess bar reports.
@@ -391,7 +435,7 @@ export function applyGuess(
     // first time did.
     const already = landing(readings);
     return {
-      kind: 'already-known',
+      kind: "already-known",
       state: { ...state, selected: already.word },
       move: already.move,
       word: already.word,
@@ -412,16 +456,22 @@ export function applyGuess(
   // was *first* reached, and a second way in is a move rather than another arrival.
   const revealed = new Map(state.revealed);
   for (const { word, move } of made) {
-    if (!revealed.has(word)) revealed.set(word, { word, via: state.selected, move, order });
+    if (!revealed.has(word))
+      revealed.set(word, { word, via: state.selected, move, order });
   }
   const log = [
     ...state.log,
-    ...made.map(({ word, move }) => ({ from: state.selected, to: word, move, order })),
+    ...made.map(({ word, move }) => ({
+      from: state.selected,
+      to: word,
+      move,
+      order,
+    })),
   ];
   const solved = joins(state.puzzle.source, state.puzzle.target, log);
 
   return {
-    kind: 'revealed',
+    kind: "revealed",
     move: landed.move,
     word: landed.word,
     solved,
@@ -437,17 +487,47 @@ export function applyGuess(
 }
 
 /**
+ * Does this log entry begin a new guess, or belong to the one before it?
+ *
+ * **The one definition of what a guess is**, because three things need it and they must not
+ * disagree: `restore` numbers the guesses, `guessedWords` counts them, and `actionsOf` in
+ * actions.ts writes them down for a shared board. A typed word can name several tokens and put
+ * a move on the log for each — see `applyGuess` — so the log is longer than the tally, and a
+ * consumer that grouped it differently would hand back a different score.
+ *
+ * An entry belongs to the guess before it when it carries the same order *and* the same word
+ * moved from. The `from` matters because every move of one guess is made from where the player
+ * was standing: two genuinely separate guesses that both claim one order — which nothing here
+ * writes, but a hand-edited snapshot could — then still count as two. That is the direction
+ * worth guarding, since merging two invents a better score than was played.
+ *
+ * A `NaN` order is never equal to itself, so an entry whose order did not survive being
+ * written down begins a guess of its own. That is `restore` wanting a number it cannot trust
+ * to buy nothing, and it falls out of the comparison rather than needing a case.
+ */
+export function newGuess(
+  entry: { order: number; from: string },
+  before: { order: number; from: string } | undefined,
+): boolean {
+  return (
+    before === undefined ||
+    entry.order !== before.order ||
+    entry.from !== before.from
+  );
+}
+
+/**
  * The word each guess landed on, in order: one per guess, however many moves it made.
  *
- * A typed word can name several tokens and put a move on the log for each — see `applyGuess`
- * — so the log is longer than the tally. Anything counting *guesses* rather than moves has to
- * come through here: the shared trail is "one mark per guess" and the word table is about
- * words the player typed, and both read as double-counting otherwise.
- *
- * The first entry of each order is the one the guess landed on, which `applyGuess` guarantees.
+ * Anything counting *guesses* rather than moves has to come through here: the shared trail is
+ * "one mark per guess" and the word table is about words the player typed, and both read as
+ * double-counting otherwise. The first entry of each guess is the one it landed on, which
+ * `applyGuess` guarantees.
  */
 export function guessedWords(log: readonly LogEntry[]): string[] {
-  return log.filter((entry, at) => at === 0 || log[at - 1]!.order !== entry.order).map((e) => e.to);
+  return log
+    .filter((entry, at) => newGuess(entry, log[at - 1]))
+    .map((entry) => entry.to);
 }
 
 /** Move the cursor to another word a guess can be made from. */
@@ -464,7 +544,11 @@ export function select(state: GameState, word: string): GameState {
  * for nothing. A word you are standing on is not a question — which is every word
  * already named, and the goal.
  */
-export function useHint(state: GameState, word: string, spell: Spell = ITSELF): GameState {
+export function useHint(
+  state: GameState,
+  word: string,
+  spell: Spell = ITSELF,
+): GameState {
   if (isFront(state, word)) return state;
   const level = state.hints.get(word) ?? 0;
   const wanted = Math.min(level + 1, hintLevels(word, spell));
@@ -484,7 +568,11 @@ export function useHint(state: GameState, word: string, spell: Spell = ITSELF): 
  * there to be bought. Marks are remembered by the pair rather than counted, so the ones
  * already paid for stay where they are when that happens.
  */
-export function useMoveHint(state: GameState, word: string, near: readonly string[]): GameState {
+export function useMoveHint(
+  state: GameState,
+  word: string,
+  near: readonly string[],
+): GameState {
   // The goal counts as standing on it. It used to be the one word that sold the shape of a
   // move without being reachable, which was the substitute for not being able to work from
   // that end; now a tap stands there instead and the mark would be selling what a guess from
@@ -495,10 +583,14 @@ export function useMoveHint(state: GameState, word: string, near: readonly strin
   // that is already there is a click that buys nothing.
   const next = near.find(
     (other) =>
-      !state.edgeHints.has(moveKey(word, other)) && !state.edgeHints.has(moveKey(other, word)),
+      !state.edgeHints.has(moveKey(word, other)) &&
+      !state.edgeHints.has(moveKey(other, word)),
   );
   if (next === undefined) return state;
-  return { ...state, edgeHints: new Set(state.edgeHints).add(moveKey(word, next)) };
+  return {
+    ...state,
+    edgeHints: new Set(state.edgeHints).add(moveKey(word, next)),
+  };
 }
 
 /**
@@ -521,11 +613,15 @@ export function moveHint(
   state: GameState,
   a: string,
   b: string,
-): { at: string; other: string; kind: 'add' | 'remove' } | null {
-  const at = state.edgeHints.has(moveKey(a, b)) ? a : state.edgeHints.has(moveKey(b, a)) ? b : null;
+): { at: string; other: string; kind: "add" | "remove" } | null {
+  const at = state.edgeHints.has(moveKey(a, b))
+    ? a
+    : state.edgeHints.has(moveKey(b, a))
+      ? b
+      : null;
   if (at === null) return null;
   const other = at === a ? b : a;
-  return { at, other, kind: at.length > other.length ? 'add' : 'remove' };
+  return { at, other, kind: at.length > other.length ? "add" : "remove" };
 }
 
 /**
@@ -544,6 +640,11 @@ export interface GameSnapshot {
   misses: number;
   /** Word and level, as pairs. The tally is derived from the levels. */
   hints: [string, number][];
+  /**
+   * Hints whose word is not in `hints` because it has since been named. Absent everywhere but
+   * a game rebuilt from a shared link — see `GameState.spentHints`.
+   */
+  spentHints?: number;
   /** Moves given away, as `"from to"`. Absent in games saved before they existed. */
   edgeHints?: string[];
 }
@@ -554,6 +655,7 @@ export function snapshot(state: GameState): GameSnapshot {
     selected: state.selected,
     misses: state.misses,
     hints: [...state.hints],
+    ...(state.spentHints > 0 ? { spentHints: state.spentHints } : {}),
     edgeHints: [...state.edgeHints],
   };
 }
@@ -561,11 +663,11 @@ export function snapshot(state: GameState): GameSnapshot {
 function isMove(value: unknown): value is Move {
   const move = value as Move | null;
   return (
-    typeof move === 'object' &&
+    typeof move === "object" &&
     move !== null &&
-    typeof move.sub === 'string' &&
-    typeof move.pos === 'number' &&
-    (move.kind === 'add' || move.kind === 'remove')
+    typeof move.sub === "string" &&
+    typeof move.pos === "number" &&
+    (move.kind === "add" || move.kind === "remove")
   );
 }
 
@@ -599,28 +701,21 @@ export function restore(
   const log: LogEntry[] = [];
   const made = new Set<string>();
   /*
-    **One guess can be several moves, so the count is orders and not entries.**
+    **One guess can be several moves, so the count is guesses and not entries.**
 
-    A typed word that names more than one token puts one move on the log per token and charges
-    once — see `applyGuess`. Renumbering per entry, which is what this did, handed a player a
-    second guess on their score for every reload after making one.
+    `newGuess` is the definition, shared with everything else that has to agree about it. The
+    stored order is read for its *grouping* and never for its value: the counter goes up
+    whenever a guess begins, so entries dropped below leave no gap, a snapshot written before
+    any of this — where every entry has its own order — restores exactly as it always did, and
+    a number somebody typed into `localStorage` cannot run the tally anywhere.
 
-    The stored order is read for its *grouping* and never for its value: the counter goes up
-    whenever it changes, so entries dropped above leave no gap, a snapshot written before any
-    of this — where every entry has its own order — restores exactly as it always did, and a
-    number somebody typed into `localStorage` cannot run the tally anywhere.
-
-    Grouped on the word moved *from* as well, because every move of one guess is made from
-    where the player was standing and so shares it. Two genuinely separate guesses that both
-    claim one order — which nothing here writes, but a hand-edited snapshot could — then still
-    count as two. This is the direction worth guarding: dropping an entry costs a guess and is
-    conservative, while merging two invents a better score than was played.
+    Compared against the last entry *kept*, not the last one read: dropping an entry costs a
+    guess and is conservative, while letting a dropped one break up a group would invent one.
   */
-  let seen: number | null = null;
-  let from: string | null = null;
+  let previous: { order: number; from: string } | undefined;
   let order = 0;
   for (const entry of Array.isArray(saved.log) ? saved.log : []) {
-    if (!entry || typeof entry.to !== 'string' || !isMove(entry.move)) continue;
+    if (!entry || typeof entry.to !== "string" || !isMove(entry.move)) continue;
     // A move from a word to itself is not a move. It cannot be typed — an empty edit is
     // refused — but a hand-edited snapshot could claim one, and it would cost a guess.
     if (entry.from === entry.to) continue;
@@ -628,12 +723,19 @@ export function restore(
     const key = edgeKey(entry.from, entry.to);
     if (made.has(key)) continue;
     made.add(key);
-    const stored = Number.isFinite(entry.order) ? Number(entry.order) : null;
-    if (stored === null || stored !== seen || entry.from !== from) order += 1;
-    seen = stored;
-    from = entry.from;
+    const here = {
+      order: Number.isFinite(entry.order) ? Number(entry.order) : NaN,
+      from: entry.from,
+    };
+    if (newGuess(here, previous)) order += 1;
+    previous = here;
     if (!revealed.has(entry.to)) {
-      revealed.set(entry.to, { word: entry.to, via: entry.from, move: entry.move, order });
+      revealed.set(entry.to, {
+        word: entry.to,
+        via: entry.from,
+        move: entry.move,
+        order,
+      });
     }
     log.push({ from: entry.from, to: entry.to, move: entry.move, order });
   }
@@ -644,8 +746,11 @@ export function restore(
   const hints = new Map<string, number>();
   for (const pair of Array.isArray(saved.hints) ? saved.hints : []) {
     const [word, level] = Array.isArray(pair) ? pair : [];
-    if (typeof word !== 'string' || !Number.isFinite(level)) continue;
-    const wanted = Math.min(Math.max(1, Math.trunc(level as number)), hintLevels(word, spell));
+    if (typeof word !== "string" || !Number.isFinite(level)) continue;
+    const wanted = Math.min(
+      Math.max(1, Math.trunc(level as number)),
+      hintLevels(word, spell),
+    );
     hints.set(word, wanted);
   }
 
@@ -654,8 +759,8 @@ export function restore(
   // that is no longer an edge simply never gets drawn.
   const edgeHints = new Set<string>();
   for (const key of Array.isArray(saved.edgeHints) ? saved.edgeHints : []) {
-    if (typeof key !== 'string') continue;
-    const [from, to] = key.split(' ');
+    if (typeof key !== "string") continue;
+    const [from, to] = key.split(" ");
     if (from && to && from !== to) edgeHints.add(moveKey(from, to));
   }
 
@@ -668,9 +773,16 @@ export function restore(
         ? saved.selected
         : puzzle.source,
     guesses,
-    misses: Number.isFinite(saved.misses) ? Math.max(0, Math.trunc(saved.misses)) : 0,
+    misses: Number.isFinite(saved.misses)
+      ? Math.max(0, Math.trunc(saved.misses))
+      : 0,
     solved: joins(puzzle.source, puzzle.target, log),
     hints,
+    // Levels for words the figure no longer shows, which only a shared link carries. Read the
+    // way every other stored number is: a value that is not a sane count buys nothing.
+    spentHints: Number.isFinite(saved.spentHints)
+      ? Math.max(0, Math.trunc(saved.spentHints as number))
+      : 0,
     edgeHints,
   };
 }

@@ -5,9 +5,8 @@
  * ones pivot a large share of the bank, so a run of days keeps arriving at the same few hubs by
  * different roads. `ContainsTooFrequentWord` in select.rs is the lever, a mode's `tooFrequent` is the
  * list it bans, and this is what says whether the list is the right one — change it, rebuild,
- * read the table again. That is the same loop `survey.txt` gives the rules and
- * `e2e/boards.spec.ts` gives the layout, and like both of those the point is to be *read*: it
- * asserts only that it counted something.
+ * read the table again. That is the same loop `e2e/boards.spec.ts` gives the layout, and like
+ * that one the point is to be *read*: it asserts only that it counted something.
  *
  * **One mode at a time**, because a pivot is a fact about one graph: `king` being a hub of the
  * sound graph says nothing about the spelling one, and a bank of every mode measured against a

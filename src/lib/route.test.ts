@@ -6,7 +6,15 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { idFromPath, modeFromPath, pageFromPath, pagePath, pathFor, shareUrl } from './route';
+import {
+  idFromPath,
+  modeFromPath,
+  pageFromPath,
+  pagePath,
+  pathFor,
+  shareUrl,
+  stateFromPath,
+} from './route';
 
 const PAGES = '/recurse/';
 
@@ -136,6 +144,60 @@ describe('the rules page and the game it is of', () => {
   });
 });
 
+/**
+ * A board can carry a round with it, in a second segment. That is what a shared board is —
+ * see lib/boardCode.ts — and the id is still the address of the puzzle itself, which is what
+ * every test above is about and what keeps working when the code is dropped.
+ */
+describe('the board state a link carries', () => {
+  const CODE = 'JQJZMK5YKRBgQoGI';
+
+  it('is the second segment, at either base', () => {
+    expect(stateFromPath(`/2ed94464/${CODE}`, '/')).toBe(CODE);
+    expect(stateFromPath(`/recurse/2ed94464/${CODE}`, PAGES)).toBe(CODE);
+  });
+
+  it('keeps its case, unlike the id and the pages', () => {
+    // Base64url: `a` and `A` are different six-bit values, so lowercasing a code decodes to
+    // a different board. The id above it is hex and is lowercased as it always was.
+    expect(stateFromPath('/2ED94464/aBcD', '/')).toBe('aBcD');
+    expect(idFromPath('/2ED94464/aBcD', '/')).toBe('2ed94464');
+  });
+
+  it('is nothing on a path that names no board, or names one and no round', () => {
+    for (const path of ['/2ed94464', '/2ed94464/', '/', '/puzzles/anything', '/rules/phonemes']) {
+      expect(stateFromPath(path, '/')).toBeNull();
+    }
+  });
+
+  it('is nothing when the segment could not be a code', () => {
+    // The alphabet is the whole of what this module knows about a code. Whether it *means*
+    // anything is `decodeBoard`'s question.
+    expect(stateFromPath('/2ed94464/not+a+code', '/')).toBeNull();
+    expect(stateFromPath('/2ed94464/half code', '/')).toBeNull();
+  });
+
+  it('is the inverse of pathFor, and pathFor without one is the board itself', () => {
+    for (const base of ['/', PAGES]) {
+      const path = pathFor('2ed94464', '', base, CODE);
+      expect(idFromPath(path, base)).toBe('2ed94464');
+      expect(stateFromPath(path, base)).toBe(CODE);
+      // Taking a shared board over is coming back through here without a code — which is
+      // also what every other navigation in the game does.
+      expect(stateFromPath(pathFor('2ed94464', '', base), base)).toBeNull();
+    }
+  });
+
+  it('sits before the query string, so ?dev still survives', () => {
+    expect(pathFor('2ed94464', '?dev', PAGES, CODE)).toBe(`/recurse/2ed94464/${CODE}?dev`);
+  });
+
+  it('does not make a board look like a page', () => {
+    expect(pageFromPath(`/2ed94464/${CODE}`, '/')).toBeNull();
+    expect(modeFromPath(`/2ed94464/${CODE}`, '/')).toBeNull();
+  });
+});
+
 describe('shareUrl', () => {
   it('is the whole link, ready to paste', () => {
     expect(shareUrl('2ed94464', 'https://sneakers-the-rat.github.io', PAGES)).toBe(
@@ -147,5 +209,18 @@ describe('shareUrl', () => {
     expect(shareUrl('2ed94464', 'http://localhost:5173', '/')).toBe(
       'http://localhost:5173/2ed94464',
     );
+  });
+
+  /**
+   * The link the share text pastes: the board *and* the round played on it, so what somebody
+   * opens is the figure rather than a description of it. Short enough to read in a message —
+   * a whole par-8 round is ten characters. See boardCode.ts.
+   */
+  it('carries the round when there is one, and stays a link somebody can paste', () => {
+    const url = shareUrl('2ed94464', 'https://sneakers-the-rat.github.io', PAGES, 'JKKhTIMCFAxA');
+    expect(url).toBe('https://sneakers-the-rat.github.io/recurse/2ed94464/JKKhTIMCFAxA');
+    expect(url.length).toBeLessThan(80);
+    // Nothing in it needs escaping, which is the whole reason the alphabet is base64url.
+    expect(encodeURI(url)).toBe(url);
   });
 });

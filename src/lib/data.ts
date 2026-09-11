@@ -5,13 +5,17 @@
  * total and then cached by the browser for good — they are immutable until the
  * data is rebuilt.
  *
- *   dictionary.json  every word a player may guess, newline-joined and sorted.
- *                    Also the canonical index the other two files refer to, so
- *                    no word is ever stored twice.
- *   graph.json       both graphs, as half of each neighbour row over those ids.
- *   common.json      which of those words are ordinary ones. The board is drawn
- *                    from these alone; a guess may be any word at all.
- *   puzzles.json     the bank.
+ *   dictionary-{d}.json  every word a player may guess, newline-joined and sorted.
+ *                        Also the canonical index the other two files refer to, so
+ *                        no word is ever stored twice.
+ *   graph-{d}.json       both graphs, as half of each neighbour row over those ids.
+ *   common-{d}.json      which of those words are ordinary ones. The board is drawn
+ *                        from these alone; a guess may be any word at all.
+ *   puzzles.json         the bank.
+ *
+ * All four carry a **digest of their own bytes** in their names, because they are cached by name
+ * for good. See `modeFile`. Separately, `RawMode.vocab` is what every puzzle id in the mode was
+ * taken over — the part of these files a shared board's code actually indexes into.
  *
  * All four are needed before the first guess can be judged, so there is nothing
  * to gain from staging them.
@@ -67,6 +71,27 @@ export interface RawMode {
   name: string;
   /** `letters` or `phonemes`. What a token *is* — see lexicon.ts. */
   alphabet: string;
+  /**
+   * The digest naming this game's four files, and a digest of their bytes.
+   *
+   * They are fetched `force-cache`, so a name that cannot change means a browser keeps what it
+   * has for ever — which is why the name has to move when the contents do. See `modeFile`.
+   */
+  data: string;
+  /**
+   * The digest of this game's vocabulary: its word list and the two lengths that decide which
+   * moves exist.
+   *
+   * **What every puzzle id in this game is a digest of** — see graphgen's id.rs — because a
+   * shared board's code indexes into the legal moves from a word and into the dictionary, and
+   * both are functions of exactly that. So an id and the lists a code reads against it name the
+   * same vocabulary, or the id does not resolve.
+   *
+   * Nothing is fetched by it: `data` names the files, and covers more (three of the four depend
+   * on the common tier too, which the vocabulary deliberately does not). This is here so that
+   * what an id pins is written down, and so a test can check the two agree.
+   */
+  vocab: string;
   slack: number;
   minPar: number;
   maxPar: number;
@@ -211,6 +236,18 @@ export function modeOfBand(band: number, manifest: RawManifest): number {
 /** What a mode is called, which is also the directory its files are in. */
 export function modeName(mode: number, manifest: RawManifest): string {
   return manifest.modes[mode]?.name ?? manifest.modes[0]?.name ?? 'letters';
+}
+
+/**
+ * Where one of a mode's four files lives: `letters/dictionary-1f4c2e8a.json`.
+ *
+ * **The digest is of their bytes**, so any change to any of the four renames all four. They are
+ * fetched immutably — their names promise they cannot change — so an unversioned name let a
+ * returning browser pair a fresh shard with a dictionary from a build ago, and a board code's
+ * indices would resolve against the wrong list. The same rule the shards follow.
+ */
+export function modeFile(what: string, mode: number, manifest: RawManifest): string {
+  return `${modeName(mode, manifest)}/${what}-${manifest.modes[mode]?.data ?? ''}.json`;
 }
 
 /**
@@ -460,13 +497,13 @@ export function loadMode(mode: number, manifest: RawManifest): Promise<ModeData>
 }
 
 async function fetchMode(mode: number, manifest: RawManifest): Promise<ModeData> {
-  const dir = modeName(mode, manifest);
+  const file = (what: string) => modeFile(what, mode, manifest);
   const translated = manifest.modes[mode]?.alphabet !== 'letters';
   const [dictionary, graph, common, lexicon] = await Promise.all([
-    getJson<RawDictionary>(`${dir}/dictionary.json`),
-    getJson<RawGraph>(`${dir}/graph.json`),
-    getJson<RawCommon>(`${dir}/common.json`),
-    translated ? getJson<RawLexicon>(`${dir}/lexicon.json`) : Promise.resolve(undefined),
+    getJson<RawDictionary>(file('dictionary')),
+    getJson<RawGraph>(file('graph')),
+    getJson<RawCommon>(file('common')),
+    translated ? getJson<RawLexicon>(file('lexicon')) : Promise.resolve(undefined),
   ]);
   // No puzzles: a shard holds every mode's, so it is fetched separately and joined by the
   // caller. `decodeGameData` is the shared definition and takes both.

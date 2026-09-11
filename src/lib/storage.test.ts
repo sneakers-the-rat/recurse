@@ -198,6 +198,23 @@ const done = (over: Partial<Completion> = {}): Completion => ({
 });
 
 describe('the finished rounds', () => {
+
+  /**
+   * A puzzle is undirected, and which end the builder writes as `source` is a finding of its
+   * rules — so a rebuild can flip it while the address, being a digest of the sorted pair, does
+   * not change. Compared directionally, that board stops being recognised and replaying it
+   * files a second record, and then every figure on `/stats` counts the round twice for ever.
+   */
+  it('does not file a round twice because a rebuild flipped the pair', () => {
+    const one = done({ key: 'letters-short:base>baseball', band: 0, par: 3, guesses: 3 });
+    const flipped = done({ key: 'letters-short:baseball>base', band: 0, par: 3, guesses: 3 });
+    expect(addCompletion(one, manifest)).toBe(true);
+    expect(addCompletion(flipped, manifest)).toBe(false);
+    expect(loadStats(manifest)).toHaveLength(1);
+    // And the one that was kept still says which end the board called the source, because
+    // that is what the history draws its card from. See `gameKey`.
+    expect(loadStats(manifest)[0]!.key).toBe('letters-short:base>baseball');
+  });
   it('keeps a round, and keeps them in the order they were finished', () => {
     addCompletion(done({ key: 'letters-short:a>b' }), manifest);
     addCompletion(done({ key: 'letters-short:c>d' }), manifest);

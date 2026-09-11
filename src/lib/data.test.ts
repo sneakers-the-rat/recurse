@@ -4,8 +4,11 @@
  * that is wrong rather than a graph that throws.
  */
 
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decodeDeltas, decodeRows, decodeGameData, shardOf } from './data';
+import { decodeDeltas, decodeRows, decodeGameData, modeFile, shardOf } from './data';
 import { DICTIONARY, EDGES, PARAMS } from '../test/fixture';
 import {
   shippedBank,
@@ -20,6 +23,53 @@ import {
  * The calendar, which is the one thing the client and the builder both have to get right and
  * neither can check alone. Read off the shipped files, so what is asserted is the deploy.
  */
+/**
+ * The vocabulary digest, which is the one thing a shared board's code depends on that the
+ * shipped files have to agree about.
+ *
+ * A code is a list of positions — the third legal move from here, dictionary word 3187 — so it
+ * only means anything against the word list and edge rules it was written against. Every puzzle
+ * id is a digest of its mode, its pair and that vocabulary, and the four data files carry the
+ * same digest in their names. See `modeFile`, and graphgen's id.rs for the tree.
+ */
+describe('the vocabulary each game is pinned to', () => {
+  const manifest = shippedManifest();
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'data');
+
+  it('is declared by every mode, and names the files that mode ships', () => {
+    expect(manifest.modes.length).toBeGreaterThan(0);
+    for (const [mode, one] of manifest.modes.entries()) {
+      // Hex, because both are digests: `vocab` is what the ids were taken over, `data` is of
+      // the four files' bytes and is what names them. Two jobs, and conflating them was a bug
+      // — three of the four files depend on the common tier, which `vocab` does not cover.
+      expect(one.vocab, one.name).toMatch(/^[0-9a-f]{4,}$/);
+      expect(one.data, one.name).toMatch(/^[0-9a-f]{4,}$/);
+      const wanted = ['dictionary', 'graph', 'common'];
+      if (one.alphabet !== 'letters') wanted.push('lexicon');
+      for (const what of wanted) {
+        const name = modeFile(what, mode, manifest);
+        expect(name, one.name).toContain(one.data);
+        expect(existsSync(join(dir, name)), name).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * And nothing else in the directory, because a stale vocabulary is six megabytes of file a
+   * browser could still be asking for by name — which was the whole reason for versioning
+   * them. The builder sweeps them; this is what notices if it stops.
+   */
+  it('leaves no file from another vocabulary behind', () => {
+    for (const [mode, one] of manifest.modes.entries()) {
+      const ours = ['dictionary', 'graph', 'common', 'lexicon'].map((what) =>
+        modeFile(what, mode, manifest).split('/').pop(),
+      );
+      const found = readdirSync(join(dir, one.name)).filter((name) => name.endsWith('.json'));
+      expect(found.filter((name) => !ours.includes(name)), one.name).toEqual([]);
+    }
+  });
+});
+
 describe('the calendar', () => {
   const manifest = shippedManifest();
   const bands = manifest.bands.map((_, index) => index);
@@ -138,7 +188,9 @@ describe('decodeGameData', () => {
     manifest: {
       version: 'testtest',
       shards: 256,
-      modes: [{ name: 'letters', alphabet: 'letters', slack: 6, minPar: 3, maxPar: 10 }],
+      modes: [
+        { name: 'letters', alphabet: 'letters', data: 'bbbb2222', vocab: 'aaaa1111', slack: 6, minPar: 3, maxPar: 10 },
+      ],
       bands: [
         { name: 'letters-short', label: 'short', mode: 0, minPar: 3, maxPar: 4 },
         { name: 'letters-medium', label: 'medium', mode: 0, minPar: 5, maxPar: 6 },

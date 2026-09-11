@@ -69,12 +69,33 @@ interface Entry {
  * written out when there is no manifest to ask, which keys such a game to something that
  * simply ages out rather than to somebody else's board.
  *
+ * **The pair as the board writes it, not sorted**, even though a puzzle's *id* is a digest of
+ * the sorted pair (see graphgen's id.rs). Two reasons, and the second is the one that decides
+ * it: the key is what `/stats` reads a round's two words out of to draw its card, so sorting
+ * it would make the history disagree with the board about which word is the source; and a
+ * rebuild that flips the two ends orphans a stored *game*, which ages out at `KEEP` like any
+ * other stale key. What a flip must not do is double-count a finished round, and that is
+ * `addCompletion`'s business rather than the key's.
+ *
  * Both changes — the band, then the name — rewrote every key once, and the games stored
  * before each are unreachable and age out at `KEEP`. Ten days of eviction against a
  * collision that would silently corrupt a round is not a close trade.
  */
 export function gameKey(puzzle: Puzzle, manifest: RawManifest): string {
   return `${bandId(puzzle.band, manifest)}:${puzzle.source}>${puzzle.target}`;
+}
+
+/**
+ * Do two record keys name one puzzle? `band:a>b` and `band:b>a` do.
+ *
+ * See `gameKey` for why the stored key keeps the direction the board was written in, and
+ * `addCompletion` for why the comparison must not.
+ */
+function samePuzzle(one: string, other: string): boolean {
+  if (one === other) return true;
+  const at = one.lastIndexOf(':');
+  const ends = one.slice(at + 1).split('>');
+  return ends.length === 2 && `${one.slice(0, at + 1)}${ends[1]}>${ends[0]}` === other;
 }
 
 function store(): Storage | null {
@@ -222,7 +243,12 @@ export function addCompletion(record: Completion, manifest: RawManifest): boolea
   // Repaired before the comparison, not after: an older record of *this* puzzle keyed by band
   // index would not match the key this round produces, and the round would be filed twice.
   const records = loadStats(manifest);
-  if (records.some((one) => one.key === record.key)) return false;
+  // **And compared with the pair either way round**, because a puzzle is undirected and which
+  // end the builder writes as `source` is a finding of its rules: a rebuild can flip it while
+  // the puzzle's address, being a digest of the sorted pair, does not change. Compared
+  // directionally, that board stops being recognised and replaying it files a second record —
+  // and then every figure on the screen counts the round twice, for ever.
+  if (records.some((one) => samePuzzle(one.key, record.key))) return false;
   replaceStats([...records, record]);
   return true;
 }
