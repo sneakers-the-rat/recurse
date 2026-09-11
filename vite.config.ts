@@ -138,8 +138,43 @@ export default defineConfig(({ command }) => ({
   // DOM. What the components do is checked by Playwright in a real browser, which
   // is the only place a force layout means anything, so there is nothing here for
   // jsdom to do.
+  //
+  /**
+   * **Two groups, because they want different amounts of time.**
+   *
+   * Almost every test here answers a fixed question about a fixed board and is done in a
+   * millisecond, and vitest's five-second default is a real instrument on those: a test that
+   * suddenly takes five seconds has broken. The fuzz is the other kind — it walks real boards
+   * of both games with a simulated player, which is seconds at its default width and the best
+   * part of a minute at `RECURSE_FUZZ=200`, the width to use after touching the format.
+   *
+   * Raising the timeout globally to suit the slowest test would have retired it for all the
+   * others, so the split is by file: `*.fuzz.test.ts` is its own project with its own timeout.
+   * `npm test` runs both — the group is about how long a test may take, not about whether it
+   * is run.
+   */
   test: {
-    environment: 'node',
-    include: ['src/**/*.test.ts'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          environment: 'node',
+          include: ['src/**/*.test.ts'],
+          exclude: ['src/**/*.fuzz.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'fuzz',
+          environment: 'node',
+          include: ['src/**/*.fuzz.test.ts'],
+          // Generous rather than absent: a sweep that has genuinely hung should still fail
+          // rather than sit there, and the widest run anybody asks for is well inside this.
+          testTimeout: 600_000,
+        },
+      },
+    ],
   },
 }));

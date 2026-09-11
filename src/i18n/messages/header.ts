@@ -62,26 +62,40 @@ export const header = defineMessages({
     description: 'Link that opens the rules dialog.',
   },
 
+  /*
+    The tally, as a table: a row is a label and a number, so each of these names a *column
+    entry* and never the figure beside it. That is what lets the values line up on their own
+    edge — see the tally in Header.tsx. Written as plurals where English has one, because the
+    label sits beside the count and "1 hints" is what a table that ignores agreement reads like.
+  */
   par: {
     id: 'header.par',
-    defaultMessage: 'par: {count, plural, one {# move} other {# moves}}',
-    description: 'The shortest route through ordinary words: what the player is measured against.',
+    defaultMessage: 'par',
+    description:
+      'Labels the shortest route through ordinary words — what the player is measured against. The figure beside it is a number of moves.',
   },
   shortcuts: {
     id: 'header.shortcuts',
-    defaultMessage: '{count, plural, one {# shortcut} other {# shortcuts}}',
+    defaultMessage: '{count, plural, one {shortcut} other {shortcuts}}',
     description:
-      'How many ways through are shorter than par. Said out loud from the start: that a shortcut exists is the hook, which words it runs through is the puzzle. Never shown at zero.',
+      'Labels how many ways through are shorter than par. Said out loud from the start: that a shortcut exists is the hook, which words it runs through is the puzzle. The row is absent at zero.',
   },
   guesses: {
     id: 'header.guesses',
-    defaultMessage: '{count, plural, =0 {no guesses yet} other {# guessed}}',
-    description: 'Guesses made so far, beside par.',
+    defaultMessage: 'guessed',
+    description:
+      'Labels the guesses made so far. A past participle rather than a noun, so it does not need agreement: "guessed 1", "guessed 12".',
   },
   hints: {
     id: 'header.hints',
-    defaultMessage: '{count, plural, one {# hint} other {# hints}}',
+    defaultMessage: '{count, plural, one {hint} other {hints}}',
     description:
-      'Hints asked for. Only shown once any have been: a nought here would read as a score to protect.',
+      'Labels the hints asked for. The row is absent until any have been: a nought here would read as a score to protect, and hints are not something to be stingy with.',
+  },
+  shareBoard: {
+    id: 'header.shareBoard',
+    defaultMessage: 'Share',
+    description:
+      'Puts a link to the board as it stands on the clipboard, part-played or finished. Beside the day rather than in the menu, because it is a thing done to this board and the menu holds ways off it.',
   },
 });

@@ -19,6 +19,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { say } from './i18n/format';
 import { board as boardSays } from './i18n/messages/board';
 import { dev as devSays } from './i18n/messages/dev';
+import { round as roundSays } from './i18n/messages/round';
 import { boardName } from './i18n/bands';
 import { Result, Round } from './components/Completed';
 import { Opening } from './components/Opening';
@@ -30,6 +31,7 @@ import { HowTo } from './components/HowTo';
 import { Puzzles } from './components/Puzzles';
 import { ResetView } from './components/ResetView';
 import { ModeRules, hasModeRules } from './components/ModeRules';
+import { SharedBoard } from './components/SharedBoard';
 import { Stats } from './components/Stats';
 import { Toast } from './components/Toast';
 import { Tutorial } from './components/Tutorial';
@@ -41,15 +43,14 @@ import {
   applyGuess,
   guessedWords,
   hintCount,
+  moveKey,
   newGame,
   restore,
-  select,
   snapshot,
-  useHint,
-  useMoveHint,
   worthKeeping,
   type GameState,
 } from './lib/game';
+import { act, type World } from './lib/actions';
 import { PLAIN } from './lib/lexicon';
 import {
   BANDS,
@@ -81,8 +82,10 @@ import {
   pagePath,
   pathFor,
   shareUrl,
+  stateFromPath,
   type Page,
 } from './lib/route';
+import { decodeBoard, encodeBoard, explain, type Reading } from './lib/boardCode';
 import { markGuesses, shareText } from './lib/share';
 import {
   addCompletion,
@@ -477,6 +480,16 @@ export default function App() {
   const isWord = data ? data.graph.isWord : null;
 
   /**
+   * The round a link carried, when it carried one: somebody else's board rather than this
+   * player's own progress on it.
+   *
+   * The code itself, because it is also what the address has to keep saying while that board
+   * is up. Null the rest of the time, which is every board opened by playing. See `show`,
+   * and boardCode.ts for what one holds.
+   */
+  const [shared, setShared] = useState<string | null>(null);
+
+  /**
    * Open a board, and make the URL say which one.
    *
    * Every arrival goes through here, so the address bar always holds the puzzle's
@@ -494,9 +507,21 @@ export default function App() {
    * three other differences are all consequences of it being a lesson rather than a round:
    * it always starts from the beginning, it leaves nothing behind, and it does not change
    * which length a bare visit opens.
+   *
+   * **`code` is a round somebody sent, and a board opened with one is theirs rather than this
+   * player's.** So it stands in for the stored game instead of merging with it, it stays in
+   * the address — the URL still names what is on screen — and everything that writes a round
+   * down stands aside: see the save effect, the completion effect, and `frozen`. A code that
+   * will not decode is treated as no code at all, because the puzzle is still there to be
+   * played and refusing to draw a perfectly good board is the worse answer.
    */
   const show = useCallback(
-    (chosen: DailyPuzzle, how: 'push' | 'replace', mode: 'play' | 'tutorial' = 'play') => {
+    (
+      chosen: DailyPuzzle,
+      how: 'push' | 'replace',
+      mode: 'play' | 'tutorial' = 'play',
+      code?: string | undefined,
+    ) => {
       const teaching = mode === 'tutorial';
       // Putting a board up takes any page down: they are separate paths and only one can be
       // the URL.
@@ -525,12 +550,19 @@ export default function App() {
       // so restoring one has to know how a token is written. `showBoard` has already loaded
       // the right mode by the time this runs, so this is that board's own lexicon.
       const spellNow = dataRef.current?.lexicon.label ?? PLAIN.label;
+      // And the graph, because a code names words by their place in the puzzle or in the
+      // dictionary and has to be read against the same graph the board is drawn on.
+      const sent =
+        code && !teaching && dataRef.current
+          ? decodeBoard(code, chosen.puzzle, dataRef.current.graph)
+          : null;
+      setShared(sent && code ? code : null);
       setState(
         teaching
           ? restore(chosen.puzzle, loadTutorial(chosen.puzzle.id)?.game ?? null, spellNow)
           : restore(
               chosen.puzzle,
-              manifest ? loadGame(gameKey(chosen.puzzle, manifest)) : null,
+              sent ?? (manifest ? loadGame(gameKey(chosen.puzzle, manifest)) : null),
               spellNow,
             ),
       );
@@ -538,7 +570,7 @@ export default function App() {
       // The query string is carried over, because `?dev` has to survive a step.
       const url = teaching
         ? pagePath('tutorial', window.location.search)
-        : pathFor(chosen.puzzle.id, window.location.search);
+        : pathFor(chosen.puzzle.id, window.location.search, undefined, sent ? code : undefined);
       if (how === 'push') window.history.pushState(null, '', url);
       else window.history.replaceState(null, '', url);
     },
@@ -558,17 +590,58 @@ export default function App() {
    * the same game costs nothing after the first time.
    */
   const showBoard = useCallback(
-    async (chosen: DailyPuzzle, how: 'push' | 'replace', as: 'play' | 'tutorial' = 'play') => {
+    async (
+      chosen: DailyPuzzle,
+      how: 'push' | 'replace',
+      as: 'play' | 'tutorial' = 'play',
+      code?: string | undefined,
+    ) => {
       const loaded = dataRef.current;
       if (!loaded) return;
       const wanted = modeOfBand(chosen.puzzle.band, loaded.manifest);
       if (wanted !== loaded.mode) {
         holdData({ ...loaded, ...(await loadMode(wanted, loaded.manifest)) });
       }
-      show(chosen, how, as);
+      show(chosen, how, as, code);
     },
     [show, holdData],
   );
+
+  /**
+   * The round a path carries, and only for the board that path actually names.
+   *
+   * The two are one question: a code is written against one puzzle's own words, so reading a
+   * link's code onto the board it fell back to — today's, when the id is from before a rebuild
+   * — would draw somebody else's guesses as moves between words they never touched. An id that
+   * did not resolve is a link with nothing left in it.
+   */
+  const codeForBoard = useCallback(
+    (chosen: DailyPuzzle, path: string): string | undefined =>
+      idFromPath(path) === chosen.puzzle.id ? (stateFromPath(path) ?? undefined) : undefined,
+    [],
+  );
+
+  /**
+   * Take a shared board over and play it as your own.
+   *
+   * Which means throwing away what was on screen: the visitor's own game on this puzzle is
+   * whatever they had left there, and that is what comes back — not the sharer's guesses
+   * carried on from. Merging the two is the one thing this must never do, because half of
+   * each is a round nobody played, and because a link that quietly overwrote somebody's own
+   * half-finished board would make opening a friend's score a thing to be careful about.
+   *
+   * Pushed rather than replaced, so back goes to the board that was sent. The address is the
+   * whole of what a shared board is, so dropping the code *is* taking it over.
+   */
+  const takeOver = useCallback(() => {
+    const puzzle = state?.puzzle;
+    if (!puzzle) return;
+    const manifest = dataRef.current?.manifest;
+    setShared(null);
+    setState(restore(puzzle, manifest ? loadGame(gameKey(puzzle, manifest)) : null, spell));
+    setError(null);
+    window.history.pushState(null, '', pathFor(puzzle.id, window.location.search));
+  }, [state?.puzzle, spell]);
 
   /**
    * The walkthrough, which is one particular board out of the bank with a lesson over it.
@@ -701,7 +774,9 @@ export default function App() {
           setLoadError(intl.formatMessage(devSays.outOfStep));
           return;
         }
-        await showBoard(chosen, 'replace');
+        // With whatever round the link carried, which is what makes a shared board open as
+        // the board somebody sent rather than as an empty one.
+        await showBoard(chosen, 'replace', 'play', codeForBoard(chosen, window.location.pathname));
         if (arrived) {
           // The mode goes back into the address for the one page that has one, or arriving at
           // `rules/phonemes` would rewrite itself to a bare `rules` and lose which game.
@@ -715,7 +790,7 @@ export default function App() {
         }
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)));
-  }, [showBoard, boardForPath, holdData]);
+  }, [showBoard, boardForPath, codeForBoard, holdData]);
 
   /**
    * The back button, which moves between boards rather than out of the game.
@@ -745,13 +820,16 @@ export default function App() {
         return;
       }
       setPage(null);
-      void boardForPath(data, window.location.pathname, band).then((chosen) => {
-        if (chosen) void showBoard(chosen, 'replace');
+      const path = window.location.pathname;
+      void boardForPath(data, path, band).then((chosen) => {
+        // The code as well as the id, so stepping back onto a shared board puts that round
+        // back up rather than the recipient's own empty board at the same address.
+        if (chosen) void showBoard(chosen, 'replace', 'play', codeForBoard(chosen, path));
       });
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [data, showBoard, boardForPath, band, openTutorial]);
+  }, [data, showBoard, boardForPath, codeForBoard, band, openTutorial]);
 
   /**
    * Found words whose onward routes have been worked out.
@@ -1107,27 +1185,51 @@ export default function App() {
    * board redraws on every frame of a settle, and that used to take the header, the
    * guess bar and its readout with it.
    */
+  /**
+   * The world a command is done in: the graph, the alphabet, and what the board is drawing.
+   *
+   * `drawn` is in it because a guess that names several nodes has to land on the one the player
+   * has already met rather than on one it has just invented — which is a question about the
+   * figure. See `landing` in game.ts.
+   */
+  const world: World | null = useMemo(
+    () => (data ? { graph: data.graph, lexicon: data.lexicon, drawn } : null),
+    [data, drawn],
+  );
+
+  /**
+   * Do something to the board.
+   *
+   * **Every one of these is a `Command`**, which is the same vocabulary a shared link is
+   * written in and the same one the fuzz plays with — see lib/actions.ts. So a thing a player
+   * clicks, a thing the game records and a thing a code holds are three names for one list,
+   * and a test can walk a board without a second implementation of what the buttons do.
+   *
+   * What stays here is the part that is about the screen rather than the game: which sentence
+   * to show, where to point the camera, what to say no to.
+   */
   const handleGuess = useCallback(
     (raw: string) => {
-      if (!data || !state) return;
-      // The board as it stands, so a guess that names several nodes lands on the one the
-      // player has already met rather than on one it has just invented. See `landing`.
-      const outcome = applyGuess(state, data.graph, raw, isWord, data.lexicon, drawn);
-      setState(outcome.state);
+      if (!world || !state) return;
+      const done = act(state, world, { do: 'guess', typed: raw });
+      setState(done.state);
       // The judge names the message; saying it is this layer's job, because this is the
       // first layer that knows what language the player reads. See `Phrase`.
-      setError(outcome.kind === 'rejected' ? say(intl, outcome.judgement.reason) : null);
+      setError(done.judgement ? say(intl, done.judgement.reason) : null);
       // A refused guess moved nobody, so there is nothing to follow. Anything else left the
       // player standing on the word it named — including a move back onto a word they
       // already had, which is navigation and every bit as much a reason to look there.
-      if (outcome.kind !== 'rejected') setFollow({ word: outcome.word, centre: narrow });
+      if (done.landed !== undefined) setFollow({ word: done.landed, centre: narrow });
     },
-    [data, state, isWord, narrow, intl, drawn],
+    [world, state, narrow, intl],
   );
 
-  const selectWord = useCallback((word: string) => {
-    setState((s) => (s ? select(s, word) : s));
-  }, []);
+  const selectWord = useCallback(
+    (word: string) => {
+      setState((s) => (s && world ? act(s, world, { do: 'stand', word }).state : s));
+    },
+    [world],
+  );
 
   /**
    * A hint on a word only the shortcut draws, refused.
@@ -1169,6 +1271,10 @@ export default function App() {
    */
   const hintWord = useCallback(
     (word: string) => {
+      // Not on somebody else's board. A hint would put a letter on a word they never bought
+      // and a click on the tally in the header, which is *their* score — the one thing the
+      // page is showing. See `frozen`.
+      if (shared !== null) return;
       if (secretOnly?.has(word)) {
         setRefusal({ word });
         setToast(intl.formatMessage(boardSays.noHintOnShortcut));
@@ -1187,15 +1293,25 @@ export default function App() {
               Number(plate.routeNodes.has(y)) - Number(plate.routeNodes.has(x)) ||
               x.localeCompare(y),
           );
-        setState((s) => (s ? useMoveHint(s, word, near) : s));
+        // **Which edge, not "the next one"**: a command says what it did, because that is what
+        // gets written down and read back out of a link. So the board picks the edge and the
+        // game buys the one it was handed. See `Command` in lib/actions.ts.
+        const to = near.find(
+          (other) =>
+            !state?.edgeHints.has(moveKey(word, other)) &&
+            !state?.edgeHints.has(moveKey(other, word)),
+        );
+        if (to !== undefined) {
+          setState((s) => (s && world ? act(s, world, { do: 'mark', word, to }).state : s));
+        }
         return;
       }
-      // `lexicon.label`, because a hint is counted in *letters* — see `Spell` in game.ts.
-      // Capped on the token instead, a long word said in few sounds would stop selling
-      // letters half way through and a short one would charge for clicks that showed nothing.
-      setState((s) => (s ? useHint(s, word, spell) : s));
+      // A hint is counted in *letters* — see `Spell` in game.ts — and `act` reaches for the
+      // lexicon for that. Capped on the token instead, a long word said in few sounds would
+      // stop selling letters half way through and a short one would charge for nothing.
+      setState((s) => (s && world ? act(s, world, { do: 'hint', word }).state : s));
     },
-    [secretOnly, plate, intl, spell],
+    [secretOnly, plate, intl, world, state, shared],
   );
 
   // Both go away on their own: the cross is over in under a second, the toast is read in two.
@@ -1232,11 +1348,16 @@ export default function App() {
    * puzzle somebody may want to play properly one day, and writing the walkthrough's moves
    * into its slot would hand them a board already three quarters solved. The store is keyed
    * by word pair, so there is nowhere else to put it.
+   *
+   * **Nor is somebody else's board**, and for exactly the same reason with a sharper edge:
+   * the store is keyed by word pair, so writing a shared round down would overwrite the
+   * visitor's own progress on that puzzle with a stranger's — and hand them the answer to a
+   * board they may not have played yet. Opening a link is not playing.
    */
   useEffect(() => {
-    if (!state || !data || page === 'tutorial') return;
+    if (!state || !data || page === 'tutorial' || shared !== null) return;
     saveGame(gameKey(state.puzzle, data.manifest), worthKeeping(state) ? snapshot(state) : null);
-  }, [state, data, page]);
+  }, [state, data, page, shared]);
 
   /**
    * One day of one length, whichever shard it is in.
@@ -1265,7 +1386,7 @@ export default function App() {
   );
 
   /**
-   * Dev only: step the calendar, the order the survey lists and the game plays. The
+   * Dev only: step the calendar, the order the game plays. The
    * URL that results is still the puzzle's id — the day is how dev mode moves, never
    * how a board is addressed.
    *
@@ -1389,7 +1510,10 @@ export default function App() {
    */
   const [others, setOthers] = useState<{ band: number; name: string; guesses: number }[]>([]);
   useEffect(() => {
-    if (!data || !state?.solved || !at) {
+    // Not on somebody else's board. The nudge is about the visitor's own day and this round
+    // is not theirs, so the invitation that belongs here is the one `SharedBoard` makes —
+    // and six lengths listed above the figure is most of the plate on a phone.
+    if (!data || !state?.solved || !at || shared !== null) {
       setOthers([]);
       return;
     }
@@ -1426,7 +1550,7 @@ export default function App() {
     return () => {
       live = false;
     };
-  }, [data, state?.solved, at, band, intl]);
+  }, [data, state?.solved, at, band, intl, shared]);
 
   /**
    * Dev helper: name every word on the board at once.
@@ -1441,6 +1565,88 @@ export default function App() {
   const nameAll = useCallback(() => {
     if (plate) setSpelled(new Set(plate.nodes));
   }, [plate]);
+
+  /**
+   * A link to the board on screen — the puzzle alone, or the round with it.
+   *
+   * The one place either kind of link is built, because the difference between them is exactly
+   * one argument and having two call sites spell it out is how they come to disagree. Three
+   * things want one: the header's share button, and the result box's two copy buttons.
+   *
+   * `carrying` is what makes it somebody's board rather than a puzzle: see boardCode.ts. A
+   * part-played round encodes as readily as a finished one — nothing in the format cares
+   * whether the two ends have met — which is what lets the header offer this at any point.
+   */
+  const boardLink = useCallback(
+    (carrying: boolean): string | null => {
+      if (!state || !data) return null;
+      return shareUrl(
+        state.puzzle.id,
+        window.location.origin,
+        undefined,
+        carrying ? encodeBoard(snapshot(state), state.puzzle, data.graph) : undefined,
+      );
+    },
+    [state, data],
+  );
+
+  /**
+   * Dev only: take a shared board's code apart, against the board on screen.
+   *
+   * Here rather than in the bar because what a code says is a question about *this puzzle and
+   * this graph* — the same characters read against another board are a different round or no
+   * round at all — and neither of those belongs in the chrome. `explain` does the reading; the
+   * bar draws what comes back. See `ReadCode` in DevBar, and boardCode.ts for why an annotated
+   * dump is the only readable form a bit-packed format has.
+   */
+  const readCode = useCallback(
+    async (input: string): Promise<Reading | null> => {
+      if (!state || !data) return null;
+      /*
+        What was pasted, which is one of three things and all three are worth taking: a bare
+        code, `{id}/{code}`, or a whole URL with either on the end of it. Splitting on `/` and
+        reading the last two segments covers the lot — the code is always last, and the segment
+        before it is an id or it is not.
+
+        **An id means read against *that* board.** That is the difference between an inspector
+        and a toy: the code somebody sends is for their puzzle, and asking the reader to first
+        navigate to it — by an id, which is the one thing the archive cannot look up — made the
+        commonest input the one thing this refused.
+      */
+      const parts = input.trim().split('/').filter(Boolean);
+      const code = parts.at(-1) ?? '';
+      const named = (parts.length > 1 ? (parts.at(-2) ?? '') : '').toLowerCase();
+      const id = idFromPath(`/${named}`, '/');
+      if (id === null || id === state.puzzle.id) return explain(code, state.puzzle, data.graph);
+
+      const chosen = puzzleById(await loadShard(shardOf(id), data.manifest.version), id);
+      if (!chosen) return null;
+      // And against that board's own graph, which is a different one when the code is from the
+      // other game. Fetched without being installed: the board on screen is not being left.
+      const mode = modeOfBand(chosen.puzzle.band, data.manifest);
+      const graph = mode === data.mode ? data.graph : (await loadMode(mode, data.manifest)).graph;
+      return explain(code, chosen.puzzle, graph);
+    },
+    [state, data],
+  );
+
+  /**
+   * Hand this board on, from the masthead, at any point in a round.
+   *
+   * The receipt is a toast rather than a word on the button, which is what the result box
+   * does: that button is inside a panel the player is already reading, and this one is in a
+   * line of chrome they are not — a label that changed to "Copied" up there would be a change
+   * nobody was looking at. The toast is also the only way to say the clipboard refused, there
+   * being nothing on screen to fall back to selecting.
+   */
+  const shareBoard = useCallback(() => {
+    const url = boardLink(true);
+    if (url === null) return;
+    void navigator.clipboard.writeText(url).then(
+      () => setToast(intl.formatMessage(roundSays.linkCopied)),
+      () => setToast(intl.formatMessage(roundSays.linkBlocked)),
+    );
+  }, [boardLink, intl]);
 
   /**
    * The finished round, as something to paste.
@@ -1474,23 +1680,36 @@ export default function App() {
       starred,
     );
     const date = dateForDay(at.day);
-    const url = shareUrl(state.puzzle.id, window.location.origin);
+    const said = {
+      day: at.day,
+      band: boardName(intl, state.puzzle.band, data.manifest),
+      date,
+      guesses: state.guesses,
+      par: state.puzzle.par,
+      hints: hintCount(state),
+      marks,
+    };
     return {
       day: at.day,
       date,
       marks,
-      text: shareText(intl, {
-        day: at.day,
-        band: boardName(intl, state.puzzle.band, data.manifest),
-        date,
-        guesses: state.guesses,
-        par: state.puzzle.par,
-        hints: hintCount(state),
-        marks,
-        url,
-      }),
+      /*
+        Two texts, differing in one line, because they are for two different things.
+
+        `text` ends at the puzzle: four lines that name no word and a link to the board with
+        nobody's round on it, which is the thing that can be posted where people have not
+        played today yet.
+
+        `withBoard` ends at the round: the same four lines over a link that carries what
+        happened, so what somebody opens is the figure rather than a description of it — which
+        is the whole reason any of this exists, people having been sending each other
+        photographs. That one is a solved board and is for handing to a person, not for
+        posting. See boardCode.ts, and `frozen` for what opening one does.
+      */
+      text: shareText(intl, { ...said, url: boardLink(false)! }),
+      withBoard: shareText(intl, { ...said, url: boardLink(true)! }),
     };
-  }, [data, state, at, shortcut, intl]);
+  }, [data, state, at, shortcut, intl, boardLink]);
 
   /**
    * Boards this session has seen unfinished, and boards dev mode finished for us.
@@ -1505,10 +1724,12 @@ export default function App() {
   const devSolved = useRef(new Set<string>());
 
   useEffect(() => {
-    if (state && data && !state.solved) {
+    // A shared board is not a board this player has been sitting in front of, finished or
+    // not, so it says nothing about whether a later round of theirs was backfilled.
+    if (state && data && !state.solved && shared === null) {
       seenUnfinished.current.add(gameKey(state.puzzle, data.manifest));
     }
-  }, [state, data]);
+  }, [state, data, shared]);
 
   /**
    * Write a finished round down.
@@ -1531,8 +1752,9 @@ export default function App() {
     if (!data || !state?.solved || !result || !at) return;
     // Walking a board because a lesson told you to is not solving it, in exactly the way
     // dev mode's solve button is not — so the tutorial is kept out of the history for the
-    // same reason and by the same rule.
-    if (page === 'tutorial') return;
+    // same reason and by the same rule. Reading somebody else's solved board is not solving
+    // it either, and that one would file a round the visitor never played at all.
+    if (page === 'tutorial' || shared !== null) return;
     const key = gameKey(state.puzzle, data.manifest);
     if (devSolved.current.has(key)) return;
     const written = addCompletion(
@@ -1548,7 +1770,7 @@ export default function App() {
       data.manifest,
     );
     if (written) setHistoryAt((count) => count + 1);
-  }, [data, state, result, at, page]);
+  }, [data, state, result, at, page, shared]);
 
   /**
    * The game, as the tutorial's questions get to see it.
@@ -1690,6 +1912,17 @@ export default function App() {
   const finished = state.solved && result !== null;
   const beatPar = state.solved && state.guesses < state.puzzle.par;
 
+  /**
+   * Somebody else's board, which is read rather than played.
+   *
+   * There is no guess bar and no hint to buy, because both would write on a round that is
+   * not this player's: the header's tallies are the sharer's score, and a visitor's guess
+   * added to them would make the figure a thing neither of them did. Panning, zooming and
+   * tapping a word are all still there — looking at a board is the whole point of being sent
+   * one. `takeOver` is the way out, and it is the only one.
+   */
+  const frozen = shared !== null;
+
   return (
     /**
      * One screen, and then the page.
@@ -1719,6 +1952,7 @@ export default function App() {
             pairs={pairs}
             onNeedPairs={needPairs}
             onOpenId={openById}
+            onReadCode={readCode}
             guesses={state.guesses}
             onGo={goToPuzzle}
             onSolve={solveIt}
@@ -1751,11 +1985,21 @@ export default function App() {
           quiet={opening !== null}
           finished={finished}
           beatPar={beatPar}
+          // Not on somebody else's board: the round up there is theirs, and `SharedBoard`
+          // already offers the one thing there is to do with it. See `frozen`.
+          onShare={frozen ? undefined : shareBoard}
           onHelp={openHelp}
           onPuzzles={openArchive}
           onStats={openStats}
           onTutorial={goTutorial}
         />
+
+        {/*
+          Whose board this is, when it is not the player's own. Above the result, because it
+          is what the result underneath it has to be read as: "Perfect" is a verdict on the
+          round somebody sent, not on anything that happened here.
+        */}
+        {frozen && <SharedBoard onPlay={takeOver} />}
 
         {/* Above the board, so finishing is unmissable and the figure is untouched. */}
         {finished && result && (
@@ -1763,6 +2007,7 @@ export default function App() {
             state={state}
             marks={result.marks}
             text={result.text}
+            withBoard={result.withBoard}
             others={others}
             onBand={(next) => openDay(at.day, next)}
           />
@@ -1823,7 +2068,7 @@ export default function App() {
           )}
         </main>
 
-        {!finished && (
+        {!finished && !frozen && (
           <GuessBar
             from={state.selected}
             graph={data.graph}

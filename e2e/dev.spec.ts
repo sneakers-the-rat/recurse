@@ -3,7 +3,10 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { board, gameData, inShot, result, today } from './fixtures';
+
+/** Chromium will only let the page read its own clipboard with these granted. */
+test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+import { board, gameData, inShot, puzzleWithPar, result, today } from './fixtures';
 
 test('steps through the bank', async ({ page }) => {
   // What the bar counts is the *calendar*, so it says which day this is and not where the
@@ -90,3 +93,71 @@ for (const i of [0, 1, 2, 5]) {
     await page.screenshot({ path: `e2e/shots/board-${i}.png` });
   });
 }
+
+/**
+ * The code inspector: a shared board's code, taken apart against the board on screen.
+ *
+ * The one thing about the format that cannot be checked by reading the source, because what a
+ * code says is a fact about a real bank — `explain` reads the actual characters, and this is
+ * that reading reaching a screen. `boardCode.test.ts` covers what the reading *is*; this covers
+ * that the bar can be handed a code and will show it.
+ *
+ * The whole URL is pasted, not the bare code, because that is what anybody actually has to
+ * hand — an address bar or a message from a friend.
+ */
+test('takes a shared board’s code apart', async ({ page }) => {
+  const { puzzle, path } = puzzleWithPar(4);
+  await page.goto(board(puzzle, '?dev'));
+  await expect(page.locator('main svg circle').first()).toBeVisible();
+  for (const word of path.slice(1)) {
+    await page.getByLabel(/Your guess/).fill(word);
+    await page.getByRole('button', { name: 'Guess', exact: true }).click();
+  }
+
+  await page.getByRole('button', { name: 'Copy with board' }).click();
+  const link = (await page.evaluate(() => navigator.clipboard.readText())).trim().split('\n').at(-1)!;
+
+  await page.getByRole('textbox', { name: 'A board code to read' }).fill(link);
+  // The button and not Enter: `Key` is `type="button"` by design, so a submit-only reader
+  // left the button dead — which is how this got here.
+  await page.getByRole('button', { name: 'read' }).click();
+
+  // Where the length goes, what it says, and the dump. The first is the reason it exists.
+  await expect(page.getByText('Where the length goes')).toBeVisible();
+  await expect(page.getByText('What it says')).toBeVisible();
+  await expect(page.getByText('Field by field')).toBeVisible();
+  // A guess is a position in the list of moves from where the player stood — the claim the
+  // whole format rests on, said here in words.
+  await expect(page.getByText(/moves from/).first()).toBeVisible();
+  await page.screenshot({ path: 'e2e/shots/dev-code.png' });
+
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByText('Where the length goes')).toHaveCount(0);
+});
+
+/**
+ * A code that cannot be read says so.
+ *
+ * **Cut short, because that is the refusal the format guarantees.** A code ends in a terminator,
+ * so a paste missing its tail is refused outright. There is no checksum, so a *whole* code from
+ * another board is as likely to decode into some other legal round as to be turned down —
+ * asserting that would be asserting a coin flip. Given the id as well, none of it arises: the
+ * inspector fetches that board and reads the code against it, which is the case above.
+ */
+test('says so when a code cannot be read', async ({ page }) => {
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev'));
+  await expect(page.locator('main svg circle').first()).toBeVisible();
+  for (const word of path.slice(1)) {
+    await page.getByLabel(/Your guess/).fill(word);
+    await page.getByRole('button', { name: 'Guess', exact: true }).click();
+  }
+  await page.getByRole('button', { name: 'Copy with board' }).click();
+  const link = (await page.evaluate(() => navigator.clipboard.readText())).trim().split('\n').at(-1)!;
+  const code = new URL(link).pathname.split('/').filter(Boolean).at(-1)!;
+
+  // Its own code, one character short: the terminator is gone, so there is no whole round in it.
+  await page.getByRole('textbox', { name: 'A board code to read' }).fill(code.slice(0, -1));
+  await page.getByRole('button', { name: 'read' }).click();
+  await expect(page.getByText(/Nothing read/)).toBeVisible();
+});

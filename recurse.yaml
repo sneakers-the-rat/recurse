@@ -52,6 +52,32 @@ shared:
   # terms.
   minGap: 45
 
+  # The corpora this bank was built from, each by a digest of its own bytes.
+  #
+  # **A tripwire, not a knob — and the outermost one in the file.** None of these files is a
+  # version. The SCOWL tiers are generated on request by app.aspell.net, and the other two are
+  # the `master` branch of somebody else's repository; all three addresses serve whatever is
+  # current. They are downloaded once into a cache and then never re-fetched, so the machine
+  # that built the shipped bank goes on agreeing with itself indefinitely while a clean
+  # checkout — or CI, which has no cache at all — quietly gets today's.
+  #
+  # That is not a small difference. A word arriving or leaving changes the vocabulary, which
+  # changes every puzzle id in the mode, which invalidates every board link and every shared
+  # round anybody has posted. `vocab:` below would catch most of it, a mode at a time and
+  # without saying which file moved; `en_50k.txt` it would not catch at all, since frequency
+  # decides which end of a pair is the source without being part of any vocabulary.
+  #
+  # So the build refuses to disagree with these. To take a new corpus deliberately: paste the
+  # digest the build prints, and expect every `vocab:` in this file to move with it.
+  #
+  # Leave a name out and it is not checked; delete the block and nothing is pinned, which is
+  # what a first build wants.
+  sources:
+    scowl80.txt: b8849bb6
+    scowl35.txt: 7def7f16
+    en_50k.txt: '31819256'
+    cmudict.dict: 4cf72c4c
+
 # --- every knob a mode has --------------------------------------------------
 # A mode that says nothing gets exactly these.
 defaults:
@@ -155,6 +181,18 @@ defaults:
 modes:
   # The original game: words inside words, by spelling.
   - name: letters
+    # The digest of this game's vocabulary — its word list, its alphabet, and the two
+    # lengths that decide which runs inside a word count as moves.
+    #
+    # **A tripwire, not a knob.** Every puzzle id in this game is a digest of the game, its
+    # pair and this, because a shared board's code is a list of positions into the lists
+    # this pins — see tools/graphgen/src/id.rs. So changing the corpus, `minWord` or
+    # `minSub` renames every board in the game and invalidates every code anyone has ever
+    # shared of it, and the build refuses to do that quietly: it stops and says what the
+    # new digest is. Paste it here to accept.
+    #
+    # Delete the line and the build stops asking, which is what a first build wants.
+    vocab: 68336fe4
     # Every day offers one puzzle of each of these, and `bandCuts` is where they
     # divide: the last par of the first band, then of the second. The final band is
     # everything above.
@@ -199,11 +237,24 @@ modes:
   # phonemes is a long word. The knobs left at their defaults are deliberately
   # untuned — the taste pass comes after this mode can be played at all.
   - name: phonemes
+    # The digest of this game's vocabulary — its word list, its alphabet, and the two
+    # lengths that decide which runs inside a word count as moves.
+    #
+    # **A tripwire, not a knob.** Every puzzle id in this game is a digest of the game, its
+    # pair and this, because a shared board's code is a list of positions into the lists
+    # this pins — see tools/graphgen/src/id.rs. So changing the corpus, `minWord` or
+    # `minSub` renames every board in the game and invalidates every code anyone has ever
+    # shared of it, and the build refuses to do that quietly: it stops and says what the
+    # new digest is. Paste it here to accept.
+    #
+    # Delete the line and the build stops asking, which is what a first build wants.
+    vocab: f6fa701a
     alphabet: phonemes
     bands: [short, medium, long]
     bandCuts: [4, 6]
     minWord: 3
     minSub: 2
+    minInternal: 2
     # **Written in ordinary spelling, the same as every other mode's list.** A transcription is
     # what the diagnostics print and cannot be typed; `nodes_named` in select.rs is the one place
     # a spelling becomes graph nodes, and naming a word bans every way of saying it — `can` is

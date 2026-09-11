@@ -12,11 +12,11 @@
  */
 
 import { Fragment, memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { FormattedMessage, useIntl } from 'react-intl';
+import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
 import { bandName, boardName, gameName } from '../i18n/bands';
 import { header } from '../i18n/messages/header';
 import { rules as rulesSays } from '../i18n/messages/rules';
-import { Caret, Diamond, Dot, GameIcon, Query, Wordmark, hasGameIcon } from './marks';
+import { Caret, Diamond, GameIcon, Query, Wordmark, hasGameIcon } from './marks';
 
 interface Band {
   /** The flat identifier — `phonemes-long`. Not drawn; see `label`. */
@@ -292,6 +292,49 @@ function Menu({
   );
 }
 
+/** One row of the tally: what it is called, the number, and how to say the name. */
+interface Row {
+  /**
+   * A stable handle for the row, which is what a test asks for.
+   *
+   * The label is language and moves with the catalog; the figure beside it is the thing worth
+   * asserting on. `tally()` in e2e/fixtures.ts is the other half — before this, a spec read the
+   * whole header as one string and matched "1 guessed", which is a claim about the *phrasing*
+   * of a message and broke the moment the line became a table.
+   */
+  name: string;
+  label: MessageDescriptor;
+  /** For the label's own agreement, where its language has any: "1 hint", "2 hints". */
+  count: number;
+  value: number;
+  /** Ink for the figure, where it is saying something. Bone unless given. */
+  tone?: string;
+}
+
+/**
+ * One column of the tally: labels down the left edge, figures down the right.
+ *
+ * A definition list because that is what it is — each row is a term and its value — and the
+ * pairs are wrapped in a `div` apiece, which is the one way HTML allows a `dl` to be laid out
+ * in rows without the grouping being a lie about the markup.
+ */
+function Tally({ rows }: { rows: readonly Row[] }) {
+  return (
+    <dl className="flex flex-col gap-y-0.5">
+      {rows.map((row) => (
+        <div key={row.name} className="flex items-baseline justify-between gap-x-4">
+          <dt className="text-ash-lit">
+            <FormattedMessage {...row.label} values={{ count: row.count }} />
+          </dt>
+          <dd data-tally={row.name} className={`tabular-nums ${row.tone ?? 'text-bone'}`}>
+            {row.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 interface Props {
   source: string;
   target: string;
@@ -343,6 +386,21 @@ interface Props {
   finished?: boolean;
   /** And they beat par, which is the one outcome louder than finishing. */
   beatPar?: boolean;
+  /**
+   * Put a link to this board, as it stands, on the clipboard — or absent, and then no button.
+   *
+   * **A thing done to this board, not a way off it**, so it lives in the tally: that row is
+   * what the board's state is said in, and a link that carries the state belongs beside the
+   * figures describing it. It is deliberately not among the four destinations, which fold into
+   * the hamburger on a phone — a share that costs opening a menu first is a share nobody makes.
+   *
+   * Absent on somebody else's board. The round on screen is not this player's to hand on, and
+   * `SharedBoard` already offers the one thing there is to do with it.
+   *
+   * Copying is App's, not this component's: the header renders, and where a receipt is said is
+   * a question about the screen rather than about the masthead. See `shareBoard` there.
+   */
+  onShare?: (() => void) | undefined;
   onHelp: () => void;
   /** To the archive of everything already played. See `Puzzles`. */
   onPuzzles: () => void;
@@ -369,6 +427,7 @@ export const Header = memo(function Header({
   quiet = false,
   finished = false,
   beatPar = false,
+  onShare,
   onHelp,
   onPuzzles,
   onStats,
@@ -522,27 +581,66 @@ export const Header = memo(function Header({
               </button>
             </p>
           )}
-          <p data-tour="tally" className="label mt-2.5">
-            <FormattedMessage {...header.par} values={{ count: par }} />
-            {shortcuts > 0 && (
-              <>
-                <Dot />
-                <span className="text-gilt-dim">
-                  <FormattedMessage {...header.shortcuts} values={{ count: shortcuts }} />
-                </span>
-              </>
+          {/*
+            The tally, as a table rather than a sentence.
+
+            Two kinds of number are being said and they are not the same kind: **the puzzle's
+            own figures** on the left, fixed before anybody arrived, and **the player's** in the
+            middle, which move with every guess. Run together on one line separated by dots they
+            read as one list of four, and the reader has to know which is which to make sense of
+            any of it. In columns the distinction is the layout's to carry.
+
+            Values on their own right edge, so the digits line up under each other and a score
+            can be read at a glance rather than found in a sentence. Labels stay left for the
+            same reason — the eye runs down the words on one edge and the figures on the other.
+
+            Sharing goes in a column of its own, which is the answer to it having sat in the
+            masthead line beside the length switch: this is the row about the state of the board,
+            and a link that carries the board is a thing to do with that state. It is narrow
+            because it is one control against two columns of figures.
+          */}
+          <div
+            data-tour="tally"
+            className="label mx-auto mt-2.5 flex max-w-md items-start justify-center gap-x-8 gap-y-1 text-left"
+          >
+            <Tally
+              rows={[
+                { name: 'par', label: header.par, count: par, value: par },
+                // The board's own promise, and the one figure here that is gilt: that a shorter
+                // way exists is the hook of the puzzle. Absent when there is none.
+                ...(shortcuts > 0
+                  ? [
+                      {
+                        name: 'shortcuts',
+                        label: header.shortcuts,
+                        count: shortcuts,
+                        value: shortcuts,
+                        tone: 'text-gilt-dim',
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+            <Tally
+              rows={[
+                { name: 'guessed', label: header.guesses, count: guesses, value: guesses },
+                // Only once any have been asked for: a nought here would read as a score to
+                // protect, and hints are not something to be stingy with.
+                ...(hints > 0
+                  ? [{ name: 'hints', label: header.hints, count: hints, value: hints }]
+                  : []),
+              ]}
+            />
+            {onShare && (
+              <button
+                type="button"
+                onClick={onShare}
+                className="label text-bone-dim hover:text-gilt shrink-0 underline decoration-dotted underline-offset-4 transition-colors"
+              >
+                <FormattedMessage {...header.shareBoard} />
+              </button>
             )}
-            <Dot />
-            <FormattedMessage {...header.guesses} values={{ count: guesses }} />
-            {/* Only once any have been asked for: a nought here would read as a
-                score to protect, and hints are not something to be stingy with. */}
-            {hints > 0 && (
-              <>
-                <Dot />
-                <FormattedMessage {...header.hints} values={{ count: hints }} />
-              </>
-            )}
-          </p>
+          </div>
         </div>
       </div>
     </header>

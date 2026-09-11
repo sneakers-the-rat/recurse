@@ -4,15 +4,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import {
-  board,
-  gameData,
-  inShot,
-  masthead,
-  puzzleWithPar,
-  puzzleWithSecret,
-  result,
-} from './fixtures';
+import { board, gameData, inShot, masthead, puzzleWithPar, puzzleWithSecret, result, tally } from './fixtures';
 
 async function guess(page: Page, word: string) {
   const input = page.getByLabel(/Your guess/);
@@ -26,7 +18,7 @@ test('solves a puzzle perfectly by walking a shortest path', async ({ page }) =>
 
   await expect(page.locator('header')).toContainText(puzzle.source);
   await expect(page.locator('header')).toContainText(puzzle.target);
-  await expect(page.locator('header')).toContainText('no guesses yet');
+  await expect(tally(page, 'guessed')).toHaveText('0');
 
   // The source is where guesses start from.
   await expect(page.getByLabel(/Your guess/)).toHaveAttribute(
@@ -182,7 +174,7 @@ test('typing goes to the guess box wherever focus is', async ({ page }) => {
 
   // And it is a real guess, not just text in a box.
   await page.getByRole('button', { name: 'Guess', exact: true }).click();
-  await expect(page.locator('header')).toContainText('1 guessed');
+  await expect(tally(page, 'guessed')).toHaveText('1');
 });
 
 test('typing does not hijack the other places text can go', async ({ page }) => {
@@ -209,11 +201,11 @@ test('a reload picks the game up where it was left', async ({ page }) => {
   await page.goto(board(puzzle, '?dev=0'));
 
   await guess(page, path[1]!);
-  await expect(page.locator('header')).toContainText('1 guessed');
+  await expect(tally(page, 'guessed')).toHaveText('1');
 
   await page.reload();
 
-  await expect(page.locator('header')).toContainText('1 guessed');
+  await expect(tally(page, 'guessed')).toHaveText('1');
   // The word is on the board, and the game still knows where the player stands.
   await expect(
     page.locator('main svg text', { hasText: new RegExp(`^${path[1]}$`) }).first(),
@@ -234,19 +226,19 @@ test('two puzzles keep their progress separately', async ({ page }) => {
 
   await page.goto(board(first.puzzle, '?dev=0'));
   await guess(page, first.path[1]!);
-  await expect(page.locator('header')).toContainText('1 guessed');
+  await expect(tally(page, 'guessed')).toHaveText('1');
 
   // Wander off to another board...
   await page.goto(board(second.puzzle, '?dev=0'));
-  await expect(page.locator('header')).toContainText('no guesses yet');
+  await expect(tally(page, 'guessed')).toHaveText('0');
   await guess(page, second.path[1]!);
   await guess(page, second.path[2]!);
-  await expect(page.locator('header')).toContainText('2 guessed');
+  await expect(tally(page, 'guessed')).toHaveText('2');
 
   // ...and back. Each board remembers its own.
   await page.goto(board(first.puzzle, '?dev=0'));
   await expect(page.locator('header')).toContainText(first.puzzle.source);
-  await expect(page.locator('header')).toContainText('1 guessed');
+  await expect(tally(page, 'guessed')).toHaveText('1');
 });
 
 test('beating par is a secret, not a mistake', async ({ page }) => {

@@ -62,6 +62,12 @@ Browser tests need `public/data/`. Screenshot-only specs are skipped unless `REC
 is set, and `src/lib/pivots.test.ts` unless `RECURSE_PIVOTS=1` is — both are instruments to be
 read rather than tests to pass.
 
+`npm test` runs two vitest groups. `unit` is everything else and keeps the five-second default,
+which is a real instrument on tests that answer in a millisecond. `fuzz` is `*.fuzz.test.ts` —
+rounds walked over real boards
+
+    RECURSE_FUZZ=200 npx vitest run --project=fuzz
+
 ## Data
 
 Every parameter is in `recurse.yaml`, which declares the **modes** — one game each, with its own
@@ -82,15 +88,13 @@ takes seconds for the rest.
 
 Outputs:
 
-    public/data/{mode}/dictionary.json   every legal word, in that mode's alphabet
-    public/data/{mode}/graph.json        the legal and common graphs, as neighbour rows
-    public/data/{mode}/common.json       which dictionary words are common
-    public/data/{mode}/lexicon.json      spellings and phonemes, for a translated alphabet
-    public/data/puzzles/                 the bank, one file per id prefix, and a manifest
-    tools/survey.txt                     the bank in readable form
+    public/data/{mode}/dictionary-{d}.json   every legal word, in that mode's alphabet
+    public/data/{mode}/graph-{d}.json        the legal and common graphs, as neighbour rows
+    public/data/{mode}/common-{d}.json       which dictionary words are common
+    public/data/{mode}/lexicon-{d}.json      spellings and phonemes, for a translated alphabet
+    public/data/puzzles/                     the bank, one file per id prefix, and a manifest
 
-The bank, the calendar and the shards are shared: every mode's puzzles live in one id space, and
-a board is addressed by its id whichever game it belongs to.
+`{d}` is a digest of those four files' bytes, because they are cached by name for good.
 
 ### graphgen
 

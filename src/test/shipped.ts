@@ -3,7 +3,7 @@
  *
  * Both the unit tests and the end-to-end fixtures need the board the app
  * actually draws, and the only way to be sure of that is to build it the way the
- * app does — same files, same decoder, `common.json` included. Each of them used
+ * app does — same files, same decoder, the common list included. Each of them used
  * to do it for itself, which is how one of them ended up testing a graph in which
  * every word counted as ordinary.
  *
@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import {
   decodeGameData,
   decodeShard,
+  modeFile,
   shardName,
   calendarName,
   idOnDay,
@@ -151,15 +152,17 @@ export function shippedData(band: number = DEFAULT_BAND): GameData {
     'utf8',
   );
   const mode = manifest.bands[band]?.mode ?? 0;
-  const dir = manifest.modes[mode]?.name ?? 'letters';
   const translated = manifest.modes[mode]?.alphabet !== 'letters';
+  // Named the way the app asks for them — the vocabulary digest is in the filename, because
+  // it is what the puzzle ids are taken over. See `modeFile`.
+  const file = (what: string) => modeFile(what, mode, manifest);
   const built = decodeGameData({
-    dictionary: read<RawDictionary>(join(dir, 'dictionary.json')),
-    graph: read<RawGraph>(join(dir, 'graph.json')),
+    dictionary: read<RawDictionary>(file('dictionary')),
+    graph: read<RawGraph>(file('graph')),
     manifest,
     mode,
-    common: read<RawCommon>(join(dir, 'common.json')),
-    lexicon: translated ? read<RawLexicon>(join(dir, 'lexicon.json')) : undefined,
+    common: read<RawCommon>(file('common')),
+    lexicon: translated ? read<RawLexicon>(file('lexicon')) : undefined,
     puzzles: decodeShard(shard),
   });
   cached.set(band, built);

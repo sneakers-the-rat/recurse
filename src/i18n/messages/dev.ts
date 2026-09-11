@@ -87,7 +87,7 @@ export const dev = defineMessages({
     description: 'On that button before the index has arrived.',
   },
 
-  id: { id: 'dev.id', defaultMessage: 'id', description: 'The board’s address, which the survey quotes.' },
+  id: { id: 'dev.id', defaultMessage: 'id', description: 'The board’s address, which is what a shared link carries.' },
   par: { id: 'dev.par', defaultMessage: 'par', description: 'The board’s par.' },
   routes: {
     id: 'dev.routes',
@@ -180,6 +180,65 @@ export const dev = defineMessages({
     defaultMessage: 'the puzzle data is out of step with the app: rebuild it',
     description:
       'Shown on that page when the data loaded but is a version this build cannot read.',
+  },
+
+  /* The code inspector: a shared board's code, taken apart. See `ReadCode` in DevBar. */
+  code: {
+    id: 'dev.code',
+    defaultMessage: 'id/code',
+    description:
+      'Placeholder in the field that takes a shared board to pieces. It accepts a bare code, an id and a code, or a whole URL — and the id is what lets a code from somebody else’s board be read without going there first.',
+  },
+  codeLabel: {
+    id: 'dev.codeLabel',
+    defaultMessage: 'A board code to read',
+    description: 'The accessible name of that field.',
+  },
+  readCode: {
+    id: 'dev.readCode',
+    defaultMessage: 'read',
+    description: 'The button that takes the pasted code apart.',
+  },
+  codeTitle: {
+    id: 'dev.codeTitle',
+    defaultMessage: '{chars} characters · {bits} bits',
+    description:
+      'Heads the inspector: how long the pasted code is, in the two units it is read in. Six bits a character.',
+  },
+  codeReading: {
+    id: 'dev.codeReading',
+    defaultMessage: 'Reading…',
+    description:
+      'Shown in the inspector while a pasted code is being resolved. A code naming another board has to fetch that board’s shard, and sometimes the other game’s graph, so this is a real wait rather than a flicker.',
+  },
+  codeRefused: {
+    id: 'dev.codeRefused',
+    defaultMessage:
+      'Nothing read. A bare code is read against the board on screen — put the puzzle id in front of it if it came from another. Failing that it is cut short, or from another build.',
+    description:
+      'Shown when a pasted code will not decode. A code is only meaningful against the puzzle it was written for, so the commonest cause is a code from another board pasted without its id — and that is what the sentence leads with.',
+  },
+  codeSpend: {
+    id: 'dev.codeSpend',
+    defaultMessage: 'Where the length goes',
+    description:
+      'Heads the summary: bits per kind of field, dearest first. The question anybody looking at a long code is actually asking.',
+  },
+  codeActions: {
+    id: 'dev.codeActions',
+    defaultMessage: 'What it says',
+    description: 'Heads the decoded round: the series of actions the code expands to.',
+  },
+  codeFields: {
+    id: 'dev.codeFields',
+    defaultMessage: 'Field by field',
+    description:
+      'Heads the annotated dump: every field of the code, its offset, its bits and what it names.',
+  },
+  closeCode: {
+    id: 'dev.closeCode',
+    defaultMessage: 'Close',
+    description: 'Shuts the inspector.',
   },
 });
 

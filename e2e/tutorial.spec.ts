@@ -21,7 +21,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { masthead } from './fixtures';
+import { masthead, tally } from './fixtures';
 
 const pathOf = (url: string) => new URL(url).pathname.replace(/^\//, '').split('?')[0];
 
@@ -77,7 +77,7 @@ test('a direct visit works, and the board under it is the real game', async ({ p
   await openLesson(page);
   await expect(page.getByLabel(/Your guess/)).toBeVisible();
   await expect(page.locator('[data-word]').first()).toBeVisible();
-  await expect(page.locator('header')).toContainText('par:');
+  await expect(tally(page, 'par')).toBeVisible();
 });
 
 test('the panel says which card and which beat', async ({ page }) => {

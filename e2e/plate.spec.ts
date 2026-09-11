@@ -7,7 +7,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { board, gameData, inShot, puzzleWithPar } from './fixtures';
+import { board, gameData, inShot, puzzleWithPar, tally } from './fixtures';
 import { buildPlate } from '../src/lib/plate';
 import { drawOptions } from '../src/test/shipped';
 
@@ -460,7 +460,7 @@ test('the board holds still for anything that is not a new word', async ({ page 
   const dot = await inShot(page, '[aria-label^="Unnamed word. Reveal"]');
   await dot.click();
   await (await inShot(page, '[aria-label^="Unnamed word, "]')).click();
-  await expect(page.locator('header')).toContainText('2 hints');
+  await expect(tally(page, 'hints')).toHaveText('2');
   expect(await places()).toEqual(before);
 
   // A refused guess.
@@ -476,5 +476,5 @@ test('tapping a word still works', async ({ page }) => {
   const dot = await inShot(page, '[aria-label^="Unnamed word. Reveal"]');
   await expect(dot).toBeVisible();
   await dot.click();
-  await expect(page.locator('header')).toContainText('1 hint');
+  await expect(tally(page, 'hints')).toHaveText('1');
 });

@@ -7,7 +7,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { board, gameData, puzzleWithPar } from './fixtures';
+import { board, gameData, puzzleWithPar, tally } from './fixtures';
 
 test.use({ contextOptions: { reducedMotion: 'no-preference' } });
 
@@ -42,7 +42,7 @@ test('a board already played opens straight into the game', async ({ page }) => 
   await page.goto(board(puzzle, '?dev=0'));
   await page.getByLabel(/Your guess/).fill(path[1]!);
   await page.getByRole('button', { name: 'Guess', exact: true }).click();
-  await expect(page.locator('header')).toContainText('1 guessed');
+  await expect(tally(page, 'guessed')).toHaveText('1');
 
   const played = await shot(page);
   await page.reload();

@@ -721,6 +721,72 @@
       "value": "DEVSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "dev.closeCode": [
+    {
+      "type": 0,
+      "value": "CloseSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.code": [
+    {
+      "type": 0,
+      "value": "id/codeSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.codeActions": [
+    {
+      "type": 0,
+      "value": "What it saysSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.codeFields": [
+    {
+      "type": 0,
+      "value": "Field by fieldSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.codeLabel": [
+    {
+      "type": 0,
+      "value": "A board code to readSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.codeReading": [
+    {
+      "type": 0,
+      "value": "Reading…SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.codeRefused": [
+    {
+      "type": 0,
+      "value": "Nothing read. A bare code is read against the board on screen — put the puzzle id in front of it if it came from another. Failing that it is cut short, or from another build.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.codeSpend": [
+    {
+      "type": 0,
+      "value": "Where the length goesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.codeTitle": [
+    {
+      "type": 1,
+      "value": "chars"
+    },
+    {
+      "type": 0,
+      "value": " characters · "
+    },
+    {
+      "type": 1,
+      "value": "bits"
+    },
+    {
+      "type": 0,
+      "value": " bitsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "dev.corridor": [
     {
       "type": 0,
@@ -889,6 +955,12 @@
     {
       "type": 0,
       "value": "rankSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.readCode": [
+    {
+      "type": 0,
+      "value": "readSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "dev.rebuild": [
@@ -1557,35 +1629,8 @@
   ],
   "header.guesses": [
     {
-      "offset": 0,
-      "options": {
-        "=0": {
-          "value": [
-            {
-              "type": 0,
-              "value": "no guesses yet"
-            }
-          ]
-        },
-        "other": {
-          "value": [
-            {
-              "type": 7
-            },
-            {
-              "type": 0,
-              "value": " guessed"
-            }
-          ]
-        }
-      },
-      "pluralType": "cardinal",
-      "type": 6,
-      "value": "count"
-    },
-    {
       "type": 0,
-      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "guessedSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "header.hints": [
@@ -1595,22 +1640,16 @@
         "one": {
           "value": [
             {
-              "type": 7
-            },
-            {
               "type": 0,
-              "value": " hint"
+              "value": "hint"
             }
           ]
         },
         "other": {
           "value": [
             {
-              "type": 7
-            },
-            {
               "type": 0,
-              "value": " hints"
+              "value": "hints"
             }
           ]
         }
@@ -1667,47 +1706,19 @@
   "header.par": [
     {
       "type": 0,
-      "value": "par: "
-    },
-    {
-      "offset": 0,
-      "options": {
-        "one": {
-          "value": [
-            {
-              "type": 7
-            },
-            {
-              "type": 0,
-              "value": " move"
-            }
-          ]
-        },
-        "other": {
-          "value": [
-            {
-              "type": 7
-            },
-            {
-              "type": 0,
-              "value": " moves"
-            }
-          ]
-        }
-      },
-      "pluralType": "cardinal",
-      "type": 6,
-      "value": "count"
-    },
-    {
-      "type": 0,
-      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "parSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "header.puzzles": [
     {
       "type": 0,
       "value": "PuzzlesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.shareBoard": [
+    {
+      "type": 0,
+      "value": "ShareSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "header.shortcuts": [
@@ -1717,22 +1728,16 @@
         "one": {
           "value": [
             {
-              "type": 7
-            },
-            {
               "type": 0,
-              "value": " shortcut"
+              "value": "shortcut"
             }
           ]
         },
         "other": {
           "value": [
             {
-              "type": 7
-            },
-            {
               "type": 0,
-              "value": " shortcuts"
+              "value": "shortcuts"
             }
           ]
         }
@@ -2286,6 +2291,12 @@
       "value": "Copying was blocked — select the text aboveSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "round.copyWithBoard": [
+    {
+      "type": 0,
+      "value": "Copy with boardSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "round.day": [
     {
       "type": 0,
@@ -2316,6 +2327,18 @@
     {
       "type": 0,
       "value": "hintsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.linkBlocked": [
+    {
+      "type": 0,
+      "value": "Copying was blocked by the browserSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.linkCopied": [
+    {
+      "type": 0,
+      "value": "Board link copiedSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "round.parStat": [
@@ -2356,6 +2379,12 @@
     {
       "type": 0,
       "value": "Another puzzleSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.playShared": [
+    {
+      "type": 0,
+      "value": "Play it yourselfSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "round.refusedStat": [
@@ -2512,6 +2541,18 @@
     {
       "type": 0,
       "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.sharedBoard": [
+    {
+      "type": 0,
+      "value": "Someone else’s boardSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.sharedNote": [
+    {
+      "type": 0,
+      "value": "Nothing here is saved to your gameSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "round.theRound": [

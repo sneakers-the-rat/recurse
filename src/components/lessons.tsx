@@ -72,7 +72,16 @@ function P({ id }: { id: (typeof says)[keyof typeof says] }) {
 }
 
 export const LESSON: Lesson = {
-  puzzle: 'c3316c6086c4',
+  /**
+   * `showing → towing`, a par-4 board of the letters game.
+   *
+   * By id, because that is how a board is addressed — and an id is a digest of the game, the
+   * pair and the vocabulary (see graphgen's id.rs), so this moves when the word list does and
+   * not when taste does. The cards below name this board's own words, so a lesson pointed at
+   * anything else is nonsense: `wrongBoard` in Tutorial.tsx is what says so rather than
+   * teaching `showing + ad` over whatever came up this morning.
+   */
+  puzzle: '4c07601f3676',
 
   steps: [
     {

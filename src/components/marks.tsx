@@ -233,3 +233,13 @@ export const Query = () => <>?</>;
  * might be reading as a word.
  */
 export const Close = () => <>×</>;
+
+/**
+ * `×` before a count: how many of a thing there were.
+ *
+ * Arithmetic rather than language — a tally of five fields is `×5` in every locale this game
+ * is likely to reach — and it appears only in the dev bar's code inspector, where every other
+ * glyph on the line is a number too. The same `×` `Close` uses, and for the same reasons: on
+ * the maths axis, in both vendored subsets, and not a letter anybody reads as a word.
+ */
+export const Times = () => <>×</>;

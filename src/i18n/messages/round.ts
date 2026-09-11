@@ -79,18 +79,37 @@ export const round = defineMessages({
   copy: {
     id: 'round.copy',
     defaultMessage: 'Copy result',
-    description: 'The button that puts the share text on the clipboard.',
+    description:
+      'Puts the score on the clipboard with a plain link to the puzzle — safe to post where people have not played it yet.',
+  },
+  copyWithBoard: {
+    id: 'round.copyWithBoard',
+    defaultMessage: 'Copy with board',
+    description:
+      'The same, but the link carries the round: whoever opens it sees the solved figure rather than a description of it. For sending to somebody, not for posting.',
   },
   copied: {
     id: 'round.copied',
     defaultMessage: 'Copied',
-    description: 'Shown on that button for a moment afterwards. A receipt, not a state.',
+    description: 'Shown on whichever button was pressed for a moment afterwards. A receipt, not a state.',
   },
   copyBlocked: {
     id: 'round.copyBlocked',
     defaultMessage: 'Copying was blocked — select the text above',
     description:
       'Shown when the clipboard refuses. There is nothing to retry: the text is on screen and selectable, so this says where it is.',
+  },
+  linkCopied: {
+    id: 'round.linkCopied',
+    defaultMessage: 'Board link copied',
+    description:
+      'Said after the header’s share button. The link carries the board as it stands, part-played or finished.',
+  },
+  linkBlocked: {
+    id: 'round.linkBlocked',
+    defaultMessage: 'Copying was blocked by the browser',
+    description:
+      'Said when the clipboard refuses the header’s share button. Unlike the result text there is nothing on screen to select instead, so this says only what happened.',
   },
 
   alsoToday: {
@@ -103,6 +122,31 @@ export const round = defineMessages({
     defaultMessage: '· {count} in',
     description:
       'How far into another length the player already is. Shown only when they have started it, because carrying on and starting are different invitations.',
+  },
+
+  /*
+    Somebody else's board, opened from a link that carried their round with it.
+
+    Three short things, above the figure: whose it is, that nothing here is being kept, and
+    the one thing there is to do about it. See `SharedBoard` and lib/boardCode.ts.
+  */
+  sharedBoard: {
+    id: 'round.sharedBoard',
+    defaultMessage: 'Someone else’s board',
+    description:
+      'Heads the strip above a board opened from a shared link. Everything on screen — the guesses, the trail, the score — belongs to whoever sent it.',
+  },
+  sharedNote: {
+    id: 'round.sharedNote',
+    defaultMessage: 'Nothing here is saved to your game',
+    description:
+      'Says what a shared board is: a thing to look at. It is not written down, not counted in the player’s record, and does not touch their own progress on the puzzle.',
+  },
+  playShared: {
+    id: 'round.playShared',
+    defaultMessage: 'Play it yourself',
+    description:
+      'Leaves a shared board for the visitor’s own game on the same puzzle, which is whatever they had left there.',
   },
 
   theRound: {

@@ -12,7 +12,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { board, gameData, today, todayNumber, boardOnDay } from './fixtures';
+import { board, boardOnDay, gameData, tally, today, todayNumber } from './fixtures';
 
 /** Which band the phonemes mode is. Found rather than assumed: modes are declared in the yaml. */
 function phonemesBand(): number {
@@ -195,7 +195,7 @@ test('the readout describes the reading that plays, not the first one', async ({
 
   // And the guess it was describing is in fact accepted.
   await page.getByRole('button', { name: 'Guess', exact: true }).click();
-  await expect(page.locator('header')).toContainText('1 guessed', { ignoreCase: true });
+  await expect(tally(page, 'guessed')).toHaveText('1');
 });
 
 test('the letters game is untouched by any of it', async ({ page }) => {

@@ -95,6 +95,22 @@ export function result(page: Page) {
 }
 
 /**
+ * One figure out of the header's tally: `par`, `shortcuts`, `guessed` or `hints`.
+ *
+ * **The number, not the phrase around it.** These used to be read by matching the whole header
+ * against a string — `toContainText('1 guessed')` — which is an assertion about the *wording of
+ * a message*, and it broke as soon as the line became a table with the label on its own edge.
+ * What a spec about playing actually means is "the guess count is 1", so that is what this
+ * says, against a handle that is not language: `data-tally` in Header.tsx.
+ *
+ * A row absent at zero — hints and shortcuts both are — has no element at all, which
+ * `toHaveCount(0)` is the way to assert.
+ */
+export function tally(page: Page, name: 'par' | 'shortcuts' | 'guessed' | 'hints') {
+  return page.locator(`[data-tally="${name}"]`);
+}
+
+/**
  * The first thing matching `selector` that is actually in shot.
  *
  * The board is deliberately larger than the plate — the words are drawn at a readable size

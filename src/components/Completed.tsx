@@ -78,14 +78,26 @@ export const Result = memo(function Result({
   state,
   marks,
   text,
+  withBoard,
   others = [],
   onBand,
 }: {
   state: GameState;
   /** One per guess, in order. See share.ts. */
   marks: readonly Mark[];
-  /** The finished share text, exactly as it would be pasted. */
+  /**
+   * The finished share text, exactly as it would be pasted: the score over a link to the
+   * puzzle with nobody's round on it. What is shown below, and what is safe to post.
+   */
   text: string;
+  /**
+   * The same text over a link that carries the round — see boardCode.ts.
+   *
+   * Differs from `text` in its last line and nowhere else, which is what makes two buttons
+   * honest about one block of text: what is on screen is the four lines they share, and the
+   * button that adds the board says so in its own name.
+   */
+  withBoard: string;
   /**
    * The day's *other* lengths that are still going: which band, what it is called, and how
    * far in the player already is.
@@ -102,22 +114,29 @@ export const Result = memo(function Result({
   const hints = hintCount(state);
   const { secret, title } = verdictOf(state);
 
-  const [copied, setCopied] = useState(false);
+  /**
+   * Which button was last pressed, so the receipt lands on that one.
+   *
+   * Not a boolean any more: with two buttons a shared flag put "Copied" on both, which says
+   * the wrong thing about which of the two things is now on the clipboard — and that is the
+   * one fact the player is checking.
+   */
+  const [copied, setCopied] = useState<'plain' | 'board' | null>(null);
   const [failed, setFailed] = useState(false);
 
   // "Copied" is a receipt, not a state: it says something just happened, so it fades on
   // its own rather than sitting there through the next thing the player does. Cleared on
   // unmount too, or stepping to another board carries it over.
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2200);
+    if (copied === null) return;
+    const timer = setTimeout(() => setCopied(null), 2200);
     return () => clearTimeout(timer);
   }, [copied]);
 
-  async function copy() {
+  async function copy(which: 'plain' | 'board') {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
+      await navigator.clipboard.writeText(which === 'board' ? withBoard : text);
+      setCopied(which);
       setFailed(false);
     } catch {
       // Nothing to apologise for and nothing to retry: the text is on screen and
@@ -179,13 +198,27 @@ export const Result = memo(function Result({
               share string's longest line is the board's own URL, and a button holding a
               column of its own on a phone left that line clipped mid-character — which
               reads as broken rather than as scrollable.
+
+              **Two of them, because a result and a solved board are two different things to
+              hand over.** The score is safe to post anywhere; the board under it is the answer,
+              and putting the second on the clipboard by default made every paste a spoiler for
+              whoever had not played yet. So the plain one leads and is drawn as the plain one:
+              the board is the emphatic thing to do, and it is the one that needs a moment's
+              thought first.
             */}
             <button
-              onClick={copy}
-              className="label border-rule text-bone hover:border-gilt hover:text-gilt shrink-0 border px-3 py-1.5 transition-colors"
+              onClick={() => void copy('plain')}
+              className="label border-rule text-bone-dim hover:border-gilt hover:text-gilt shrink-0 border px-3 py-1.5 transition-colors"
               type="button"
             >
-              <FormattedMessage {...(copied ? says.copied : says.copy)} />
+              <FormattedMessage {...(copied === 'plain' ? says.copied : says.copy)} />
+            </button>
+            <button
+              onClick={() => void copy('board')}
+              className="label border-gilt-dim text-bone hover:border-gilt hover:text-gilt shrink-0 border px-3 py-1.5 transition-colors"
+              type="button"
+            >
+              <FormattedMessage {...(copied === 'board' ? says.copied : says.copyWithBoard)} />
             </button>
           </div>
         </div>
@@ -225,8 +258,16 @@ export const Result = memo(function Result({
           </p>
         )}
 
-        {/* The text itself, selectable. Also what the button copies, character for
-            character, so there is only ever one answer to "what does it say". */}
+        {/*
+          The text itself, selectable — so "copy/paste" is literally available when the
+          clipboard refuses, and the buttons are only the convenience.
+
+          **The plain one**, which is what the first button copies character for character.
+          The second differs from it in the last line alone: the link carries the round. Showing
+          the safe text and naming the difference on the button that makes it is the way round
+          that cannot mislead — a solved board shown here by default would be pasted by people
+          who only read the four lines above it.
+        */}
         <pre className="word text-bone-dim border-rule bg-noir-3 mt-2 overflow-x-auto border px-2.5 py-1.5 text-[11px] leading-snug whitespace-pre">
           {text}
         </pre>
