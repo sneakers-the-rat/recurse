@@ -1679,7 +1679,7 @@ export default function App() {
       new Set(first.nodes),
       starred,
     );
-    const date = dateForDay(at.day);
+    const date = dateForDay(at.day, data.manifest.epoch);
     const said = {
       day: at.day,
       band: boardName(intl, state.puzzle.band, data.manifest),
@@ -2062,7 +2062,7 @@ export default function App() {
               source={data.lexicon.label(state.puzzle.source)}
               target={data.lexicon.label(state.puzzle.target)}
               day={at.day}
-              date={dateForDay(at.day)}
+              date={dateForDay(at.day, data.manifest.epoch)}
               phase={opening}
             />
           )}
