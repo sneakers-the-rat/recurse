@@ -107,11 +107,20 @@ test('hints are letters, not phonemes', async ({ page }) => {
   // one you are standing on is not a question. Which of the drawn nodes that is depends on
   // the board, so the first that answers with a count is the one this is about.
   const groups = await page.locator('main svg g[data-word]').all();
+  const screen = page.viewportSize();
   let found: { token: string; count: string } | null = null;
   for (const group of groups) {
     const token = await group.getAttribute('data-word');
     const mark = group.locator('circle[role="button"]');
     if (!token || (await mark.count()) === 0) continue;
+    // A board wider than the phone is framed on its answer, so some of what it draws is off
+    // the side of the screen — and a click on one of those fails outright, `force` or not.
+    // Skipping them is the right answer rather than panning to reach them: this is a claim
+    // about what a hint says, and any hintable word on screen settles it.
+    const box = await mark.first().boundingBox();
+    if (!box || !screen) continue;
+    if (box.x < 0 || box.y < 0 || box.x + box.width > screen.width) continue;
+    if (box.y + box.height > screen.height) continue;
     await mark.first().click({ force: true });
     const [shown] = (await group.locator('text').allTextContents())
       .map((one) => one.trim())

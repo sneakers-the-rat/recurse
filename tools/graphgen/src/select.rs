@@ -8,7 +8,7 @@
 //! beaten anywhere in the 190k-word graph — is by far the most expensive.
 
 
-use crate::config::{Alphabet, Audit, Mode, Shared};
+use crate::config::{Alphabet, Audit, Mode};
 use crate::graph::{Bfs, FxMap, FxSet, Graph, UNREACHED};
 use crate::id::puzzle_id;
 use crate::progress::{Progress, BATCH};
@@ -20,7 +20,8 @@ pub struct Puzzle {
     /// The puzzle's public address: a digest of the game, the pair and the vocabulary
     /// those words were found in. See id.rs.
     pub id: String,
-    /// Which day of the calendar this puzzle is, assigned by `spread`. Metadata rather
+    /// The first day of the calendar this puzzle appears on, assigned by `calendar::deal`.
+    /// Metadata rather
     /// than an address — no URL carries it — but it is what the header calls the
     /// puzzle and what the client looks up to find today's board.
     pub day: usize,
@@ -107,7 +108,7 @@ const BRANCH_REACH: u32 = 3;
 /// * A rarer word beating par. Now a *secret*, not a rejection — see `secret` on
 ///   Puzzle. Finding one is the best thing that can happen to a player.
 /// * Refusing a puzzle because one of its endpoints appears in another puzzle.
-///   Endpoint reuse is a matter of *calendar order* — see `spread`, which never
+///   Endpoint reuse is a matter of *calendar order* — see calendar.rs, which never
 ///   rejects anything.
 /// * A ceiling on par. Par is a difficulty statistic, recorded on every puzzle;
 ///   `maxPar` bounds the search and nothing else.
@@ -1179,43 +1180,6 @@ pub fn select(
     })
 }
 
-/// Put the whole bank in calendar order.
-///
-/// **One calendar per band, not one per mode.** Every day offers one puzzle of every band
-/// there is, so each band is spread over its own days and runs out at its own point — which
-/// is what the wrap in `dayIndex` is for. A day number therefore names one board per band.
-///
-/// **Runs once, over every mode's puzzles at once**, and that is the point of it: the bands
-/// avoid each other's endpoints on a given day, so a day whose every length hinges on the
-/// same word is avoided across modes as well as within one. It is also why a puzzle's band
-/// is decided where the puzzle is built — by the time the merged bank gets here, which cuts
-/// applied to it is no longer knowable.
-///
-/// Separate from `select` so that reordering the calendar does not mean repeating the
-/// search: `seed`, `minGap` and `bandCuts` reach only this function.
-pub fn schedule(mut selection: Selection, shared: &Shared, bands: usize) -> Selection {
-    let before = selection.puzzles.len();
-
-    // Bands in order, because each one avoids the endpoints the earlier ones have already
-    // put on a day and the first to choose has the freest choice.
-    let mut by_band: Vec<Vec<Puzzle>> = vec![Vec::new(); bands];
-    for puzzle in selection.puzzles.drain(..) {
-        let band = puzzle.band.min(bands.saturating_sub(1));
-        by_band[band].push(puzzle);
-    }
-
-    let mut ordered: Vec<Puzzle> = Vec::with_capacity(before);
-    let mut endpoints_on: FxMap<usize, Vec<String>> = FxMap::default();
-    for puzzles in by_band {
-        ordered.extend(spread(puzzles, shared, &mut endpoints_on));
-    }
-
-    debug_assert_eq!(ordered.len(), before, "spread must not lose a puzzle");
-    selection.puzzles = ordered;
-    selection.passed = before;
-    selection
-}
-
 /// Scratch buffers one worker reuses over every candidate it judges.
 ///
 /// Four searches' worth of arrays over the graph, allocated once per worker rather than once
@@ -1568,7 +1532,7 @@ pub fn judge_direction(
                 vocab,
                 mode.id_chars,
             ),
-            // Set by `spread`, which is what decides the calendar.
+            // Set by `calendar::deal`, which is what decides the calendar.
             day: 0,
             // Set here rather than in `schedule`, because par divides a mode's bands and
             // `schedule` runs once over every mode's puzzles at once — by which point
@@ -1593,110 +1557,3 @@ pub fn judge_direction(
     }
 }
 
-/// A tiny deterministic PRNG, so a rebuild always produces the same calendar.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        // splitmix64
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-}
-
-/// Order the bank so a word does not reappear as an endpoint too soon.
-///
-/// Purely an ordering. Every puzzle handed in comes back out: repeating a word is a
-/// reason to hold a puzzle for later, never a reason to refuse it. `min_gap` is how
-/// many puzzles a word waits before it may be an endpoint again, honoured whenever
-/// some puzzle can be placed without breaking it.
-///
-/// A word is only freed when another puzzle is placed, so the window can reach a
-/// state where every puzzle left wants a word still inside it. That deadlock is
-/// broken by placing the next pending puzzle regardless — the gap is a preference,
-/// and the alternative is losing puzzles to it.
-fn spread(
-    mut puzzles: Vec<Puzzle>,
-    shared: &Shared,
-    endpoints_on: &mut FxMap<usize, Vec<String>>,
-) -> Vec<Puzzle> {
-    // Canonical order before shuffling: selection order depends on hash iteration
-    // and thread scheduling, and without this a rebuild would silently reassign
-    // every calendar date.
-    puzzles.sort_by(|a, b| (&a.source, &a.target).cmp(&(&b.source, &b.target)));
-
-    let mut rng = Rng(shared.seed);
-    for i in (1..puzzles.len()).rev() {
-        let j = (rng.next() % (i as u64 + 1)) as usize;
-        puzzles.swap(i, j);
-    }
-
-    // One queue, and no arithmetic about shards.
-    //
-    // This used to deal the band into 256 queues, one per shard, so that day `N` could be
-    // served out of the shard `(N * BANDS + band) % SHARDS` names and the client could find a
-    // date with one fetch and no index. It cost a third of the bank: the round robin ran out
-    // of the thinnest shard long before the band was empty, and every puzzle after that point
-    // had a day number nothing would ever ask for — 13,829 boards that shipped as bytes no
-    // player could open, because the only other way in is an id you can only get from someone
-    // who already played it. The calendar is a file now (see `write_calendar`), so a day names
-    // a puzzle directly and nothing has to line up.
-    let mut pending: std::collections::VecDeque<Puzzle> = puzzles.into();
-    let mut ordered: Vec<Puzzle> = Vec::with_capacity(pending.len());
-    let mut blocked: FxMap<String, usize> = FxMap::default();
-    let mut recent: std::collections::VecDeque<(String, String)> = Default::default();
-
-    let mut day = 0usize;
-    while !pending.is_empty() {
-        // The first puzzle whose endpoints are both free — of this band's own recent window,
-        // and of the words the other bands have already put on this day.
-        //
-        // Both are soft. A puzzle is never dropped for repeating a word: when nothing
-        // qualifies, the front of the queue is taken anyway. Sharing a word with another
-        // length on the same day is the weaker complaint of the two, so it is given up first —
-        // a day where all three lengths hinge on `sing` is worth avoiding, and not worth a
-        // hole in the calendar.
-        let free_of_band = |puzzle: &Puzzle| {
-            blocked.get(&puzzle.source).copied().unwrap_or(0) == 0
-                && blocked.get(&puzzle.target).copied().unwrap_or(0) == 0
-        };
-        let elsewhere = endpoints_on.get(&day);
-        let free_of_day = |puzzle: &Puzzle| match elsewhere {
-            None => true,
-            Some(words) => !words.contains(&puzzle.source) && !words.contains(&puzzle.target),
-        };
-        let next = pending
-            .iter()
-            .position(|puzzle| free_of_band(puzzle) && free_of_day(puzzle))
-            .or_else(|| pending.iter().position(free_of_band))
-            .unwrap_or(0);
-        let mut puzzle = pending.remove(next).expect("index came from this deque");
-        endpoints_on
-            .entry(day)
-            .or_default()
-            .extend([puzzle.source.clone(), puzzle.target.clone()]);
-
-        *blocked.entry(puzzle.source.clone()).or_insert(0) += 1;
-        *blocked.entry(puzzle.target.clone()).or_insert(0) += 1;
-        recent.push_back((puzzle.source.clone(), puzzle.target.clone()));
-        while recent.len() > shared.min_gap {
-            if let Some((source, target)) = recent.pop_front() {
-                for word in [source, target] {
-                    if let Some(count) = blocked.get_mut(&word) {
-                        *count -= 1;
-                    }
-                }
-            }
-        }
-        // A puzzle's *first* day. Shorter bands are cycled to fill the calendar, so a puzzle
-        // recurs every `len` days — see `write_calendar` — and this is the one the header
-        // shows when a board is opened by its id rather than by a date.
-        puzzle.day = day;
-        ordered.push(puzzle);
-        day += 1;
-    }
-    ordered
-}

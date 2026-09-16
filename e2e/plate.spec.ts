@@ -120,8 +120,15 @@ test('a word is the same size on a crowded board as on a bare one', async ({ pag
 
   // A legal move off the intended route, which draws its own neighbourhood too — this is
   // the board growing under the player, which is exactly the thing that must not rescale.
+  //
+  // It has to be a word the board does not already draw, or nothing grows and the poll below
+  // times out against a count that was always going to be right. Which words a board declares
+  // is a finding of the builder's rules and moves with them, so the first neighbour was fine
+  // until the day it was `ions` on a board that had it already.
   const { graph } = gameData();
-  const stray = graph.neighbors(puzzle.source).find((w) => w !== puzzle.target);
+  const stray = graph
+    .neighbors(puzzle.source)
+    .find((w) => w !== puzzle.target && !puzzle.board.includes(w));
   test.skip(!stray, 'no stray move available');
   await guess(page, stray!);
 

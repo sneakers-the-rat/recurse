@@ -120,7 +120,7 @@ pub fn path(cache: &Path, key: &str) -> PathBuf {
     cache.join(format!("bank-{key}.tsv"))
 }
 
-/// What the search found, without the calendar: `spread` runs on the way out every
+/// What the search found, without the calendar: `calendar::deal` runs on the way out every
 /// time, because its knobs are not part of the key.
 pub struct Bank {
     pub puzzles: Vec<crate::select::Puzzle>,
@@ -206,7 +206,7 @@ pub fn load(path: &Path) -> Option<Bank> {
                 let max_rank = field.next()?.parse().ok()?;
                 puzzles.push(crate::select::Puzzle {
                     id,
-                    // Assigned by `spread`, which runs on every build.
+                    // Assigned by `calendar::deal`, which runs on every build.
                     day: 0,
                     source,
                     target,

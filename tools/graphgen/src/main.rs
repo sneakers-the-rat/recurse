@@ -23,6 +23,7 @@
 //!     puzzles/         the bank, one file per id prefix, plus a manifest
 
 mod bank;
+mod calendar;
 mod config;
 mod date;
 mod graph;
@@ -561,13 +562,25 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
     // One bank, one id space, one calendar. A puzzle already knows which band it is —
     // `select` set it from its own mode's cuts — so merging is a concatenation and
     // `schedule` can order every band against the others. See `schedule`.
-    let merged = select::Selection {
+    let mut selection = select::Selection {
         passed: built.iter().map(|one| one.bank().passed).sum(),
         candidates: built.iter().map(|one| one.bank().candidates).sum(),
         puzzles: built.iter().flat_map(|one| one.bank().puzzles.iter().cloned()).collect(),
         rejections: select::Rejections::default(),
     };
-    let selection = select::schedule(merged, &config.shared, config.band_count());
+    // The calendar is judged on what each board *draws*, not on its two endpoints, so it needs
+    // the graph the board was drawn from. See calendar.rs.
+    let graph_of_mode: Vec<&graph::Graph> = built.iter().map(|one| &one.common).collect();
+    let mode_of_band = mode_of_band(&config, &built);
+    check_bands(&config, &selection.puzzles)?;
+    let mode_names: Vec<&str> = built.iter().map(|one| one.mode.name.as_str()).collect();
+    let dealt = calendar::deal(
+        &mut selection,
+        &config.shared,
+        config.band_count(),
+        &graph_of_mode,
+        &mode_of_band,
+    );
 
     // Rules are reported per mode, because a tally is about one graph: the two modes refuse
     // different numbers of different things and a sum of them means nothing.
@@ -585,9 +598,11 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
         report_boards(one.bank());
     }
     report_bands(&selection, &config);
+    calendar::report(&dealt, &mode_of_band, &mode_names);
     // The first few boards of the calendar, read through the lexicon of whichever game they
     // came from — a phonemes puzzle printed raw is a row of phoneme codes.
-    for puzzle in selection.puzzles.iter().take(5) {
+    for at in (0..dealt.days.min(5)).map(|day| dealt.on(0, day) as usize) {
+        let puzzle = &selection.puzzles[at];
         let lex = built
             .iter()
             .find(|one| {
@@ -611,7 +626,7 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
 
     // ----------------------------------------------------------------- output
     check_ids(&selection.puzzles, &config)?;
-    write_outputs(&data, &config, &built, &selection)?;
+    write_outputs(&data, &config, &built, &selection, &dealt)?;
     progress::published_done();
     eprintln!("done in {:.1}s", started.elapsed().as_secs_f64());
     Ok(())
@@ -1629,6 +1644,43 @@ fn report_bands(selection: &select::Selection, config: &Config) {
     }
 }
 
+/// Refuse a bank with a band nobody can be offered.
+///
+/// A band with nothing in it cannot be filled by repeating it, and shipping it would put a
+/// length on the masthead that opens nothing. Named rather than counted, because the fix is that
+/// mode's rules or its cuts and the message should say which. Asked before the calendar is
+/// dealt rather than while it is being written, so half a minute of dealing is not spent on a
+/// bank that was never going to ship — and so nothing downstream has to cope with a band whose
+/// run of days is empty.
+fn check_bands(config: &Config, puzzles: &[select::Puzzle]) -> Result<(), String> {
+    for (mode, local) in config.bands() {
+        if !puzzles.iter().any(|puzzle| puzzle.band == mode.global_band(local)) {
+            return Err(format!(
+                "the {} band of mode {} has no puzzles, so the calendar cannot fill it — \
+                 loosen that mode's rules or move its cuts",
+                mode.band_name(local),
+                mode.name,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Which mode each band belongs to, as an index into `built`.
+///
+/// Band numbers are flat across every mode — the letters game's three lengths are 0, 1, 2 and
+/// the phonemes game's are 3, 4, 5 — and the calendar has to be able to go the other way,
+/// because two boards can only draw the same stretch of graph if they came out of the same one.
+fn mode_of_band(config: &Config, built: &[Built]) -> Vec<usize> {
+    let mut of_band = vec![0usize; config.band_count()];
+    for (at, one) in built.iter().enumerate() {
+        for local in 0..one.mode.bands.len() {
+            of_band[one.mode.global_band(local)] = at;
+        }
+    }
+    of_band
+}
+
 /// How many days the calendar runs: the longest band's length.
 ///
 /// Every band fills every day — a shorter one by cycling — so the longest is what bounds it.
@@ -1665,9 +1717,8 @@ fn par_histogram(selection: &select::Selection) -> Vec<(u32, usize)> {
 /// an index:
 ///
 /// * A shared link carries the id, whose first two digits *are* the shard.
-/// * A daily board is band `B` on day `N`, which `spread` has placed in shard
-///   `(N * BANDS + B) % SHARDS` — so the three lengths a day offers are in three different
-///   shards, and playing one costs one fetch.
+/// * A daily board is band `B` on day `N`, which the calendar file names outright — so the
+///   lengths a day offers are in unrelated shards, and playing one costs one fetch.
 ///
 /// So one fetch reaches any board, and a player accumulates shards as they play rather
 /// than paying for the whole bank up front.
@@ -1687,6 +1738,7 @@ fn write_puzzle_shards(
     // The digest naming each mode's four data files, in `built` order. See `named`.
     digests: &[String],
     puzzles: &[select::Puzzle],
+    dealt: &calendar::Calendar,
 ) -> Result<(), String> {
     // Which mode a puzzle belongs to, from the band it is in. Only the pair index needs it —
     // everything else in a shard is stored in the puzzle's own alphabet, deliberately.
@@ -1732,7 +1784,7 @@ fn write_puzzle_shards(
         .collect();
 
     // The calendar, built before the version because it is *part* of what the version names.
-    let calendar = calendar_bodies(config, puzzles)?;
+    let calendar = calendar_bodies(config, puzzles, dealt)?;
 
     // The digest covers every immutable file's contents — every shard and every calendar year —
     // so any change to any of them renames all of them.
@@ -1944,39 +1996,16 @@ fn write_puzzle_shards(
 /// about 13 KB, against 40 KB of JSON commas and quotes for the same thing. It is the same trade
 /// the graph rows make.
 ///
-/// A band shorter than the calendar **cycles**: day `D` of band `B` is that band's puzzle number
-/// `D % len(B)`. So the puzzles are stored once, in the shards, and a short list repeats in the
-/// calendar rather than on disk.
+/// A band shorter than the calendar **comes round again**, and which board it shows when it does
+/// is `calendar::deal`'s decision rather than arithmetic here. The puzzles are stored once, in the
+/// shards, and a short band repeats in the calendar rather than on disk.
 fn calendar_bodies(
     config: &Config,
     puzzles: &[select::Puzzle],
+    dealt: &calendar::Calendar,
 ) -> Result<Vec<(i32, String)>, String> {
     let bands = config.band_count();
-
-    // Each band in day order. `spread` numbered them, so this is a sort into that order.
-    let mut by_band: Vec<Vec<&select::Puzzle>> = vec![Vec::new(); bands];
-    for puzzle in puzzles {
-        by_band[puzzle.band].push(puzzle);
-    }
-    for band in by_band.iter_mut() {
-        band.sort_unstable_by_key(|puzzle| puzzle.day);
-    }
-
-    // A band with nothing in it cannot be filled by cycling, and shipping it would put a
-    // length on the masthead that opens nothing. Named rather than counted, because the fix is
-    // that mode's rules or its cuts and the message should say which.
-    for (mode, local) in config.bands() {
-        if by_band[mode.global_band(local)].is_empty() {
-            return Err(format!(
-                "the {} band of mode {} has no puzzles, so the calendar cannot fill it — \
-                 loosen that mode's rules or move its cuts",
-                mode.band_name(local),
-                mode.name,
-            ));
-        }
-    }
-
-    let days = calendar_days(puzzles, bands);
+    let days = dealt.days;
     if days == 0 {
         return Err("the bank is empty, so there is no calendar to write".into());
     }
@@ -1993,12 +2022,10 @@ fn calendar_bodies(
 
         let mut runs: Vec<String> = Vec::with_capacity(bands);
         for band in 0..bands {
-            let list = &by_band[band];
             let mut run =
                 String::with_capacity(((until - from) as usize) * config.shared.id_chars);
             for at in from..until {
-                // Cycled, which is what fills a short band's share of a long calendar.
-                run.push_str(&list[((at - epoch) as usize) % list.len()].id);
+                run.push_str(&puzzles[dealt.on(band, (at - epoch) as usize) as usize].id);
             }
             runs.push(run);
         }
@@ -2107,6 +2134,7 @@ fn write_outputs(
     config: &Config,
     built: &[Built],
     selection: &select::Selection,
+    dealt: &calendar::Calendar,
 ) -> Result<(), String> {
     // Each mode's four files, and the digest of them that names them. Collected here because
     // the manifest has to say what to fetch, and the manifest is written by the shards.
@@ -2114,7 +2142,7 @@ fn write_outputs(
     for one in built {
         digests.push(write_mode(&data.join(&one.mode.name), one)?);
     }
-    write_puzzle_shards(data, config, built, &digests, &selection.puzzles)?;
+    write_puzzle_shards(data, config, built, &digests, &selection.puzzles, dealt)?;
     // Only once everything is written, because until then the manifest on disk is the old one
     // and still names the old files. Sweeping first left a window where a build that died
     // halfway had deleted the files its own manifest pointed at.
