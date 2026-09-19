@@ -110,11 +110,35 @@ Both inspection commands run against every mode and say which one they are talki
 `npm run data:build` builds the binary alone, at
 `tools/graphgen/target/release/graphgen`.
 
+## The optional server
+
+There is a score server in [`server/`](server/README.md), and the word to hold onto is
+*optional*. The game is offline-first: with `VITE_RECURSE_API` unset — which is the default, and
+what you get by cloning this — the built site makes no requests to anything, draws no scoreboard,
+and is exactly the game it was. Download it, change it, play it on a plane.
+
+With it set, a finished round gets a low score screen: who else solved this puzzle, and in how
+few guesses. A player is given a UUID the first time there is anything to record and plays
+anonymously under it; registering a username and password names *that* player, so an anonymous
+history becomes the account's.
+
+    VITE_RECURSE_API=https://recurse.jon-e.net npm run build
+
+**A client never posts a score.** It posts the round — the series of actions from
+`src/lib/actions.ts` — and the server replays it against the real graph with the game's own
+`replayActions` and `restore`, then reads the guesses and hints off the result. One copy of the
+rules, and a round that does not replay is refused.
+
+See [`server/README.md`](server/README.md) to run one.
+
 ## Deployment
 
 A push to `main` runs `.github/workflows/github-pages.yml`: the builder, then the web build,
 then GitHub Pages. Pages must be set to deploy from GitHub Actions
 (Settings → Pages → Source). `.github/workflows/ci.yml` runs the tests on every push.
+
+`VITE_RECURSE_API` comes from a repository *variable* of that name — a URL in a built bundle is
+not a secret. Leave it unset and the deploy has no server, which is a working game.
 
 ## Layout
 
@@ -123,6 +147,7 @@ then GitHub Pages. Pages must be set to deploy from GitHub Actions
     public/data/         generated data the browser fetches
     src/lib/             game logic, no React
     src/components/      React, no game logic
+    server/              the optional score server. The game does not need it
     e2e/                 browser tests
 
 ## ai disclosure

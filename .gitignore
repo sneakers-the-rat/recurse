@@ -1,8 +1,12 @@
 # What this repo generates, and nothing else.
 #
-# `.env` is deliberately *not* ignored. It holds no secrets — it is the one place
-# every number that shapes the game is written down, and the builder refuses to
-# run without it, so a clone that arrived without it could not rebuild the data.
+# `recurse.yaml` is deliberately *not* ignored. It holds no secrets — it is the one
+# place every number that shapes the game is written down, and the builder refuses
+# to run without it, so a clone that arrived without it could not rebuild the data.
+#
+# `server/.env` is the opposite on all three counts: it names a database, a port and
+# an origin allowlist, all of which differ per deployment. `server/.env.example` is
+# what is committed. See server/README.md.
 
 node_modules/
 dist/
@@ -35,3 +39,16 @@ tools/cache/
 tools/cache/bank-*.tsv
 
 public/data/
+
+# The optional server: its configuration, and the only copy of everybody's history.
+# `node_modules/` and `dist/` above already cover its build.
+server/.env
+*.db
+*.db-wal
+*.db-shm
+
+# The client's own build-time settings, which is only ever `VITE_RECURSE_API` —
+# where the optional server is, if there is one. Absent means there is none, which
+# is what a downloaded copy of the game should be.
+.env
+.env.local

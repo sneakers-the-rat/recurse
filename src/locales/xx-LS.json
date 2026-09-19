@@ -3073,6 +3073,232 @@
       "value": "Word ListSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "scores.anonymous": [
+    {
+      "type": 0,
+      "value": "anonymousSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.cancel": [
+    {
+      "type": 0,
+      "value": "Not nowSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.comeBack": [
+    {
+      "type": 0,
+      "value": "I have oneSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.guesses": [
+    {
+      "type": 0,
+      "value": "GuessesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.heading": [
+    {
+      "type": 0,
+      "value": "Fewest guessesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.hints": [
+    {
+      "type": 0,
+      "value": "HintsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.invalid": [
+    {
+      "type": 0,
+      "value": "That name or password is not allowed.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.join": [
+    {
+      "type": 0,
+      "value": "Take itSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.keepsHistory": [
+    {
+      "type": 0,
+      "value": "Everything you have already played keeps counting — it becomes this name’s.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.noReset": [
+    {
+      "type": 0,
+      "value": "There are no email addresses here, so a forgotten password cannot be reset.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.nobody": [
+    {
+      "type": 0,
+      "value": "First one hereSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.offline": [
+    {
+      "type": 0,
+      "value": "No board just nowSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.password": [
+    {
+      "type": 0,
+      "value": "PasswordSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.player": [
+    {
+      "type": 0,
+      "value": "PlayerSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.players": [
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " finished"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " finished"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "count"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.playingAnonymously": [
+    {
+      "type": 0,
+      "value": "Your scores are anonymousSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.playingAs": [
+    {
+      "type": 0,
+      "value": "Playing as "
+    },
+    {
+      "type": 1,
+      "value": "name"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.rank": [
+    {
+      "type": 0,
+      "value": "RankSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.rules": [
+    {
+      "type": 1,
+      "value": "min"
+    },
+    {
+      "type": 0,
+      "value": "–"
+    },
+    {
+      "type": 1,
+      "value": "max"
+    },
+    {
+      "type": 0,
+      "value": " characters: letters, digits, - and _. A password of at least "
+    },
+    {
+      "type": 1,
+      "value": "least"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.signOut": [
+    {
+      "type": 0,
+      "value": "Sign outSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.takeAName": [
+    {
+      "type": 0,
+      "value": "Take a nameSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.taken": [
+    {
+      "type": 0,
+      "value": "That name is taken. Try another.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.tooFast": [
+    {
+      "type": 0,
+      "value": "Too many tries just now. Give it a minute.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.username": [
+    {
+      "type": 0,
+      "value": "NameSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.waiting": [
+    {
+      "type": 0,
+      "value": "Reading the board…SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.wentWrong": [
+    {
+      "type": 0,
+      "value": "That did not work. Try again in a moment.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.wrong": [
+    {
+      "type": 0,
+      "value": "That name and password do not go together.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "scores.you": [
+    {
+      "type": 0,
+      "value": "youSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "stats.addsUpTo": [
     {
       "type": 0,

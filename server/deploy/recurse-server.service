@@ -1,0 +1,49 @@
+# An example systemd unit. Copy to /etc/systemd/system/, edit the three paths, then:
+#
+#   systemctl daemon-reload
+#   systemctl enable --now recurse-server
+#   journalctl -u recurse-server -f
+#
+# It expects `npm ci && npm run build && npm run migrate` to have been run in
+# WorkingDirectory already. The server migrates on start-up too, so the separate
+# migrate is only so that a schema change fails before the old process is stopped.
+
+[Unit]
+Description=recurse score server
+# Not `Requires`: the site being down should not stop this being started, only
+# delay it — and the process exits with a sentence if it cannot fetch the bank,
+# which Restart below then retries.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=recurse
+Group=recurse
+WorkingDirectory=/srv/recurse/server
+EnvironmentFile=/srv/recurse/server/.env
+ExecStart=/usr/bin/node dist/main.js
+
+# The bank is fetched before it listens, and a cold start pulls several MB per
+# mode. Restart rather than give up: the usual reason to fail here is that the
+# site it scores for is still coming up.
+Restart=on-failure
+RestartSec=10s
+
+# Everything below is ordinary hardening. The one thing it actually needs to write
+# is the database, so that directory is named and the rest of the filesystem is not.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/recurse/server
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target

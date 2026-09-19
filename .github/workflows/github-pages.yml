@@ -57,8 +57,17 @@ jobs:
           name: data
           path: public/data
 
+      # `VITE_RECURSE_API` is where the optional score server is, and it is a repository
+      # *variable* rather than a secret because it is a URL that appears in the built
+      # bundle — a secret would only be a secret from the person reading this file.
+      #
+      # Unset is a meaningful value: with no server, the game draws no scoreboard and makes
+      # no requests. That is what a fork of this repo gets by default, and what anybody
+      # building a copy of the game gets. See src/lib/server.ts.
       - name: Build
         run: npm run build
+        env:
+          VITE_RECURSE_API: ${{ vars.VITE_RECURSE_API }}
 
       # Vite emits dist/, including the 404.html that makes a puzzle's own URL resolve on a
       # host with no rewrites — see vite.config.ts.

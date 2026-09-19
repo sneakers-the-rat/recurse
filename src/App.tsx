@@ -50,7 +50,9 @@ import {
   worthKeeping,
   type GameState,
 } from './lib/game';
-import { act, type World } from './lib/actions';
+import { act, actionsOf, type World } from './lib/actions';
+import { useServer, type Playing } from './lib/useServer';
+import { HighScores } from './components/HighScores';
 import { PLAIN } from './lib/lexicon';
 import {
   BANDS,
@@ -1773,6 +1775,33 @@ export default function App() {
   }, [data, state, result, at, page, shared]);
 
   /**
+   * The round, as the optional server gets to see it — or null, which is most of the time.
+   *
+   * **The same three exclusions the record of play uses**, and for the same reasons: the
+   * walkthrough is not a round somebody played, dev mode's solve button is not either, and
+   * reading somebody else's shared board is not playing it at all. A round sent to a scoreboard
+   * that failed any of those tests would be a score nobody earned.
+   *
+   * `actionsOf` is the series `GameState` would produce if asked — see actions.ts — which is
+   * also what a shared link carries. Nothing new is recorded to make this possible.
+   *
+   * With no server configured this is still computed and then ignored, which costs a walk over
+   * a handful of log entries per move. The alternative was a second condition to keep in step
+   * with the three above.
+   */
+  const playing: Playing | null = useMemo(() => {
+    if (!data || !state || page === 'tutorial' || shared !== null) return null;
+    if (devSolved.current.has(gameKey(state.puzzle, data.manifest))) return null;
+    return {
+      puzzle: state.puzzle.id,
+      actions: actionsOf(snapshot(state), state.puzzle),
+      solved: state.solved,
+    };
+  }, [data, state, page, shared]);
+
+  const served = useServer(playing);
+
+  /**
    * The game, as the tutorial's questions get to see it.
    *
    * Everything a step may ask about, and nothing that changes when the board merely moves:
@@ -2080,6 +2109,23 @@ export default function App() {
           />
         )}
       </div>
+
+      {/*
+        How the round did against everybody else's, below the fold.
+
+        Above the move list, because it is the more interesting of the two things you read
+        afterwards, and below the result, because the strip above the plate is held to three
+        short rows and a table is not three short rows. Draws nothing at all in a build with no
+        server — see HighScores.tsx.
+      */}
+      {finished && result && (
+        <HighScores
+          standing={served.standing}
+          me={served.me}
+          signIn={served.signIn}
+          signOut={served.signOut}
+        />
+      )}
 
       {/* Below the fold, in the same document: what you read after the figure. */}
       {finished && result && (

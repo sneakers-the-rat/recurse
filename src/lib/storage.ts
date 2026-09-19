@@ -254,6 +254,64 @@ export function addCompletion(record: Completion, manifest: RawManifest): boolea
 }
 
 /**
+ * Who this browser is to the optional server, if there is one.
+ *
+ * A fourth kind of thing and so a fourth key: the games are progress, the band is a preference,
+ * the completions are history, and this is an identity — the id the server minted and the token
+ * that proves this browser is it. See lib/server.ts, and api.ts for why the id cannot also be
+ * the credential.
+ *
+ * **Nothing about the game depends on it.** A build with no server never writes this, a player
+ * who never registers still has one, and a browser that loses it becomes a new anonymous player
+ * — which costs the history the *server* held and nothing that is stored here. That is the right
+ * way round: the local record of play is the one this game is built on, and the server's copy is
+ * the convenience.
+ */
+const PLAYER_KEY = 'recurse.player.v1';
+
+export interface StoredPlayer {
+  /** The UUID the server minted. Public — it travels in every scoreboard. */
+  id: string;
+  /** The username, or null for somebody who has not registered. */
+  name: string | null;
+  /** The secret. Sent as a bearer token and never shown. */
+  token: string;
+}
+
+export function loadPlayer(): StoredPlayer | null {
+  try {
+    const raw = store()?.getItem(PLAYER_KEY);
+    if (!raw) return null;
+    const saved: unknown = JSON.parse(raw);
+    if (typeof saved !== 'object' || saved === null) return null;
+    const player = saved as Partial<StoredPlayer>;
+    // An entry without both halves is not an identity: a token with no id cannot be shown on a
+    // scoreboard and an id with no token cannot do anything. Either way, start again.
+    if (typeof player.id !== 'string' || typeof player.token !== 'string') return null;
+    return {
+      id: player.id,
+      name: typeof player.name === 'string' ? player.name : null,
+      token: player.token,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Write it down, or forget it — which is what signing out does. */
+export function savePlayer(player: StoredPlayer | null): void {
+  try {
+    const at = store();
+    if (!at) return;
+    if (player) at.setItem(PLAYER_KEY, JSON.stringify(player));
+    else at.removeItem(PLAYER_KEY);
+  } catch {
+    // See `saveBand`. A browser that cannot remember who it is plays anonymously for ever,
+    // which is a worse scoreboard and not a worse game.
+  }
+}
+
+/**
  * The walkthrough: where in it the player got to, and the board they got there on.
  *
  * **Its own key, and that is the whole point.** The tutorial is played on a real puzzle that

@@ -1,0 +1,37 @@
+{
+  /*
+    The server's own, not an extension of the root's.
+
+    It compiles files from two places — `server/src` and the `src/lib` modules it replays rounds
+    with — and those have to be typechecked under the *same* options the client uses, or the
+    shared contract is only shared in name. So the strictness flags below are the root
+    tsconfig's, copied rather than inherited: `extends` would also inherit `include`, `jsx` and
+    the DOM libs, and a server that typechecks against `lib.dom` is a server where `fetch`,
+    `localStorage` and `window` all look equally available.
+
+    No DOM, then. `data.ts` is the one shared module that touches the network, and it reads
+    `import.meta.env?.BASE_URL` — which is why the server has its own loader (see `bank.ts`)
+    rather than calling into that half of it.
+  */
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "test", "build.js"]
+}
