@@ -26,7 +26,10 @@ import { Opening } from './components/Opening';
 import { DevBar } from './components/DevBar';
 import { GraphPlate } from './components/GraphPlate';
 import { GuessBar } from './components/GuessBar';
+import { Explore } from './components/Explore';
 import { Header } from './components/Header';
+import type { Ways } from './components/Masthead';
+import type { Playing } from './components/Boards';
 import { HowTo } from './components/HowTo';
 import { Puzzles } from './components/Puzzles';
 import { ResetView } from './components/ResetView';
@@ -39,11 +42,10 @@ import { Welcome } from './components/Welcome';
 import { LESSON } from './components/lessons';
 import type { Moment } from './lib/tutorial';
 import { shortestPath, shortestRoutes } from './lib/graph';
+import { guessedWords, moveKey } from './lib/found';
 import {
   applyGuess,
-  guessedWords,
   hintCount,
-  moveKey,
   newGame,
   restore,
   snapshot,
@@ -52,6 +54,7 @@ import {
 } from './lib/game';
 import { act, type World } from './lib/actions';
 import { PLAIN } from './lib/lexicon';
+import { usePlateSize } from './lib/usePlateSize';
 import {
   BANDS,
   idForDay,
@@ -77,7 +80,7 @@ import {
 } from './lib/daily';
 import {
   idFromPath,
-  modeFromPath,
+  pageArg,
   pageFromPath,
   pagePath,
   pathFor,
@@ -113,107 +116,8 @@ import {
   type Plate,
 } from './lib/camera';
 import { usePanZoom } from './lib/usePanZoom';
+import { useDevMode } from './lib/useDevMode';
 import type { Puzzle } from './lib/types';
-
-/**
- * The plate's size on screen, in pixels.
- *
- * The camera needs the real thing, not a ratio: scale is pixels per graph unit, and
- * that is what keeps a word the same size on a bare board and a crowded one.
- */
-function usePlateSize() {
-  // A callback ref, not a ref object: the plate does not exist on the first
-  // render — the game is still loading its data — so an effect that reads
-  // ref.current once on mount finds null and never looks again, which is how the
-  // board ended up laid out for a phone on a desktop.
-  const [element, setElement] = useState<HTMLElement | null>(null);
-  const [size, setSize] = useState<Plate>({ width: 0, height: 0 });
-
-  useEffect(() => {
-    if (!element) return;
-
-    /**
-     * Take a size, and say nothing if it is the size we already had.
-     *
-     * Both halves matter. A fresh `{width, height}` object every time is a new prop
-     * for the camera and a new view for the plate, so re-reporting an unchanged size
-     * re-rendered the board for nothing — and the plate is resized by ordinary play,
-     * because the error line under the guess bar reserves its space and the header's
-     * statement fades in.
-     */
-    const report = (width: number, height: number) => {
-      if (width <= 0 || height <= 0) return;
-      setSize((was) => (was.width === width && was.height === height ? was : { width, height }));
-    };
-
-    const box = element.getBoundingClientRect();
-    report(box.width, box.height);
-
-    // The observer's own `contentRect`, never `getBoundingClientRect` again: asking the
-    // element forces a synchronous layout of the whole document, and the document
-    // contains a thousand-element SVG. Measured at 80ms of the first second of a page
-    // load, for a number the observer had already worked out and handed over.
-    const observer = new ResizeObserver((entries) => {
-      const rect = entries[entries.length - 1]?.contentRect;
-      if (rect) report(rect.width, rect.height);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element]);
-
-  // The element itself as well as its size: the wheel is listened for on it directly,
-  // because React's own `wheel` is passive and cannot refuse a scroll. See usePanZoom.
-  return [setElement, size, element] as const;
-}
-
-/**
- * Whether the instrument panel is showing, and a way to turn it on and off *in place*.
- *
- * **Off unless asked for, everywhere.** It used to come up by itself in a development
- * build, which meant the game as written was never the game as seen: every `npm run dev`
- * page load, and most of what gets looked at while working, arrived with a bar of
- * instruments across the top of it.
- *
- * Asking is `?dev`, the switch in the help panel, or Ctrl+D, and all three are the same
- * toggle. The keystroke needs a keyboard and the parameter needs a URL bar, so on a phone
- * the switch is the only one of the three there is — and inspecting a real board on a real
- * phone is most of what the panel is for.
- *
- * The `dev` parameter is kept in step either way, so a reload holds whichever was chosen and
- * the state of the instruments is a thing that can be sent to somebody. Ctrl rather than a
- * bare key because GuessBar sends unmodified keystrokes to the guess field, where a shortcut
- * would arrive as a letter.
- */
-function useDevMode(): [boolean, () => void] {
-  const [on, setOn] = useState(() => {
-    const flag = new URLSearchParams(window.location.search).get('dev');
-    return flag !== null && flag !== '0' && flag !== 'false';
-  });
-
-  const toggle = useCallback(() => {
-    setOn((was) => {
-      const next = !was;
-      const url = new URL(window.location.href);
-      url.searchParams.set('dev', next ? '1' : '0');
-      window.history.replaceState(null, '', url);
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'd' || !event.ctrlKey || event.metaKey || event.altKey) {
-        return;
-      }
-      event.preventDefault();
-      toggle();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [toggle]);
-
-  return [on, toggle];
-}
 
 /** How long the whole board is held in shot, and how long the camera takes to close. */
 const OPENING_HOLD = 1100;
@@ -379,6 +283,25 @@ export default function App() {
    * back button pops. Null is the board.
    */
   const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname));
+  /**
+   * Which map the explore page has open, kept beside the path so a push re-renders.
+   *
+   * The path is the truth — see `openAtlas` — and this is what makes React notice it moved.
+   * A `popstate` puts both back; see the listener below.
+   */
+  const [atlasAt, setAtlasAt] = useState<string | null>(() =>
+    pageArg('explore', window.location.pathname),
+  );
+
+  /**
+   * Which day is on screen, for the one caller that cannot depend on it.
+   *
+   * The switch is handed to a memoised header, so a handler rebuilt every render is the header
+   * redrawn on every frame of a settle — which is what an inline `(next) => openDay(at.day,
+   * next)` was quietly doing. What it needs to know is which day the switch is changing the
+   * length *of*, and a ref is how something built once reads something that moves.
+   */
+  const atRef = useRef<{ day: number } | null>(null);
   const [years, setYears] = useState<ReadonlyMap<number, RawCalendar>>(new Map());
   const needYear = useCallback(
     (year: number) => {
@@ -403,7 +326,7 @@ export default function App() {
   /**
    * How a token is written, which is what a hint is counted in.
    *
-   * Hints are letters in every game — see `Spell` in game.ts — so anything that buys, caps or
+   * Hints are letters in every game — see `Spell` in hints.ts — so anything that buys, caps or
    * draws one needs this. `PLAIN.label` before the data lands, which is the identity and so
    * right for the letters game and harmless before there is a board.
    */
@@ -427,10 +350,32 @@ export default function App() {
   const openPage = useCallback((wanted: Page) => {
     window.history.pushState(null, '', pagePath(wanted, window.location.search));
     setPage(wanted);
+    // A page's second segment is part of its address, so going to the bare page has to let go
+    // of it — otherwise taking `Explore` from the masthead while a map is open puts `/explore`
+    // in the bar and leaves the map on screen.
+    if (wanted === 'explore') setAtlasAt(null);
   }, []);
 
   const openArchive = useCallback(() => openPage('archive'), [openPage]);
   const openStats = useCallback(() => openPage('stats'), [openPage]);
+
+
+  /**
+   * Which of the open game's boards is on screen, in the path.
+   *
+   * `explore/letters` and `explore/phonemes` are the two of them, and `explore` on its own is
+   * the list of maps — which is not a board and so is not in the switch. Pushed rather than
+   * replaced, so the back button comes out of a map into wherever it was opened from.
+   */
+  const openAtlas = useCallback((mode: string | null) => {
+    window.history.pushState(
+      null,
+      '',
+      pagePath('explore', window.location.search, undefined, mode ?? undefined),
+    );
+    setPage('explore');
+    setAtlasAt(mode);
+  }, []);
 
   /**
    * Which game's rules are being read, when that is what is on screen.
@@ -441,7 +386,7 @@ export default function App() {
    * `page` is — a popstate has to be able to change it.
    */
   const [rulesFor, setRulesFor] = useState<string | null>(() =>
-    modeFromPath(window.location.pathname),
+    pageArg('rules', window.location.pathname),
   );
 
   const openModeRules = useCallback((mode: string) => {
@@ -527,6 +472,7 @@ export default function App() {
       // the URL.
       setPage(teaching ? 'tutorial' : null);
       setAt({ day: chosen.day });
+      atRef.current = { day: chosen.day };
       // The length on screen is the one the player is on, and the one a bare visit will open
       // next time. Read off the puzzle rather than tracked separately: a board knows which of
       // the three it is, including a board arrived at by link.
@@ -751,6 +697,15 @@ export default function App() {
     // direct visit still needs a board resolved underneath — leaving a page has to land
     // somewhere — so the board is loaded and then the address put back.
     const arrived = pageFromPath(window.location.pathname);
+    /*
+      And what it carried, for the two pages that carry something: which game's rules, which
+      map. Read **now**, because `show` below rewrites the address to a board's id before this
+      effect is finished with it — and then putting the page back from a pathname that no
+      longer has it wrote a bare `explore` over the id of the map somebody had open.
+    */
+    const carried = arrived
+      ? (pageArg(arrived, window.location.pathname) ?? undefined)
+      : undefined;
     // `/tutorial` is the one page that names a board: the lesson's, so the shard fetched
     // with the graph is the one holding it rather than today's.
     const asked = arrived === 'tutorial' ? LESSON.puzzle : idFromPath(window.location.pathname);
@@ -778,13 +733,12 @@ export default function App() {
         // the board somebody sent rather than as an empty one.
         await showBoard(chosen, 'replace', 'play', codeForBoard(chosen, window.location.pathname));
         if (arrived) {
-          // The mode goes back into the address for the one page that has one, or arriving at
-          // `rules/phonemes` would rewrite itself to a bare `rules` and lose which game.
-          const of = arrived === 'rules' ? (rulesFor ?? undefined) : undefined;
+          // With its second segment, or arriving at `rules/phonemes` rewrites itself to a
+          // bare `rules` and loses which game — and `explore/{map}` loses which map.
           window.history.replaceState(
             null,
             '',
-            pagePath(arrived, window.location.search, undefined, of),
+            pagePath(arrived, window.location.search, undefined, carried),
           );
           setPage(arrived);
         }
@@ -813,9 +767,11 @@ export default function App() {
         return;
       }
       if (wanted) {
-        // The rules page carries which game in its second segment, so stepping back into one
-        // has to read it again — the two are one address.
-        if (wanted === 'rules') setRulesFor(modeFromPath(window.location.pathname));
+        // Two pages carry something in a second segment — which game's rules, which map — so
+        // stepping back into one has to read it again: the page and its argument are one
+        // address and the history entry holds both.
+        if (wanted === 'rules') setRulesFor(pageArg('rules', window.location.pathname));
+        if (wanted === 'explore') setAtlasAt(pageArg('explore', window.location.pathname));
         setPage(wanted);
         return;
       }
@@ -1306,7 +1262,7 @@ export default function App() {
         }
         return;
       }
-      // A hint is counted in *letters* — see `Spell` in game.ts — and `act` reaches for the
+      // A hint is counted in *letters* — see `Spell` in hints.ts — and `act` reaches for the
       // lexicon for that. Capped on the token instead, a long word said in few sounds would
       // stop selling letters half way through and a short one would charge for nothing.
       setState((s) => (s && world ? act(s, world, { do: 'hint', word }).state : s));
@@ -1332,6 +1288,22 @@ export default function App() {
   }, []);
 
   const openHelp = useCallback(() => setShowHelp(true), []);
+
+  /**
+   * The five ways off whatever board is on screen, as one object.
+   *
+   * Every masthead takes the same five and passing them one at a time is how two of them come
+   * to offer four each. See `Ways` in Masthead.tsx.
+   */
+  const ways: Ways = useMemo(
+    () => ({
+      onPuzzles: openArchive,
+      onStats: openStats,
+      onTutorial: goTutorial,
+      onHelp: openHelp,
+    }),
+    [openArchive, openStats, goTutorial, openHelp],
+  );
   const closeHelp = useCallback(() => setShowHelp(false), []);
 
   /**
@@ -1396,6 +1368,36 @@ export default function App() {
    *
    * Stepping stays in the length being played. Moving between lengths is the header's job.
    */
+  /**
+   * Go and play something else.
+   *
+   * **The two kinds of board are opened quite differently and the switch does not care.** A
+   * daily one keeps the day and changes the length — a link to Tuesday's short board leads to
+   * Tuesday's long one, not to today's — and needs a shard fetched before it can be drawn. An
+   * open one is a map this browser already holds, or none yet, and is a page. What they have
+   * in common is that they are both things to play, which is what `Boards` offers and this
+   * resolves.
+   */
+  const pick = useCallback(
+    (wanted: Playing) => {
+      if ('daily' in wanted) {
+        // The day is kept and the length changes: a link to Tuesday's short board leads to
+        // Tuesday's long one, not to today's. Coming from a map there is no day being played,
+        // so it is today's.
+        openDay(atRef.current?.day ?? dayNumber(new Date(), dataRef.current?.manifest.epoch), wanted.daily);
+        return;
+      }
+      window.history.pushState(
+        null,
+        '',
+        pagePath('explore', window.location.search, undefined, wanted.explore),
+      );
+      setPage('explore');
+      setAtlasAt(wanted.explore);
+    },
+    [openDay],
+  );
+
   const goToPuzzle = useCallback((next: number) => openDay(next, band), [openDay, band]);
 
   /** Out of the lesson and on to the board the player actually came for. */
@@ -1837,6 +1839,26 @@ export default function App() {
     that produces is a plate built from nothing rather than an error. So it is checked, and a
     mismatch reads as still loading, which is exactly what it is.
   */
+  /**
+   * The explore mode, which is a different game and not a board of this one.
+   *
+   * **Above the loading guard**, unlike every other page: the archive and the record are
+   * about the bank and so genuinely need it, and this needs nothing but the manifest. Below
+   * it, a visit to `/explore` would sit on a spinner waiting for a daily board it is never
+   * going to draw. See `Explore`, which fetches its own graph and its own map.
+   */
+  if (page === 'explore' && data) {
+    return (
+      <Explore
+        manifest={data.manifest}
+        open={atlasAt}
+        ways={ways}
+        onOpen={openAtlas}
+        onPlay={pick}
+      />
+    );
+  }
+
   const paired = data === null || state === null
     ? false
     : data.mode === modeOfBand(state.puzzle.band, data.manifest);
@@ -1974,10 +1996,8 @@ export default function App() {
           // anything to read. The letters game has none and draws no marker.
           game={hasModeRules(hereMode) ? hereMode : null}
           onModeRules={() => openModeRules(hereMode)}
-          band={band}
-          // The day is kept and the length changes: a link to Tuesday's short board leads to
-          // Tuesday's long one, not to today's.
-          onBand={(next) => openDay(at.day, next)}
+          at={{ daily: band }}
+          onPlay={pick}
           day={at.day}
           guesses={state.guesses}
           hints={hintCount(state)}
@@ -1988,10 +2008,7 @@ export default function App() {
           // Not on somebody else's board: the round up there is theirs, and `SharedBoard`
           // already offers the one thing there is to do with it. See `frozen`.
           onShare={frozen ? undefined : shareBoard}
-          onHelp={openHelp}
-          onPuzzles={openArchive}
-          onStats={openStats}
-          onTutorial={goTutorial}
+          ways={ways}
         />
 
         {/*

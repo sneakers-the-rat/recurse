@@ -4,7 +4,7 @@
  * that is wrong rather than a graph that throws.
  */
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -44,7 +44,7 @@ describe('the vocabulary each game is pinned to', () => {
       // — three of the four files depend on the common tier, which `vocab` does not cover.
       expect(one.vocab, one.name).toMatch(/^[0-9a-f]{4,}$/);
       expect(one.data, one.name).toMatch(/^[0-9a-f]{4,}$/);
-      const wanted = ['dictionary', 'graph', 'common'];
+      const wanted = ['dictionary', 'graph', 'common', 'regions'];
       if (one.alphabet !== 'letters') wanted.push('lexicon');
       for (const what of wanted) {
         const name = modeFile(what, mode, manifest);
@@ -55,13 +55,47 @@ describe('the vocabulary each game is pinned to', () => {
   });
 
   /**
+   * **And it is the vocabulary `recurse.yaml` declares**, which is what says no board has been
+   * renamed.
+   *
+   * Every puzzle id is a digest of its mode, its pair and its vocabulary, so a vocabulary that
+   * has moved is every link anybody has shared, broken. The builder refuses to disagree with
+   * the declared digest — but only on a machine that ran the builder, and what ships is
+   * `public/data`. This is the same tripwire read off the artefact: if these two ever part
+   * company, the bank on disk was built from a word list nobody declared.
+   *
+   * It is deliberately not a *literal* digest written down here. Pinning the number in a test
+   * would mean editing the test to accept a change, which is the one place a tripwire must not
+   * be convenient; `vocab:` in recurse.yaml is where that decision is made.
+   */
+  it('is the one recurse.yaml declares, so no board has been renamed', () => {
+    const config = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'recurse.yaml'),
+      'utf8',
+    );
+    // `name:` then, somewhere under it and before the next mode, `vocab:`.
+    const declared = new Map<string, string>();
+    let mode: string | null = null;
+    for (const line of config.split('\n')) {
+      const named = /^\s*-\s*name:\s*(\w+)/.exec(line);
+      if (named) mode = named[1]!;
+      const vocab = /^\s*vocab:\s*'?([0-9a-f]{8})'?/.exec(line);
+      if (vocab && mode) declared.set(mode, vocab[1]!);
+    }
+    expect(declared.size, 'recurse.yaml declares a vocab per mode').toBe(manifest.modes.length);
+    for (const one of manifest.modes) {
+      expect(one.vocab, one.name).toBe(declared.get(one.name));
+    }
+  });
+
+  /**
    * And nothing else in the directory, because a stale vocabulary is six megabytes of file a
    * browser could still be asking for by name — which was the whole reason for versioning
    * them. The builder sweeps them; this is what notices if it stops.
    */
   it('leaves no file from another vocabulary behind', () => {
     for (const [mode, one] of manifest.modes.entries()) {
-      const ours = ['dictionary', 'graph', 'common', 'lexicon'].map((what) =>
+      const ours = ['dictionary', 'graph', 'common', 'regions', 'lexicon'].map((what) =>
         modeFile(what, mode, manifest).split('/').pop(),
       );
       const found = readdirSync(join(dir, one.name)).filter((name) => name.endsWith('.json'));

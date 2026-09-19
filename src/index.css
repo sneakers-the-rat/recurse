@@ -212,10 +212,78 @@ svg :focus:not(:focus-visible) {
   animation: crossed 700ms 200ms ease-in forwards;
 }
 
+/*
+ * A word arriving on an open map.
+ *
+ * It grows out of nothing rather than appearing at its own size — which is most of what makes a
+ * guess read as the map growing rather than as the board being redrawn.
+ *
+ * **Both the delay and the duration come in per element**, as `--delay` and `--grow`, because
+ * the whole arrival is on a schedule rather than a stagger: a guess onto a hub brings a hundred
+ * and eighty words in at once, and the reward for it is watching them come. Where those numbers
+ * come from is `sprout.ts`, and the same ones drive the word's *journey* outward in
+ * `useAtlasLayout` — the mark's fade and its travel have to be the one gesture.
+ *
+ * `backwards` is what holds a word invisible through its own delay, and is therefore not
+ * optional here: without it a dot with a four-second delay is drawn at full size for four
+ * seconds and then animates.
+ *
+ * `transform-box: fill-box` so the scale is about the mark's own middle and not the SVG's
+ * origin — the same reason `.surface` needs it.
+ */
+@keyframes sprout {
+  from {
+    opacity: 0;
+    transform: scale(0.12);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sprout {
+  animation: sprout var(--grow, 760ms) cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+  animation-delay: var(--delay, 0ms);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/*
+ * A move reaching out from a word that has just arrived.
+ *
+ * The line draws itself from one end to the other rather than appearing, and it does not begin
+ * until the word at its far end is most of the way to where it is going — a line drawn to a word
+ * still on its way looks like the line was there first and the word slid down it. `--delay` and
+ * `--draw` are per edge, from the same schedule the marks are on.
+ *
+ * `pathLength="1"` is what makes one rule cover lines of every length: it renumbers the line's
+ * own arithmetic so a dash of 1 is the whole of it, whatever it measures in graph units.
+ */
+@keyframes reach {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.tendril .reach {
+  stroke-dasharray: 1;
+  animation: reach var(--draw, 520ms) cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+  animation-delay: var(--delay, 0ms);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .surface,
-  .refuse {
+  .refuse,
+  .sprout,
+  .tendril .reach {
     animation: none;
+  }
+  .tendril .reach {
+    stroke-dasharray: none;
   }
   *,
   *::before,

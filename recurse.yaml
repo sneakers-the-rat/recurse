@@ -91,6 +91,15 @@ defaults:
   # twice as dense, which means far more routes and far more alternatives to weigh.
   minSub: 2
 
+  # Smallest connected component of the common graph that is part of the explore mode's
+  # map. A word with no moves at all, or a pair that only join each other, is not somewhere
+  # to explore: you could never arrive there and there would be nothing to do on arrival.
+  #
+  # **This decides the map, not the word list.** Those words are still legal guesses, still
+  # in the shipped dictionary, and still perfectly good on a daily board — so this moves no
+  # vocabulary digest and renames no puzzle. One keeps every component. See regions.rs.
+  minComponent: 3
+
   # Dictionaries (SCOWL sizes: 35 small ... 80 comprehensive).
   #
   # LEGAL is the graph that ships and every word a player may guess. Generous on

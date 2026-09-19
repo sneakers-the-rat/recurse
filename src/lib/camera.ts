@@ -169,12 +169,40 @@ export function openingCamera(box: Box, spineHeight: number, plate: Plate): Came
   };
 }
 
-/** The view that shows all of something, with a little air around it. */
+/**
+ * The view that shows all of something, with a little air around it.
+ *
+ * **`MIN_SCALE` is not a floor here, and that is the whole difference between this and a
+ * gesture.** The floor exists so a pinch cannot lose the board; a board that does not fit at
+ * the floor is exactly the case where holding to it loses the board instead. An open map of two
+ * thousand words is twelve thousand units across and wants about 0.1 on a desktop plate, so
+ * "show me all of it" clamped to 0.22 framed the middle third and cut the rest off every edge.
+ * A daily figure never comes near this: it asks for far more than the floor and is unaffected.
+ *
+ * Still bounded below by something, because a plate that has not been measured yet is zero
+ * pixels wide and a scale of nothing divides the whole camera by zero.
+ */
 export function fitCamera(box: Box, plate: Plate, margin = 30): Camera {
   const width = Math.max(box.maxX - box.minX + margin * 2, 1);
   const height = Math.max(box.maxY - box.minY + margin * 2, 1);
-  const scale = clamp(Math.min(plate.width / width, plate.height / height), MIN_SCALE, MAX_SCALE);
+  const fits = Math.min(plate.width / width, plate.height / height);
+  const scale = clamp(fits, Math.min(MIN_SCALE, fits > 0 ? fits : MIN_SCALE), MAX_SCALE);
   return { cx: (box.minX + box.maxX) / 2, cy: (box.minY + box.maxY) / 2, scale };
+}
+
+/**
+ * How far out a gesture may pull *this* board.
+ *
+ * `MIN_SCALE` is the ordinary stop and is right for anything that fits inside it. An open map
+ * does not: two thousand words is twelve thousand units across and the whole of it wants about
+ * a tenth. Holding a pinch to the constant on a board like that means the one view the player
+ * most wants — all of it — is the one view they cannot reach, and a wheel turned outward from a
+ * freshly framed map jumps *inward*.
+ *
+ * So the stop is whichever is further out: the constant, or what it takes to see the lot.
+ */
+export function leastScale(box: Box, plate: Plate): number {
+  return Math.min(MIN_SCALE, fitCamera(box, plate).scale);
 }
 
 /**
@@ -189,8 +217,10 @@ export function zoomAround(
   plate: Plate,
   factor: number,
   at: { x: number; y: number },
+  /** How far out this board may be pulled. See `leastScale`. */
+  least: number = MIN_SCALE,
 ): Camera {
-  const scale = clamp(camera.scale * factor, MIN_SCALE, MAX_SCALE);
+  const scale = clamp(camera.scale * factor, least, MAX_SCALE);
   if (scale === camera.scale) return camera;
   // The graph point under the pointer, before and after: the centre moves by the
   // difference, so that point stays put.

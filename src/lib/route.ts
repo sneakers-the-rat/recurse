@@ -73,13 +73,14 @@ export function base(): string {
  * rather than off the board on screen so the page can be linked to — it is a thing somebody
  * sends somebody else, which is the whole reason it is a page and not a panel.
  */
-export type Page = 'archive' | 'stats' | 'tutorial' | 'rules';
+export type Page = 'archive' | 'stats' | 'tutorial' | 'rules' | 'explore';
 
 const PAGES: Record<Page, string> = {
   archive: 'puzzles',
   stats: 'stats',
   tutorial: 'tutorial',
   rules: 'rules',
+  explore: 'explore',
 };
 
 /** The first segment of a path, with the base and any trailing segments taken off. */
@@ -94,18 +95,21 @@ function segments(path: string, from: string): string[] {
 }
 
 /**
- * The mode a `rules/{mode}` path names, or null when it names none.
+ * What a page's second segment says, or null when it has none.
  *
- * A bare `rules` answers null rather than guessing at a game, and so does any other path.
- * Which mode names are real is the manifest's business, not this module's — a name it does
- * not know is a page with nothing to say, the same way an unknown id is a board that is not
- * there.
+ * Two pages take one and they mean different things by it: `rules/{mode}` names the game
+ * whose rules are being stated, and `explore/{atlas}` names which of somebody's saved maps is
+ * open. Neither is checked here — which modes and which atlases are real is the manifest's
+ * business and the browser's respectively. A name this does not know is a page with nothing
+ * to say, the same way an unknown id is a board that is not there.
+ *
+ * A bare `rules` or `explore` answers null rather than guessing, and so does any other path.
  */
-export function modeFromPath(path: string, from: string = base()): string | null {
+export function pageArg(page: Page, path: string, from: string = base()): string | null {
   const parts = segments(path, from);
-  if (parts[0]?.toLowerCase() !== PAGES.rules) return null;
-  const mode = parts[1]?.toLowerCase() ?? '';
-  return mode === '' ? null : mode;
+  if (parts[0]?.toLowerCase() !== PAGES[page]) return null;
+  const arg = parts[1]?.toLowerCase() ?? '';
+  return arg === '' ? null : arg;
 }
 
 /** The id a path names, or null if it names none. */

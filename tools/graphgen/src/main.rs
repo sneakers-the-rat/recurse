@@ -31,6 +31,7 @@ mod id;
 mod lexicon;
 mod phonetic;
 mod progress;
+mod regions;
 mod select;
 mod word;
 mod words;
@@ -192,6 +193,9 @@ struct Built<'a> {
     vocab: String,
     legal: graph::Graph,
     common: graph::Graph,
+    /// The common graph carved into territories, for the explore mode's map. Indexed by
+    /// *common-graph* word id, like the graph it is about. See regions.rs.
+    regions: regions::Regions,
     /// Before `schedule`, which runs once over the merged bank.
     ///
     /// Absent when the question did not need one. See `Want`.
@@ -392,8 +396,41 @@ fn build_mode<'a>(
     let legal = tier("legal ", &lex.legal, &legal_subs);
     let common = tier("common", &lex.common, &common_subs);
 
+    // The explore mode's map: the common graph, minus the components too small to be anywhere,
+    // carved into territories. Cheap next to either graph, and every command gets one because
+    // `pair` and `routes` are worth being able to ask which region a word is in.
+    let phase = Instant::now();
+    let ranks: Vec<usize> = common
+        .words
+        .iter()
+        .map(|token| {
+            // A phonemes token is ranked by its most familiar spelling; a letters token is its
+            // own spelling. Unranked words sort last and so never name a region over a word the
+            // frequency list has heard of.
+            let spelling = lex.labels(token).first().map(String::as_str).unwrap_or(token);
+            corpora.rank.get(spelling).copied().unwrap_or(usize::MAX)
+        })
+        .collect();
+    let regions = regions::build(&common, mode.min_component, &ranks, config.shared.seed);
+    let size = regions.sizes();
+    eprintln!(
+        "  regions: {} over {} words in {} component(s) — {} of ten words or more, holding {} \
+         of them ({:.0}%), largest {}. {} word(s) are off the map, in components under {}. \
+         {:.1}s",
+        size.count,
+        size.words,
+        regions.components,
+        size.real,
+        size.in_real,
+        100.0 * size.in_real as f64 / size.words.max(1) as f64,
+        size.largest,
+        regions.dropped,
+        mode.min_component,
+        phase.elapsed().as_secs_f64(),
+    );
+
     if want == Want::Graphs {
-        return Ok(Built { mode, lex, vocab, legal, common, found: None });
+        return Ok(Built { mode, lex, vocab, legal, common, regions, found: None });
     }
 
     // The search is the expensive half and its result is cached; the calendar and the output
@@ -469,7 +506,7 @@ fn build_mode<'a>(
         }
     };
 
-    Ok(Built { mode, lex, vocab, legal, common, found: Some(found) })
+    Ok(Built { mode, lex, vocab, legal, common, regions, found: Some(found) })
 }
 
 fn run(command: Command, only: Option<&str>) -> Result<(), String> {
@@ -2171,12 +2208,13 @@ fn named(what: &str, digest: &str) -> String {
     format!("{what}-{digest}.json")
 }
 
-/// Which of the four a mode ships. The lexicon is only for a translated alphabet.
+/// Which files a mode ships. The lexicon is only for a translated alphabet.
 fn mode_files(one: &Built, digest: &str) -> Vec<String> {
     let mut names = vec![
         named("dictionary", digest),
         named("graph", digest),
         named("common", digest),
+        named("regions", digest),
     ];
     if one.mode.alphabet != Alphabet::Letters {
         names.push(named("lexicon", digest));
@@ -2301,7 +2339,7 @@ fn write_mode(dir: &Path, one: &Built) -> Result<String, String> {
 
     // Every body, then the digest of all of them, then the files. Named by their own bytes —
     // see `named` — so this is the one order that can produce that name.
-    let mut bodies = vec![dictionary, graph_json, common_json];
+    let mut bodies = vec![dictionary, graph_json, common_json, regions_body(one, &index)];
     if mode.alphabet != Alphabet::Letters {
         bodies.push(lexicon_body(one, &index));
     }
@@ -2311,6 +2349,37 @@ fn write_mode(dir: &Path, one: &Built) -> Result<String, String> {
         eprintln!("  wrote {}/{name} ({} KB)", mode.name, body.len() / 1024);
     }
     Ok(digest)
+}
+
+/// The explore mode's map: which territory each word is in, and what each is called.
+///
+/// Indexed against the **dictionary**, like `common.json` and the graph rows, so the client
+/// needs nothing but the word list to read it. A word in no region is simply absent — that is
+/// how a component too small to explore, and every word with no moves at all, says so, and it
+/// is the majority of the list, so listing the exclusions instead would be the larger file.
+///
+/// Ids ascend within a region and delta-encode, which is the same trade `common.json` makes.
+/// The regions themselves are ordered by their first member, so the file is diffable: a region
+/// that gained a word stays where it was rather than the whole list shifting.
+fn regions_body(one: &Built, index: &FxMap<&str, u32>) -> String {
+    let mut rows: Vec<String> = Vec::with_capacity(one.regions.regions.len());
+    for region in &one.regions.regions {
+        let mut ids: Vec<u32> = region
+            .words
+            .iter()
+            .filter_map(|&id| index.get(one.common.word(id)).copied())
+            .collect();
+        ids.sort_unstable();
+        let mut row = format!("{{\"name\":\"{}\",\"words\":[", one.lex.label(one.common.word(region.name)));
+        push_deltas(&mut row, ids);
+        row.push_str("]}");
+        rows.push(row);
+    }
+    format!(
+        "{{\"minComponent\":{},\"regions\":[{}]}}",
+        one.mode.min_component,
+        rows.join(",")
+    )
 }
 
 /// How to read a token back: what to draw it as, and how to say it.

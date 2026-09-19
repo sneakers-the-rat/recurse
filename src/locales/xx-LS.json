@@ -721,6 +721,12 @@
       "value": "DEVSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "dev.blank": [
+    {
+      "type": 0,
+      "value": "blankSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "dev.closeCode": [
     {
       "type": 0,
@@ -793,6 +799,18 @@
       "value": "corridorSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "dev.figure": [
+    {
+      "type": 0,
+      "value": "figureSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.fill": [
+    {
+      "type": 0,
+      "value": "fillSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "dev.find": [
     {
       "type": 0,
@@ -829,6 +847,12 @@
     {
       "type": 0,
       "value": "…SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.found": [
+    {
+      "type": 0,
+      "value": "foundSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "dev.goTo": [
@@ -879,6 +903,12 @@
       "value": "ShufflingSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "dev.mana": [
+    {
+      "type": 0,
+      "value": "manaSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "dev.nameAll": [
     {
       "type": 0,
@@ -925,6 +955,12 @@
     {
       "type": 0,
       "value": "parSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.pay": [
+    {
+      "type": 0,
+      "value": "paySSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "dev.position": [
@@ -1013,10 +1049,546 @@
       "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "dev.shown": [
+    {
+      "type": 0,
+      "value": "shownSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "dev.solve": [
     {
       "type": 0,
       "value": "solveSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.standing": [
+    {
+      "type": 0,
+      "value": "atSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.stopWalk": [
+    {
+      "type": 0,
+      "value": "stopSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.territories": [
+    {
+      "type": 0,
+      "value": "regionsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.walk": [
+    {
+      "type": 0,
+      "value": "walkSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.walkHow": [
+    {
+      "type": 0,
+      "value": "movesSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.walkLabel": [
+    {
+      "type": 0,
+      "value": "How many moves to walkSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.abandon": [
+    {
+      "type": 0,
+      "value": "Give upSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.alreadyHere": [
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " is already on the map.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.alreadyNamed": [
+    {
+      "type": 0,
+      "value": "You already know how long "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " is.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.begin": [
+    {
+      "type": 0,
+      "value": "BeginSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.blurb": [
+    {
+      "type": 0,
+      "value": "An open map of the whole word graph. No par, no clock, no day: pick a word, and see how much of the language you can reach from it. A map is yours and keeps until you delete it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.cancel": [
+    {
+      "type": 0,
+      "value": "CancelSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.costs": [
+    {
+      "type": 1,
+      "value": "points"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.drop": [
+    {
+      "type": 0,
+      "value": "Drop a wordSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.dropHow": [
+    {
+      "type": 0,
+      "value": "Type any word. It costs one mana per letter.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.found": [
+    {
+      "type": 0,
+      "value": "foundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.held": [
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " word"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " words"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "found"
+    },
+    {
+      "type": 0,
+      "value": " · "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " region"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " regions"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "regions"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.mana": [
+    {
+      "type": 0,
+      "value": "manaSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.maps": [
+    {
+      "type": 0,
+      "value": "mapsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.missionAway": [
+    {
+      "type": 1,
+      "value": "hops"
+    },
+    {
+      "type": 0,
+      "value": " awaySSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.missionDone": [
+    {
+      "type": 0,
+      "value": "Found "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " — "
+    },
+    {
+      "type": 1,
+      "value": "points"
+    },
+    {
+      "type": 0,
+      "value": " manaSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.missionPays": [
+    {
+      "type": 0,
+      "value": "+"
+    },
+    {
+      "type": 1,
+      "value": "points"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.missions": [
+    {
+      "type": 0,
+      "value": "MissionsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.missionsHeld": [
+    {
+      "type": 1,
+      "value": "taken"
+    },
+    {
+      "type": 0,
+      "value": " of "
+    },
+    {
+      "type": 1,
+      "value": "slots"
+    },
+    {
+      "type": 0,
+      "value": " in hand · "
+    },
+    {
+      "type": 1,
+      "value": "offers"
+    },
+    {
+      "type": 0,
+      "value": " on offerSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.nameIt": [
+    {
+      "type": 0,
+      "value": "Count lettersSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.nameItHow": [
+    {
+      "type": 0,
+      "value": "Tap a word you have not found.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.newAtlas": [
+    {
+      "type": 0,
+      "value": "New mapSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.noMaps": [
+    {
+      "type": 0,
+      "value": "No maps yet.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.noMissions": [
+    {
+      "type": 0,
+      "value": "Nothing left far enough away to be worth a mission.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.notOnTheMap": [
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " has nowhere to go — no other word is one move from it, so there would be nothing to explore.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.open": [
+    {
+      "type": 0,
+      "value": "OpenSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.openMissions": [
+    {
+      "type": 0,
+      "value": "Show missionsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.plate": [
+    {
+      "type": 0,
+      "value": "A map of "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " word"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " words"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "total"
+    },
+    {
+      "type": 0,
+      "value": " across "
+    },
+    {
+      "offset": 0,
+      "options": {
+        "one": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " region"
+            }
+          ]
+        },
+        "other": {
+          "value": [
+            {
+              "type": 7
+            },
+            {
+              "type": 0,
+              "value": " regions"
+            }
+          ]
+        }
+      },
+      "pluralType": "cardinal",
+      "type": 6,
+      "value": "regions"
+    },
+    {
+      "type": 0,
+      "value": ", "
+    },
+    {
+      "type": 1,
+      "value": "named"
+    },
+    {
+      "type": 0,
+      "value": " of them foundSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.reallyRemove": [
+    {
+      "type": 0,
+      "value": "Delete "
+    },
+    {
+      "type": 1,
+      "value": "name"
+    },
+    {
+      "type": 0,
+      "value": "? This cannot be undone.SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.regions": [
+    {
+      "type": 0,
+      "value": "regionsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.remove": [
+    {
+      "type": 0,
+      "value": "DeleteSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.rename": [
+    {
+      "type": 0,
+      "value": "RenameSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.shutMissions": [
+    {
+      "type": 0,
+      "value": "Hide missionsSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.slotEmpty": [
+    {
+      "type": 0,
+      "value": "empty slotSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.startFrom": [
+    {
+      "type": 0,
+      "value": "Start fromSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.startHint": [
+    {
+      "type": 0,
+      "value": "Any word with moves out of itSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.take": [
+    {
+      "type": 0,
+      "value": "TakeSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.title": [
+    {
+      "type": 0,
+      "value": "ExploreSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.tooPoor": [
+    {
+      "type": 0,
+      "value": "Not enough mana — "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": " costs "
+    },
+    {
+      "type": 1,
+      "value": "points"
+    },
+    {
+      "type": 0,
+      "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.touched": [
+    {
+      "type": 0,
+      "value": "last played "
+    },
+    {
+      "type": 1,
+      "value": "date"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.travel": [
+    {
+      "type": 0,
+      "value": "go to "
+    },
+    {
+      "type": 1,
+      "value": "word"
+    },
+    {
+      "type": 0,
+      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "explore.which": [
+    {
+      "type": 0,
+      "value": "Which game?SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "guess.empty": [
@@ -1607,10 +2179,16 @@
       "value": " is said, so it can’t be played here.SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
-  "header.chooseLength": [
+  "header.boardMenu": [
     {
       "type": 0,
-      "value": "Choose a lengthSSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "BoardSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "header.chooseBoard": [
+    {
+      "type": 0,
+      "value": "Choose a boardSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "header.day": [
@@ -1689,12 +2267,6 @@
     {
       "type": 0,
       "value": ")SSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
-  "header.lengthMenu": [
-    {
-      "type": 0,
-      "value": "LengthSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "header.menu": [
@@ -2253,6 +2825,12 @@
     {
       "type": 0,
       "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "modes.explore": [
+    {
+      "type": 0,
+      "value": "exploreSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "modes.letters": [

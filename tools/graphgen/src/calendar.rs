@@ -1,35 +1,18 @@
 //! Which board every band shows on every day.
 //!
-//! A day offers one board of every band there is, and the thing a player notices when that
-//! goes wrong is not a repeated *puzzle* — it is a repeated *stretch of graph*. Two boards on
-//! the same day both drawing `pants → pageants → pages` are the same discovery twice, however
-//! different their endpoints are. So the unit this works in is a **chain**: three words of a
-//! board joined by two moves. A board of 27 words holds about 76 of them, and the whole
-//! letters bank only has 32,000 distinct ones, which is what makes the collision common enough
-//! to be worth scheduling around and rare enough to schedule around.
-//!
 //! Three things are asked of the calendar, in this order:
 //!
-//! 1. **No two boards on one day share a chain.** Hard: a day that cannot be filled without one
-//!    is a failure worth reporting, not a trade to make quietly.
+//! 1. **No two boards on one day share a chain.** Hard
 //! 2. **As few repeated words as possible between one day's boards.** Soft, and ranked above
 //!    everything below it — a word on two of today's boards is the next thing down from a chain.
 //! 3. **A chain's appearances as far apart as the calendar allows.** Soft, and measured against
-//!    what is *possible*: a chain that half the bank draws cannot be more than a few days from
-//!    itself, so earliness is judged against a chain's own fair share of the calendar rather
-//!    than against a fixed target. See `fair`.
+//!    what is *possible*
 //!
 //! Only boards of the same mode can collide at all — a chain is three nodes of one graph, and
 //! the two games have different graphs in different alphabets — so the letters bands and the
 //! phonemes bands are scheduled against each other and not against one another's.
 //!
-//! **The cycling is a choice made here, not arithmetic the client repeats.** The calendar runs
-//! as long as the longest band, so a shorter band has to come round again; `{year}.json` names
-//! a puzzle per band per day outright, so what a short band repeats is up to this file. It
-//! deals each band as a **deck**: its whole list, shuffled, dealt out, reshuffled when it runs
-//! dry. Every puzzle still appears once per pass and a puzzle still recurs about every
-//! `len(band)` days, which is what the modulo gave; what it buys is that *which* card comes
-//! next is free, and that freedom is the whole of how the three promises above get kept.
+//! Since bands are all of different lengths, we repeat the shorter ones, shuffling them as well, such that all bands are equal length.
 
 use crate::config::Shared;
 use crate::graph::{FxMap, Graph};

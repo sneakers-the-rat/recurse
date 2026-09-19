@@ -1,44 +1,33 @@
 /**
- * The plate: every move worth knowing about, drawn as one figure.
+ * The daily board: every move worth knowing about, drawn as one figure.
  *
- * Visual grammar, quietest to loudest:
+ * What a word looks like and what a move looks like are `plate/PlateNode` and
+ * `plate/PlateEdge` — that grammar belongs to the game rather than to one board of it. What is
+ * here is the daily puzzle's own emphasis on top of it: the answer route in gilt, the two words
+ * you were given, the fan of unexplored moves off a word you have reached, a shortcut you have
+ * found an end of, and the signs for moves you have bought.
  *
- *   unrevealed     a small ash dot — a word that exists here and is unnamed
- *   on the route   the same dot in gilt — this one lies on a shortest path
- *   hinted once    ring holding the letter count
- *   hinted more    the letters asked for, dim, with a dot per letter still unknown
- *   revealed       full circle, filled and labelled, ringed gilt on the route and bone off it
- *   source/target  bone, double ring, named from the start
- *   selected       gilt outer ring, where the next guess comes from
+ * Subword labels appear only on edges actually traversed, and the fan of moves leading off the
+ * board only on words the player has named, so the figure fills in as a record of what they did
+ * rather than a spoiler of what they could do.
  *
- * **A node's colour is about the route, never about the move that reached it.** Gilt means
- * on a shortest way through; bone means not. The moves keep their own grammar on the
- * *edges*, where adding is gilt and removing is blood, because an edge is a move and a
- * word is only a word — see the note on `ring` below for what colouring nodes by move
- * kind actually looked like.
- *
- * Size tracks *knowledge*, never structure. A named word is a full circle; an
- * unnamed one is a dot. That is the fix for a board of ninety identical rings, in
- * which the two words the puzzle is about were impossible to find and every
- * alternative shouted as loudly as the route. It leaks nothing — every unnamed
- * word is the same size as every other, whatever its degree.
- *
- * Subword labels appear only on edges actually traversed, and the fan of moves
- * leading off the board only on words the player has named, so the figure fills
- * in as a record of what they did rather than a spoiler of what they could do.
- *
- * Hovering lifts edges out of that background: a word brightens every move from it,
- * an edge brightens itself. Geometry only — the subword stays hidden, or pointing at
- * a line would be a free hint.
+ * Hovering lifts edges out of that background: a word brightens every move from it, an edge
+ * brightens itself. Geometry only — the subword stays hidden, or pointing at a line would be a
+ * free hint.
  */
 
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { useIntl } from 'react-intl';
 import { board as says } from '../i18n/messages/board';
-import { moveSign, Said } from './marks';
-import { fullyHinted, hintLabel, isFront, moveHint, type GameState } from '../lib/game';
+import { moveSign } from './marks';
+import { Plate } from './plate/Plate';
+import { PlateEdge } from './plate/PlateEdge';
+import { PlateNode } from './plate/PlateNode';
+import { MARK_ALONG } from './plate/sizes';
+import { usePointing } from './plate/usePointing';
+import { isFront, moveHint, type GameState } from '../lib/game';
 import type { Lexicon } from '../lib/lexicon';
-import type { PlateEdge } from '../lib/plate';
+import type { PlateEdge as Edge } from '../lib/plate';
 import type { Point } from '../lib/types';
 
 interface Props {
@@ -54,7 +43,7 @@ interface Props {
   lexicon: Lexicon;
   /** Every node to draw: routes on the board, plus anything found off it. */
   nodes: readonly string[];
-  edges: readonly PlateEdge[];
+  edges: readonly Edge[];
   positions: ReadonlyMap<string, Point>;
   /** Nodes on some shortest source→target path. */
   routeNodes: ReadonlySet<string>;
@@ -101,481 +90,13 @@ interface Props {
   view: { x: number; y: number; width: number; height: number };
   /** Drag, pinch and wheel, from usePanZoom. Spread onto the SVG. */
   gestures?: Record<string, unknown>;
-  /**
-   * The wheel belongs to the board rather than to the page, because a pointer has come
-   * to rest here. Shown as the cursor, alongside the lit border App draws: a wheel that
-   * has stopped scrolling the page needs to say why. See DWELL_MS in usePanZoom.
-   */
+  /** The wheel belongs to the board rather than to the page. See DWELL_MS in usePanZoom. */
   engaged?: boolean;
   onSelect: (word: string) => void;
   onHint: (word: string) => void;
   /** Dev mode: spell this word out. */
   onSpell?: (word: string) => void;
 }
-
-/** A word the player has named. */
-const NODE_R = 14;
-/** A word that is on the board but unnamed: present, not competing. */
-const DOT_R = 4.5;
-/**
- * How far from a word's mark still counts as pointing at it.
- *
- * Wider than the mark, because a dot is four units across and a thumb is not, and a sparse
- * board should not have to be aimed at. Which means the reaches *overlap* wherever two words
- * are close, and that is what `nearest` is for: an SVG gives the event to whichever shape was
- * drawn last, so on a crowded board the word that lit up was the later one in the node list
- * and not the one under the pointer. The reach stays generous; the nearest word wins it.
- */
-const REACH = NODE_R + 8;
-/** Longest tick drawn for a move that leads off the board. */
-const SPUR_LEN = 9;
-
-/** Widest fan drawn, however many moves lead away. */
-const SPUR_SHOWN_MAX = 8;
-
-/**
- * How far along the line a move's given-away sign sits, measured from the word it is about.
- * Enough to clear that word's own ring and the sign's halo.
- *
- * The sign is placed *along* the line and nowhere else — no perpendicular offset. Offsetting it
- * to one side was tried and reads as belonging to nothing: several moves leave the same word, so
- * a sign floating between two lines can sit nearer the one it says nothing about. On the line and
- * near its own end, a sign has exactly one edge and one word it can be about.
- */
-const MARK_ALONG = NODE_R + 12;
-
-/** Where a pointer event happened, which is all of one that any of this needs. */
-type At = { clientX: number; clientY: number; currentTarget: Element };
-
-/**
- * Moves that lead off the board, drawn as a small fan of ticks.
- *
- * A word's unexplored moves are worth knowing about — they are what makes it a
- * hub — but as full nodes they swamped the routes they hang off, four to one. As
- * ticks they cost almost no space and still read at a glance as "lots of options
- * here". The fan is aimed away from the board's centre line so it does not
- * collide with the edges already drawn.
- *
- * Ticks count doublings, not moves. The range is enormous — four moves off one
- * word, a hundred and ten off another — so one tick each is impossible and a
- * printed number beside the node was just a stray digit on the plate. A fan that
- * grows by one tick per doubling stays a picture, and the comparison it invites
- * (this word branches more than that one) is the true one.
- */
-function SpurFan({ count, awayFrom }: { count: number; awayFrom: number }) {
-  if (count <= 0) return null;
-  const shown = Math.min(Math.round(Math.log2(count)) + 1, SPUR_SHOWN_MAX);
-  // Widen the fan as there are more of them, but never past a quadrant either
-  // side: the fan has to stay clear of the label above the node.
-  const spread = Math.min(0.34 + shown * 0.17, 1.5);
-  const ticks = [];
-  for (let i = 0; i < shown; i++) {
-    const t = shown === 1 ? 0.5 : i / (shown - 1);
-    const angle = awayFrom - spread / 2 + t * spread;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    ticks.push(
-      <line
-        key={i}
-        x1={cos * (NODE_R + 2)}
-        y1={sin * (NODE_R + 2)}
-        x2={cos * (NODE_R + 2 + SPUR_LEN)}
-        y2={sin * (NODE_R + 2 + SPUR_LEN)}
-        stroke="var(--color-ash)"
-        strokeWidth="1"
-        strokeLinecap="round"
-      />,
-    );
-  }
-  return (
-    <g aria-hidden opacity="0.9">
-      {ticks}
-    </g>
-  );
-}
-
-/**
- * Everything about one word except where it is.
- *
- * Split out and memoised because of what a settle costs. The layout redraws the plate on
- * every frame it moves, and on each of those frames the only thing that has changed
- * about a word is its position — yet the whole mark was being rebuilt: five booleans, a
- * ladder of colours, a hint label, a sentence of accessible text, ten elements. Ninety
- * words of that, sixty times a second, was the single largest cost in the game.
- *
- * So position lives on the group *outside* this, which is the one attribute a frame
- * touches, and everything in here is given as plain values that a frame does not change.
- * React then compares props, finds them equal, and leaves the whole subtree alone.
- *
- * Which is also why the fan's angle is passed as zero for a word that is not showing one
- * (see `spurAngle` in the parent): it is the one prop derived from live positions, and
- * letting it through for words that never draw a fan would defeat the comparison for
- * every word on the board.
- */
-const PlateNode = memo(function PlateNode({
-  word,
-  lexicon,
-  isRevealed,
-  isSource,
-  isTarget,
-  isSelected,
-  onRoute,
-  level,
-  inspected,
-  spurs,
-  spurAngle,
-  onSecret,
-  refused,
-  onHover,
-  onUnhover,
-  onActivate,
-  onInspect,
-}: {
-  word: string;
-  /**
-   * How this word is written and said. A stable object per mode — `PLAIN` in the letters
-   * game — so it compares by identity and the memo above still holds.
-   */
-  lexicon: Lexicon;
-  isRevealed: boolean;
-  isSource: boolean;
-  isTarget: boolean;
-  isSelected: boolean;
-  /**
-   * The word is on a shortest route: gilt, and its *letters* are not for sale — a click buys
-   * the shape of one of its moves instead, drawn on the edge. See App's `hintWord`.
-   */
-  onRoute: boolean;
-  level: number;
-  inspected: boolean;
-  spurs: number;
-  spurAngle: number;
-  onSecret: boolean;
-  refused: boolean;
-  onHover: (word: string, at: At | null) => void;
-  onUnhover: (word: string, at: At | null) => void;
-  onActivate: (word: string, at: At | null) => void;
-  onInspect: ((word: string, at: At) => void) | undefined;
-}) {
-  const intl = useIntl();
-  const isEndpoint = isSource || isTarget;
-  const hinted = level > 0;
-  // Named words, and the two you are given, are drawn as circles; the rest
-  // of the board is dots. Hinting a word promotes it halfway, because a
-  // letter count needs somewhere to sit.
-  //
-  // Past the first hint the label is letters rather than a digit, so it
-  // needs a word's worth of room and a word's legibility — set above the
-  // node, like a named word, but dim, because it was given not found. A word
-  // dev mode has spelled out is drawn the same way, for the same reason.
-  const spelled = level >= 2 || inspected;
-  const named = isRevealed || isEndpoint || spelled;
-
-  // The whole visual grammar for one node, decided in one place. Left as
-  // nested ternaries inside the JSX it was four separate ladders over the
-  // same five booleans, and no two of them read the same way.
-  const r = isRevealed || isEndpoint ? NODE_R : hinted ? NODE_R - 3 : DOT_R;
-  /**
-   * A word is gilt because it lies on a shortest route, and bone because it does not.
-   * That is the whole of what a node's colour says.
-   *
-   * It used to say how the word had been *reached* — gilt for one arrived at by adding
-   * letters, blood for one arrived at by taking them away — which borrows the edges'
-   * grammar for something it does not describe. An edge *is* a move, and a move genuinely
-   * does add or remove; a word is only a word. So half of a perfectly played answer came
-   * out blood red, including words sitting on the gilt route, and a correct move to a
-   * shorter word was drawn in the colour this palette otherwise keeps for something being
-   * lost. The move is still recorded, in the place that means it: the edge, in its colour,
-   * with the subword on it.
-   */
-  const ring = isEndpoint
-    ? 'var(--color-bone)'
-    : onRoute
-      ? 'var(--color-gilt)'
-      : isRevealed
-        ? 'var(--color-bone)'
-        : 'var(--color-ash-lit)';
-  // A word on a found shortcut, still to be named: gilt, and otherwise exactly what it was.
-  // Size says how much is *known* about a word and nothing else on the board breaks that
-  // rule, so this does not either — the shortcut is said in colour, and in the weight of the
-  // line between one word and the next.
-  const secret = onSecret && !named;
-  const fill = secret
-    ? 'var(--color-gilt)'
-    : named
-      ? 'var(--color-noir-3)'
-      : hinted
-        ? 'var(--color-noir-2)'
-        : onRoute
-          ? 'var(--color-gilt-dim)'
-          : 'var(--color-ash)';
-  const weight = named ? 1.4 : hinted ? 1 : 0.8;
-  const presence = named || secret ? 1 : onRoute ? 0.95 : 0.7;
-  // A word named by dev mode, rather than earned, is set dim: it is an
-  // inspection of the board, not a move on it.
-  const ink =
-    spelled && !isRevealed
-      ? 'var(--color-bone-dim)'
-      : named
-        ? 'var(--color-bone)'
-        : 'var(--color-bone-dim)';
-
-  /*
-    What the plate writes, in one line or two.
-
-    A word whose identity is known — named, the goal, or spelled out by dev mode — is drawn as
-    its spelling with its transcription beneath, because in the phonemes game the spelling is
-    what a player types and the transcription is what the puzzle is actually about, and it is
-    the only thing telling two nodes apart when a word is said two ways.
-
-    **A hint is drawn in letters, in both games, and that is the whole of the special case.**
-    A hint is help naming the word; the count and the letters it turns up are of the
-    *spelling*, because nobody knows how many phonemes `thought` has or what `/θɔt/` looks
-    like — see `Spell` in game.ts, which is where the rest of this lives. So the hint text is
-    already written in the alphabet the player reads and must not be transcribed on its way
-    out: it was, and a partly-hinted word came out as a row of IPA with dots in it.
-
-    Which means nothing goes underneath a partial hint either. There is no transcription to
-    put there that would not hand over the answer the hint is being paid for a letter at a
-    time — and once the last letter is bought the word is simply there, and it gets the second
-    line like any other named word.
-
-    A word on the answer shows nothing at all: its hints are on its edges, and a level stored
-    by a version that sold its letters must not surface them now.
-
-    The letters game has nothing to say twice and draws exactly what it always did — `spell`
-    is the identity there and `translated` is false.
-  */
-  const spelling = lexicon.label(word);
-  const known = isRevealed || isTarget || inspected;
-  const hint = known || onRoute ? null : hintLabel(spelling, level);
-  /*
-    Where the word sits: above the mark once it is a word, inside it while it is still a
-    count or a row of dots — which is also true of a word bought letter by letter until it is
-    whole, since that is a word nobody has *reached*.
-
-    The transcription is one line under whichever of those it is, derived rather than written
-    down twice. Given its own constant it agreed with the named case only: a word spelled out
-    entirely by hints drew its letters inside the mark and how it is said above the mark, with
-    the whole node between the two halves of one label.
-  */
-  const labelY = named ? -NODE_R - 8 : 3.5;
-  const beneathY = labelY + 9.5;
-  // The word is on show — either because it is named, or because enough hints have been
-  // bought that nothing is left dotted out. Both are the same thing to read.
-  const whole = known || hint === spelling;
-  const label = known ? spelling : hint;
-  const beneath = whole && lexicon.translated ? lexicon.transcribe(word) : null;
-
-  return (
-    <>
-      {/*
-        The reveal animation lives on its own group, inside the one that
-        positions the node. Sharing a group meant the CSS transform of
-        the animation replaced the SVG transform attribute that placed
-        it, so every word being named flew in from the corner of the
-        board instead of surfacing where it belongs.
-      */}
-      <g className={isRevealed && !isSource ? 'surface' : undefined}>
-        {/* Only where the player stands: a hub is news once you are on it. */}
-        {isRevealed && <SpurFan count={spurs} awayFrom={spurAngle} />}
-
-        {isSelected && (
-          <circle
-            r={NODE_R + 5}
-            fill="none"
-            stroke="var(--color-gilt)"
-            strokeWidth="1"
-            opacity="0.75"
-          />
-        )}
-
-        <circle
-          r={r}
-          fill={fill}
-          stroke={secret ? 'var(--color-gilt)' : ring}
-          strokeWidth={secret ? 1.2 : weight}
-          opacity={presence}
-        />
-
-        {/*
-          A hint refused. Drawn over the mark rather than instead of it, and fading out on its
-          own, so the word says no and then goes back to being what it was — a shortcut still
-          waiting to be found — without the board moving or the mark changing size.
-        */}
-        {refused && (
-          <g className="crossed" aria-hidden>
-            <path
-              d={`M${-r - 2} ${-r - 2}L${r + 2} ${r + 2}M${r + 2} ${-r - 2}L${-r - 2} ${r + 2}`}
-              stroke="var(--color-blood-lit)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              fill="none"
-            />
-          </g>
-        )}
-
-        {/* Deco double ring marks the two words you are given. */}
-        {isEndpoint && (
-          <circle
-            r={NODE_R - 3.5}
-            fill="none"
-            stroke={isRevealed ? 'var(--color-bone-dim)' : 'var(--color-bone)'}
-            strokeWidth="0.6"
-            opacity="0.8"
-          />
-        )}
-
-        {/* The goal, still unreached: the same lozenge as the header. */}
-        {isTarget && !isRevealed && (
-          <rect
-            x={-3.2}
-            y={-3.2}
-            width={6.4}
-            height={6.4}
-            transform="rotate(45)"
-            fill="var(--color-gilt)"
-          />
-        )}
-
-        {label !== null && (
-          <text
-            y={labelY}
-            textAnchor="middle"
-            // Not a target: the hit area below is, and a long word overhangs it by a good
-            // deal. Left clickable, a tap on the tail of one word does nothing at all rather
-            // than reaching whatever it is lying over.
-            pointerEvents="none"
-            className="word"
-            fontSize={named ? 12.5 : 10}
-            fontWeight={isEndpoint ? 600 : 400}
-            fill={ink}
-            paintOrder="stroke"
-            stroke="var(--color-noir)"
-            strokeWidth="3.5"
-            strokeLinejoin="round"
-          >
-            {label}
-          </text>
-        )}
-
-        {/*
-          The transcription, on the line immediately under the spelling.
-
-          The two are one label and have to be read as one, so they are set as two lines of it
-          rather than as two things at opposite ends of the mark. It was below the mark, which
-          put the whole node — fourteen pixels of circle plus its ring — between a word and how
-          it is said, and at that distance the eye pairs the transcription with whatever is
-          under it instead.
-
-          So it **overlaps the mark**, and that is the trade: the second line crosses the top of
-          the circle. It costs nothing, because it is drawn before the hit area and so cannot
-          take a click meant for the node — see the note there — and because the mark is a disc
-          with nothing written on it.
-
-          Smaller than the spelling and in the same ink: the size is what says which of the two
-          lines is the word, and a second colour on top of that read as a footnote rather than
-          as the other half of one label.
-        */}
-        {beneath !== null && (
-          <text
-            y={beneathY}
-            textAnchor="middle"
-            pointerEvents="none"
-            // `ipa` after `word`, which is what puts it in the face that has the symbols —
-            // see `--font-ipa`. SVG takes a class like anything else; what it cannot take is
-            // the `<span>` the `<ipa>` message tag renders, which is why this says it here.
-            className="word ipa"
-            fontSize={9}
-            // The same ink as the spelling above it, because the two are one label. Size is
-            // what says which line is the word; a second colour on top of that made the
-            // transcription read as a footnote to it rather than as the other half of it.
-            fill={ink}
-            paintOrder="stroke"
-            stroke="var(--color-noir)"
-            strokeWidth="3"
-            strokeLinejoin="round"
-          >
-            <Said>{beneath}</Said>
-          </text>
-        )}
-      </g>
-
-      {/*
-        Hit area sized for thumbs, larger than the drawn mark.
-
-        **Last, so it is on top of both lines of the label.** SVG paints in document order and
-        offers a click to whatever is uppermost, so the transcription crossing the mark is
-        crossed *by* this in turn and a tap on it reaches the node. The parts of either line
-        that overhang the circle are `pointer-events: none`, so they do not swallow a tap
-        meant for whatever is behind them either.
-      */}
-      <circle
-        r={NODE_R + 8}
-        fill="transparent"
-        className="cursor-pointer"
-        role="button"
-        tabIndex={0}
-        aria-label={
-          isRevealed
-            ? intl.formatMessage(says.reached, { word, selected: String(isSelected) })
-            : // The goal is somewhere to stand from the first move, not something to ask
-              // about: the moves into it are found by standing there and working backwards.
-              isTarget
-              ? intl.formatMessage(says.goal, { word, selected: String(isSelected) })
-              : onRoute
-                ? intl.formatMessage(says.onRoute)
-                : !hinted
-                  ? intl.formatMessage(says.unhinted)
-                  : // Every one of these is about the *spelling*, because every one of them
-                    // is about a hint and a hint is always letters — the count a level-1 hint
-                    // bought, the letters after it, and the word once they are all bought.
-                    // Read out in phonemes it would be a count of sounds and a row of IPA.
-                    fullyHinted(word, level, lexicon.label)
-                    ? intl.formatMessage(says.spelled, { word: spelling })
-                    : // What the next click buys, since that is the decision.
-                      intl.formatMessage(says.partly, {
-                        count: spelling.length,
-                        shown: level >= 2 ? (hintLabel(spelling, level) ?? 'none') : 'none',
-                      })
-        }
-        // Hovering a word lifts every move from it out of the background, so
-        // the question "what connects here" can be answered by pointing. Focus
-        // does the same, since the board is usable from the keyboard.
-        //
-        // Every one of these hands the event on, because which word is being
-        // pointed at is a question about distance and only the plate can answer
-        // it — see `nearest`. `pointermove` as well as `pointerenter`, since two
-        // words' reaches overlap and crossing from one to the other need not
-        // leave the circle that is receiving the events.
-        onPointerEnter={(e) => onHover(word, e)}
-        onPointerMove={(e) => onHover(word, e)}
-        onPointerLeave={(e) => onUnhover(word, e)}
-        onFocus={() => onHover(word, null)}
-        onBlur={() => onUnhover(word, null)}
-        onClick={(e) => onActivate(word, e)}
-        // Dev mode only: read the word without paying a hint for it.
-        // Judging whether a puzzle is any good means reading the words around
-        // the answer, and a right-click keeps that entirely out of the game —
-        // spending hint levels to do it made the tally meaningless.
-        onContextMenu={
-          onInspect
-            ? (e) => {
-                e.preventDefault();
-                onInspect(word, e);
-              }
-            : undefined
-        }
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onActivate(word, null);
-          }
-        }}
-      />
-    </>
-  );
-});
 
 export function GraphPlate({
   state,
@@ -602,114 +123,17 @@ export function GraphPlate({
   const intl = useIntl();
   const { revealed, selected, puzzle } = state;
 
-  /**
-   * What the pointer is over: a word, or one particular move.
-   *
-   * An unwalked edge is drawn at one unit in the faintest ink the palette has, which
-   * is right for a background of possibilities and wrong the moment you want to
-   * follow one. Hovering a word lifts every move from it; hovering a move lifts that
-   * one. Nothing else changes — in particular the subword is *not* named, because
-   * that label is the record of a move made, and giving it away on hover would turn
-   * the board into a free hint.
-   */
-  const [overWord, setOverWord] = useState<string | null>(null);
-  const [overEdge, setOverEdge] = useState<string | null>(null);
-
-  /**
-   * Everything the pointer arithmetic below needs, in a ref rather than closed over.
-   *
-   * The callbacks it feeds are handed to every word on the board, so they have to keep their
-   * identity: a memoised node given a fresh arrow function is a node that redraws on every
-   * frame anyway. Positions and the camera change on every one of those frames, and which
-   * words are named changes with every guess, so closing over any of it would mean a new
-   * callback — and a full redraw of ninety words — each time.
-   */
-  const front = (word: string) => isFront(state, word);
-  const live = useRef({ nodes, positions, view, front, onSelect, onHint, onSpell });
-  live.current = { nodes, positions, view, front, onSelect, onHint, onSpell };
-
-  /**
-   * The word the pointer is really on: the nearest one within reach, or none.
-   *
-   * See REACH. The pointer's position is turned into graph units the same way the viewBox
-   * turns graph units into pixels — the view always has the plate's own aspect (camera.ts),
-   * so the two axes scale alike and there is no letterboxing to allow for.
-   */
-  const nearest = useCallback((at: At) => {
-    const svg = (at.currentTarget as SVGElement).ownerSVGElement;
-    if (!svg) return null;
-    const box = svg.getBoundingClientRect();
-    if (box.width <= 0 || box.height <= 0) return null;
-    const { nodes: drawn, positions: where, view: shot } = live.current;
-    const x = shot.x + ((at.clientX - box.left) / box.width) * shot.width;
-    const y = shot.y + ((at.clientY - box.top) / box.height) * shot.height;
-
-    let best: string | null = null;
-    let nearby = REACH * REACH;
-    for (const word of drawn) {
-      const p = where.get(word);
-      if (!p) continue;
-      const away = (p.x - x) ** 2 + (p.y - y) ** 2;
-      if (away > nearby) continue;
-      nearby = away;
-      best = word;
-    }
-    return best;
-  }, []);
-
-  /**
-   * Which word is lit, kept as a ref beside the state.
-   *
-   * Because hover is now answered on `pointermove` as well as on entering a circle, and a
-   * `setState` to the value it already holds still costs this component a render — which is
-   * the whole board's worth of edges and nodes rebuilt, sixty times a second, to arrive at
-   * the same figure.
-   */
-  const lit = useRef<string | null>(null);
-  const lift = useCallback((word: string | null) => {
-    if (lit.current === word) return;
-    lit.current = word;
-    setOverWord(word);
-  }, []);
-
-  const hover = useCallback(
-    (word: string, at: At | null) => lift(at ? (nearest(at) ?? word) : word),
-    [lift, nearest],
-  );
-  /**
-   * Leaving one word's reach is not leaving the board: the pointer may well be inside a
-   * neighbour's, in which case that neighbour is what is being pointed at now. So this asks
-   * the same question as `hover` and simply accepts the answer, including none.
-   */
-  const unhover = useCallback(
-    (word: string, at: At | null) => lift(at ? nearest(at) : lit.current === word ? null : lit.current),
-    [lift, nearest],
-  );
-
-  /**
-   * A tap or a click: the same nearest-word question, then hint it or stand on it.
-   *
-   * Somewhere you can guess from is somewhere you stand on, and that now includes the goal —
-   * so tapping the goal moves the cursor there rather than buying the shape of a move into
-   * it. Which is the better trade of the two: standing on the goal and guessing backwards
-   * says everything the mark did and costs no hint.
-   */
-  const activate = useCallback(
-    (word: string, at: At | null) => {
-      const { front, onSelect: select, onHint: hint } = live.current;
-      const on = (at ? nearest(at) : null) ?? word;
-      if (front(on)) select(on);
-      else hint(on);
-    },
-    [nearest],
-  );
-
-  /** Dev mode's read-aloud, resolved the same way. */
-  const inspect = useCallback(
-    (word: string, at: At) => live.current.onSpell?.(nearest(at) ?? word),
-    [nearest],
-  );
   const canInspect = namesWords && onSpell !== undefined;
+  const { overWord, overEdge, edgeHandlers, onHover, onUnhover, onActivate, onInspect } =
+    usePointing({
+      nodes,
+      positions,
+      view,
+      canStand: (word) => isFront(state, word),
+      onSelect,
+      onAsk: onHint,
+      onSpell,
+    });
 
   /**
    * A way on from the word under the pointer: the shortest route from it to the target,
@@ -816,16 +240,11 @@ export function GraphPlate({
   }, [state.log]);
 
   return (
-    <svg
-      viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
-      // `touch-none` is what makes dragging the board possible at all: without it a
-      // finger on the plate scrolls the page instead.
-      className={`h-full w-full touch-none select-none active:cursor-grabbing ${
-        engaged ? 'cursor-zoom-in' : 'cursor-grab'
-      }`}
-      role="img"
-      {...gestures}
-      aria-label={intl.formatMessage(says.plate, {
+    <Plate
+      view={view}
+      gestures={gestures}
+      engaged={engaged}
+      label={intl.formatMessage(says.plate, {
         source: puzzle.source,
         target: puzzle.target,
         named: revealed.size,
@@ -839,148 +258,37 @@ export function GraphPlate({
           if (!pa || !pb) return null;
 
           const trail = walked.get(`${a} ${b}`);
-          const bothKnown = revealed.has(a) && revealed.has(b);
-          // A move available right now, from where the player stands.
-          const live = !trail && (a === selected || b === selected);
-
-          const stroke = trail
-            ? trail.kind === 'add'
-              ? 'var(--color-gilt)'
-              : 'var(--color-blood-lit)'
-            : bothKnown
-              ? 'var(--color-ash-lit)'
-              : 'var(--color-rule)';
-
-          // A route that beat par glows along its whole length: what the player
-          // found is the line, not any one move on it.
-          const golden = trail !== undefined && beatPar;
-
           const key = `${a} ${b}`;
-          const lifted = overEdge === key || a === overWord || b === overWord;
-          // On the way from the hovered word to the target: the answer to "does this
-          // get me anywhere", drawn as the route it is.
-          const ahead = onward.has(key);
-          // A move on the shortcut the player has found. Loud on purpose — see the note on
-          // `secretEdges` — and under the walked trail rather than over it, so a move they
-          // have actually made still reads as theirs and keeps its subword.
-          const shortcut = secretEdges?.has(key) ?? false;
 
           return (
             // `data-edge` is how the tutorial points at one move; see selectorFor in
             // tutorial.ts. Alphabetical, which is the order plate.ts emits pairs in, so
             // either way of naming a move finds the same line.
             <g key={key} data-edge={key}>
-              {shortcut && (
-                <line
-                  x1={pa.x}
-                  y1={pa.y}
-                  x2={pb.x}
-                  y2={pb.y}
-                  stroke="var(--color-gilt)"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                />
-              )}
-              {ahead && !trail && (
-                <line
-                  x1={pa.x}
-                  y1={pa.y}
-                  x2={pb.x}
-                  y2={pb.y}
-                  stroke="var(--color-gilt)"
-                  strokeWidth="5"
-                  strokeLinecap="round"
-                  opacity="0.18"
-                />
-              )}
-              {golden && (
-                <line
-                  x1={pa.x}
-                  y1={pa.y}
-                  x2={pb.x}
-                  y2={pb.y}
-                  stroke="var(--color-gilt)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  opacity="0.22"
-                />
-              )}
-              <line
-                x1={pa.x}
-                y1={pa.y}
-                x2={pb.x}
-                y2={pb.y}
-                stroke={
-                  golden
-                    ? 'var(--color-gilt)'
-                    : ahead && !trail
-                      ? 'var(--color-gilt)'
-                      : lifted && !trail
-                        ? 'var(--color-bone-dim)'
-                        : stroke
-                }
-                strokeWidth={trail ? (golden ? 2 : 1.6) : ahead ? 1.8 : lifted ? 1.8 : 1}
-                opacity={ahead || lifted ? 1 : trail ? 1 : bothKnown ? 0.9 : live ? 0.85 : 0.6}
+              <PlateEdge
+                ax={pa.x}
+                ay={pa.y}
+                bx={pb.x}
+                by={pb.y}
+                walked={trail?.kind ?? null}
+                bothKnown={revealed.has(a) && revealed.has(b)}
+                // A move available right now, from where the player stands.
+                live={!trail && (a === selected || b === selected)}
+                lifted={overEdge === key || a === overWord || b === overWord}
+                // On the way from the hovered word to the target: the answer to "does this
+                // get me anywhere", drawn as the route it is.
+                ahead={onward.has(key)}
+                // A route that beat par glows along its whole length: what the player
+                // found is the line, not any one move on it.
+                golden={trail !== undefined && beatPar}
+                // A move on the shortcut the player has found. Loud on purpose — see the note
+                // on `secretEdges` — and under the walked trail rather than over it, so a move
+                // they have actually made still reads as theirs and keeps its subword.
+                shortcut={secretEdges?.has(key) ?? false}
+                sub={trail?.sub ?? null}
+                lexicon={lexicon}
+                {...edgeHandlers(key)}
               />
-              {/*
-                A grabbable edge. The drawn line is one unit wide, which no pointer
-                can reliably land on, so the thing that answers the mouse is a fat
-                transparent line on top of it. Stroke rather than fill, because a line
-                has no interior to hit.
-              */}
-              <line
-                x1={pa.x}
-                y1={pa.y}
-                x2={pb.x}
-                y2={pb.y}
-                stroke="transparent"
-                strokeWidth="11"
-                onPointerEnter={() => setOverEdge(key)}
-                onPointerLeave={() => setOverEdge((at) => (at === key ? null : at))}
-              />
-              {trail && (
-                /*
-                  At the middle of the move, which clears the word it leads to: a name
-                  hangs about 25 units above its own mark, and at ROW_HEIGHT the midpoint
-                  of a spine edge is 40 above, so the two miss each other by a comfortable
-                  margin. Biasing this toward the upper end was tried, to open that margin
-                  further, and was worse in the round: two moves out of the same word then
-                  wrote their subwords on top of *each other*. What is left is the harder
-                  case — a diagonal edge whose middle happens to fall across some
-                  unrelated word's label — and that is a real collision in two dimensions,
-                  not something a fraction along the line can answer.
-                */
-                <text
-                  x={(pa.x + pb.x) / 2}
-                  y={(pa.y + pb.y) / 2 - 5}
-                  textAnchor="middle"
-                  className="word"
-                  fontSize="10"
-                  fill={trail.kind === 'add' ? 'var(--color-gilt)' : 'var(--color-blood-lit)'}
-                  paintOrder="stroke"
-                  stroke="var(--color-noir)"
-                  strokeWidth="3"
-                  strokeLinejoin="round"
-                >
-                  {moveSign(trail.kind)}
-                  {/*
-                    The word the move added or removed, spelled.
-
-                    A move is a *word* going in or coming out, and the edge is where the game
-                    says which — so it says it the way the player would write it, not as the
-                    run of sounds it is made of. A run that is somehow not a word has no
-                    spelling and falls back to its transcription; on a walked edge that cannot
-                    happen, since the move was judged legal to get here.
-                  */}
-                  {lexicon.knows(trail.sub) ? (
-                    lexicon.label(trail.sub)
-                  ) : (
-                    // A run that is not a word has no spelling, so this is IPA and wants the
-                    // face that has the symbols. See `--font-ipa`.
-                    <tspan className="ipa">{lexicon.transcribe(trail.sub)}</tspan>
-                  )}
-                </text>
-              )}
             </g>
           );
         })}
@@ -1074,15 +382,15 @@ export function GraphPlate({
                 spurAngle={isRevealed ? (spurAngle.get(word) ?? 0) : 0}
                 onSecret={secretNodes?.has(word) ?? false}
                 refused={refused === word}
-                onHover={hover}
-                onUnhover={unhover}
-                onActivate={activate}
-                onInspect={canInspect ? inspect : undefined}
+                onHover={onHover}
+                onUnhover={onUnhover}
+                onActivate={onActivate}
+                onInspect={canInspect ? onInspect : undefined}
               />
             </g>
           );
         })}
       </g>
-    </svg>
+    </Plate>
   );
 }

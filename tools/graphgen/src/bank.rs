@@ -236,3 +236,59 @@ pub fn load(path: &Path) -> Option<Bank> {
         candidates,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::config::Config;
+
+    /// Enough of a file to load, differing only in the knob under test.
+    fn mode(extra: &str) -> crate::config::Mode {
+        Config::parse(&format!(
+            "shared:\n  epoch: 2025-01-01\n  seed: 1\n  idChars: 12\n  minGap: 45\n\
+             defaults:\n  alphabet: letters\n  minWord: 4\n  minSub: 2\n  legalScowl: 80\n  \
+             commonScowl: 35\n  slack: 6\n  minPar: 3\n  maxPar: 10\n  minSourceMoves: 2\n  \
+             altWays: 4\n  altSlack: 4\n  minDivergence: 2\n  aroundPercent: 45\n  \
+             linkReach: 3\n  minInternal: 1\n  maxSwaps: 0\n  minAltNodes: 4\n  \
+             minComponent: 3\n\
+             modes:\n  - name: letters\n    bands: [short, medium, long]\n    \
+             bandCuts: [4, 6]\n{extra}"
+        ))
+        .expect("loads")
+        .modes
+        .remove(0)
+    }
+
+    /**
+        The bank's key covers the knobs that decide **which puzzles exist**, and nothing else.
+
+        `minComponent` decides which words the explore mode draws a map of. It refuses no
+        candidate, moves no endpoint and changes no board — so putting it in the key would cost
+        a quarter of an hour of searching to arrive at exactly the bank that was already
+        cached, every time somebody tuned the map. That is the failure this guards: it is
+        silent, and the only sign of it is a build that suddenly takes fifteen minutes.
+
+        The other direction is guarded by every other line of `key`: a knob that *does* decide
+        which puzzles exist and is left out means a stale bank chosen by the old rules is read
+        straight back. See the note on `FORMAT`.
+    */
+    #[test]
+    fn the_key_ignores_a_knob_that_decides_no_puzzle() {
+        let three = mode("    minComponent: 3\n");
+        let nine = mode("    minComponent: 9\n");
+        assert_eq!(three.min_component, 3);
+        assert_eq!(nine.min_component, 9);
+        assert_eq!(
+            super::key(&three, &[], 12, "abcd1234"),
+            super::key(&nine, &[], 12, "abcd1234"),
+            "minComponent decides the map and not the bank, so it must not invalidate one"
+        );
+    }
+
+    /// And the ones that *do* decide a puzzle still move it, so the guard above is not vacuous.
+    #[test]
+    fn the_key_moves_with_a_knob_that_does() {
+        let one = mode("");
+        let other = mode("    minInternal: 2\n");
+        assert_ne!(super::key(&one, &[], 12, "abcd1234"), super::key(&other, &[], 12, "abcd1234"));
+    }
+}

@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { testGraph } from '../test/fixture';
+import { guessedWords } from './found';
+import { fullyHinted, hintLabel, hintLevels } from './hints';
 import {
   applyGuess,
-  fullyHinted,
-  guessedWords,
   hintCount,
-  hintLabel,
-  hintLevels,
   moveHint,
   newGame,
   restore,

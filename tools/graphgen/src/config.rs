@@ -110,6 +110,12 @@ pub struct Mode {
 
     pub min_word: usize,
     pub min_sub: usize,
+    /// Smallest common-graph component that is part of the explore mode's map.
+    ///
+    /// Not a rule about words: a word below this is still legal, still in the shipped
+    /// dictionary and still a fine guess on a daily board. It decides only which words the
+    /// atlas draws, and so moves no vocabulary digest and renames no puzzle. See regions.rs.
+    pub min_component: usize,
     pub legal_scowl: u32,
     pub common_scowl: u32,
     pub slack: usize,
@@ -470,6 +476,7 @@ impl Config {
                 id_chars: shared.id_chars,
                 min_word: at.num("minWord")?,
                 min_sub: at.num("minSub")?,
+                min_component: at.num("minComponent")?,
                 legal_scowl: at.num("legalScowl")? as u32,
                 common_scowl: at.num("commonScowl")? as u32,
                 slack: at.num("slack")?,
@@ -583,6 +590,11 @@ fn check(mode: &Mode) -> Result<(), String> {
     if mode.min_sub < 1 {
         return Err("minSub must be at least 1".into());
     }
+    // One means every component counts, which is what "no filter" looks like; zero would ask
+    // for components of no words and reads as a typo for that.
+    if mode.min_component < 1 {
+        return Err("minComponent must be at least 1 — one keeps every component".into());
+    }
     // if mode.min_word <= mode.min_sub {
     //     return Err(format!(
     //         "minWord ({}) must exceed minSub ({}), or every word would be its own subword",
@@ -663,7 +675,8 @@ mod tests {
              defaults:\n  alphabet: letters\n  minWord: 4\n  minSub: 2\n  legalScowl: 80\n  \
              commonScowl: 35\n  slack: 6\n  minPar: 3\n  maxPar: 10\n  minSourceMoves: 2\n  \
              altWays: 4\n  altSlack: 4\n  minDivergence: 2\n  aroundPercent: 45\n  \
-             linkReach: 3\n  minInternal: 1\n  maxSwaps: 0\n  minAltNodes: 4\n\
+             linkReach: 3\n  minInternal: 1\n  maxSwaps: 0\n  minAltNodes: 4\n  \
+             minComponent: 3\n\
              modes:\n{modes}"
         ))
     }

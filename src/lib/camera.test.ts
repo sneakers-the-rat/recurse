@@ -13,6 +13,7 @@ import {
   clampCamera,
   fitCamera,
   inView,
+  leastScale,
   lookAt,
   openingCamera,
   panBy,
@@ -89,9 +90,27 @@ describe('fitCamera', () => {
     expect(view.y + view.height).toBeGreaterThanOrEqual(400);
   });
 
-  it('never zooms past the stops, however small or large the thing is', () => {
-    expect(fitCamera({ minX: -1e5, maxX: 1e5, minY: 0, maxY: 1e5 }, phone).scale).toBe(MIN_SCALE);
+  it('never magnifies past the stop, however small the thing is', () => {
     expect(fitCamera({ minX: 0, maxX: 1, minY: 0, maxY: 1 }, phone).scale).toBe(MAX_SCALE);
+  });
+
+  /**
+   * The floor is for gestures. Holding "show me all of it" to it is how an open map came to be
+   * framed on its middle third with the rest off every edge — see the note on `fitCamera`.
+   */
+  it('goes below the gesture floor rather than cut a huge thing off', () => {
+    const huge = { minX: -1e5, maxX: 1e5, minY: 0, maxY: 1e5 };
+    const camera = fitCamera(huge, phone);
+    expect(camera.scale).toBeLessThan(MIN_SCALE);
+    const view = viewOf(camera, phone);
+    expect(view.x).toBeLessThanOrEqual(huge.minX);
+    expect(view.x + view.width).toBeGreaterThanOrEqual(huge.maxX);
+  });
+
+  /** A plate nobody has measured yet is zero pixels wide, and a scale of nothing is a crash. */
+  it('still says something about a plate with no size', () => {
+    const camera = fitCamera({ minX: 0, maxX: 100, minY: 0, maxY: 100 }, { width: 0, height: 0 });
+    expect(camera.scale).toBeGreaterThan(0);
   });
 });
 
@@ -145,6 +164,16 @@ describe('zoomAround', () => {
     const at = { x: 0, y: 0 };
     expect(zoomAround({ cx: 0, cy: 0, scale: MAX_SCALE }, desktop, 4, at).scale).toBe(MAX_SCALE);
     expect(zoomAround({ cx: 0, cy: 0, scale: MIN_SCALE }, desktop, 0.1, at).scale).toBe(MIN_SCALE);
+    // A board too big for the floor sets its own, and a wheel turned outward keeps going
+    // rather than snapping inward. See `leastScale`.
+    const huge = { minX: -1e5, maxX: 1e5, minY: 0, maxY: 1e5 };
+    const least = leastScale(huge, desktop);
+    expect(least).toBeLessThan(MIN_SCALE);
+    const far = { cx: 0, cy: 0, scale: MIN_SCALE };
+    expect(zoomAround(far, desktop, 0.8, at, least).scale).toBeLessThan(MIN_SCALE);
+    expect(zoomAround({ ...far, scale: least }, desktop, 0.1, at, least).scale).toBe(least);
+    // And a board that fits inside the floor keeps it.
+    expect(leastScale({ minX: 0, maxX: 10, minY: 0, maxY: 10 }, desktop)).toBe(MIN_SCALE);
   });
 });
 

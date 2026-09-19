@@ -77,6 +77,12 @@ interface Props {
   isWord?: ((word: string) => boolean) | null;
   /** Set when the last submission was refused. */
   error: string | null;
+  /**
+   * Where a typed word would take you when it is not a move from here — the explore mode's
+   * fast travel. A function rather than a value because only this component knows what has
+   * been typed so far, and the readout has to answer before Guess is pressed.
+   */
+  travel?: ((typed: string) => string | null) | undefined;
   onSubmit: (word: string) => void;
   onClearError: () => void;
 }
@@ -87,6 +93,7 @@ export const GuessBar = memo(function GuessBar({
   graph,
   isWord = null,
   error,
+  travel,
   onSubmit,
   onClearError,
 }: Props) {
@@ -139,6 +146,7 @@ export const GuessBar = memo(function GuessBar({
               graph={graph}
               isWord={isWord}
               muted={error !== null}
+              travel={travel ? travel(value) : null}
             />
           </div>
         </div>

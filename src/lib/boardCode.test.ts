@@ -30,10 +30,10 @@ import {
   isBoardCode,
   spending,
 } from "./boardCode";
+import { moveKey } from "./found";
 import {
   applyGuess,
   hintCount,
-  moveKey,
   newGame,
   restore,
   select,

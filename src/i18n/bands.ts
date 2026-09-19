@@ -31,11 +31,21 @@ const LABELS: Record<string, (typeof bands)[keyof typeof bands]> = {
   long: bands.long,
 };
 
-/** And the games. */
+/**
+ * And the games. **Including the one the builder does not write down.**
+ *
+ * `letters` and `phonemes` come out of the manifest, because the bank is built per mode. The
+ * open game is not in the bank at all — it is a way of playing a mode's graph rather than a
+ * set of puzzles — so nothing in the data ever names it, and it is named here.
+ */
 const GAMES: Record<string, (typeof modes)[keyof typeof modes]> = {
   letters: modes.letters,
   phonemes: modes.phonemes,
+  explore: modes.explore,
 };
+
+/** The open game's own name, as the manifest would spell it if it held one. */
+export const EXPLORE = 'explore';
 
 /** Enough of the manifest to name a board: the bands, and what the games are called. */
 interface Naming {
@@ -67,8 +77,17 @@ export function gameName(intl: IntlShape, name: string): string {
 export function boardName(intl: IntlShape, band: number, manifest: Naming): string {
   const one = manifest.bands[band];
   if (!one) return '';
-  return intl.formatMessage(modes.board, {
-    game: gameName(intl, manifest.modes[one.mode]?.name ?? ''),
-    band: bandName(intl, one.label),
-  });
+  return playName(intl, manifest.modes[one.mode]?.name ?? '', bandName(intl, one.label));
+}
+
+/**
+ * The same sentence, for a board the manifest does not list.
+ *
+ * The open game's two boards are not bands — there is no calendar run of them and no par — so
+ * they have no index to be looked up by. What they *are* is a game and a name within it, which
+ * is exactly what this message says, so they are said the same way and by the same message
+ * rather than by a second one that would drift from it.
+ */
+export function playName(intl: IntlShape, game: string, band: string): string {
+  return intl.formatMessage(modes.board, { game: gameName(intl, game), band });
 }

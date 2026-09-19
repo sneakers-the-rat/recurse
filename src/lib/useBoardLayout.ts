@@ -33,14 +33,19 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  type Simulation,
-  type SimulationNodeDatum,
-} from 'd3-force';
+import { forceLink, forceManyBody, forceSimulation, type Simulation } from 'd3-force';
 import type { Box } from './camera';
+import {
+  forceSpineCorridor,
+  linkDistance as lengthOf,
+  settle as toRest,
+  widestOf,
+  LINK_DISTANCE,
+  SETTLE_LIMIT,
+  type Corridor,
+  type SimLink,
+  type SimNode,
+} from './forces';
 import type { PlateEdge } from './plate';
 import type { Point } from './types';
 
@@ -57,74 +62,11 @@ import type { Point } from './types';
  */
 const ROW_HEIGHT = 80;
 
-/** The drawn mark's radius, mirrored from GraphPlate: what an unlabelled word occupies. */
-const MARK_R = 27;
 /**
- * Width of one character of a drawn label, in graph units.
+ * How firmly a move holds. Its *length* is `linkDistance` in forces.ts, which both figures
+ * share; how hard the spring pulls is this figure's own decision.
  *
- * Words are set in mono at 12.5 units (see GraphPlate), and 7.8 is what a character of it
- * measures. Mirrored here rather than measured because the layout has to know how much room
- * a word takes *before* anything is drawn.
- */
-const LABEL_CHAR_W = 7.8;
-/** Clear air either side of a label, so two on one line read as two words. */
-const LABEL_GAP = 9;
-
-/**
- * And down. A named word is drawn as a mark with its name standing *above* it, so its ink
- * is not centred on the node: it runs from the top of the label to the bottom of the mark.
- * Both numbers mirror GraphPlate — mark radius, label eight units clear of it, and about
- * nine units of ascent on a 12.5-unit line.
- */
-const DRAWN_MARK_R = 14;
-const LABEL_TOP = -(DRAWN_MARK_R + 8 + 9);
-const LABEL_BOTTOM = DRAWN_MARK_R;
-/** Half the height of that, with a little air, and how far above the node its middle sits. */
-const LABEL_HALF_HEIGHT = (LABEL_BOTTOM - LABEL_TOP) / 2 + 3;
-const LABEL_CENTRE_Y = (LABEL_TOP + LABEL_BOTTOM) / 2;
-
-/**
- * How much room a word takes, which is a word that is *showing its name* and a dot
- * otherwise.
- *
- * Every word used to claim its label's room from the start, whether or not it was showing
- * one, so that naming or hinting a word could never move the board. That was the wrong
- * trade, and it was expensive: `landsliding` reserved ninety units of width to draw a
- * four-unit dot, and thirty words reserving room they were not using came to 112,000 square
- * units of demand inside a figure of 84,000 — a third more than fits. Boards were being laid
- * out for a state only dev mode's `name all` ever reaches, and paid for it in every state a
- * player actually sees.
- *
- * So the box is what is drawn. A word that is named, hinted far enough to be spelling itself
- * out, or one of the two the puzzle is about, claims its label; everything else claims its
- * mark. Discovering a word grows its box and shoulders its neighbours aside, which is a
- * small local motion and reads as the word making room for itself.
- */
-function boxOf(word: string, labelled: boolean): { w: number; h: number; cy: number } {
-  if (!labelled) return { w: MARK_R, h: MARK_R, cy: 0 };
-  return {
-    w: Math.max(MARK_R, (word.length * LABEL_CHAR_W) / 2 + LABEL_GAP),
-    // A labelled word is not centred on its own mark: the name stands above it, so the ink
-    // runs from about 31 units up to 14 units down and the box's middle is above the node.
-    // Modelling it as symmetric left a gap exactly where the name is, and a dot could come
-    // to rest just above a word and be struck through by it — which is most of what was
-    // left once words stopped reserving room they were not using.
-    h: LABEL_HALF_HEIGHT,
-    cy: LABEL_CENTRE_Y,
-  };
-}
-
-/**
- * How far apart a move is drawn, and how firmly.
- *
- * The *length* is what carries the clustering, and it is per edge: full length between two
- * quiet words, contracting toward `LINK_MIN_DISTANCE` as the busier end gets busier. A hub
- * therefore holds its crowd in close while a plain chain of words stays near full length and
- * reads as a path. One length for every edge is a lattice — a link is a spring to a fixed
- * distance, so it pushes two words apart exactly as hard as it pulls them together, and if
- * that distance is the same everywhere the only arrangement satisfying it is an even mesh.
- *
- * The *strength* is flat, because d3's default is `1 / min(degree)`, which makes a hub's bonds
+ * Flat, because d3's default is `1 / min(degree)`, which makes a hub's bonds
  * the weakest on the board — the opposite of what is wanted here, since the short hub links
  * are the whole mechanism by which a cluster forms.
  *
@@ -135,8 +77,6 @@ function boxOf(word: string, labelled: boolean): { w: number; h: number; cy: num
  * a collider's job. Halved, the springs give where two words are on top of each other and hold
  * everywhere else, which is what lets the charge do the job it is there for.
  */
-const LINK_DISTANCE = 74;
-const LINK_MIN_DISTANCE = 30;
 const LINK_STRENGTH = 0.5;
 
 /**
@@ -172,21 +112,7 @@ const CHARGE_PER_MOVE = -14;
 const CHARGE_REACH = 160;
 
 /**
- * Clear air either side of the answer, and how firmly it is kept.
- *
- * The spine is the figure's subject and the one thing a player reads first, so nothing that
- * is not part of it may sit on it. Charge alone cannot do this: the spine words are point
- * charges, so their repulsion is weakest exactly *between* them — which is on the line, and
- * is where a word looking for room would settle. The corridor pushes off the whole segment
- * instead, so words that feed into the answer gather to either side of it and the gilt route
- * stays a legible line from source to target.
- *
- * Edges may still cross the corridor; a move between one side and the other is a real move and
- * hiding it would be a lie about the graph. Only *nodes* are kept out.
- */
-const CORRIDOR_GAP = 16;
-/**
- * How firmly a word already overlapping the answer is moved off it.
+ * How firmly a word already overlapping the answer is moved off it. See `forceSpineCorridor`.
  *
  * Well under 1, and scaled by alpha, so this nudges rather than places. A word is pushed out
  * over several ticks while the links and the charge are still deciding where it belongs, and it
@@ -206,16 +132,6 @@ const REHEAT = 0.4;
 const REHEAT_DECAY = 0.2;
 
 /**
- * The first settle, which nobody watches, and can therefore run to rest properly.
- *
- * d3's own default decay, which is chosen to converge in about three hundred ticks. Cheap
- * here because it draws nothing: a thirty-word board costs a few tens of milliseconds of
- * blocked main thread, once, before the first frame.
- */
-const SETTLE_DECAY = 0.0228;
-const SETTLE_LIMIT = 500;
-
-/**
  * How hot each layer of a growing board runs, and for how long.
  *
  * Enough for a layer to find its own places against the settled ones beneath it, not enough
@@ -231,17 +147,6 @@ const LAYER_TICKS = 40;
  * the title card the board grows underneath.
  */
 const LAYER_MS = 260;
-
-interface SimNode extends SimulationNodeDatum {
-  id: string;
-  fx?: number | undefined;
-  fy?: number | undefined;
-}
-
-interface SimLink {
-  source: string | SimNode;
-  target: string | SimNode;
-}
 
 export interface BoardSpec {
   source: string;
@@ -276,78 +181,6 @@ export interface BoardLayout {
   edges: readonly PlateEdge[];
 }
 
-/** What the corridor force needs to know about the board it is keeping clear. */
-interface Corridor {
-  onRoute: ReadonlySet<string>;
-  labelled: ReadonlySet<string>;
-  spineHalfWidth: number;
-  spineHeight: number;
-}
-
-/**
- * Repel everything that is not the answer away from the answer.
- *
- * The spine is a *segment*, not a row of points, and that is the whole reason this exists.
- * Charge treats the pinned words as point sources, so the repulsion along the centre line
- * dips to its weakest exactly halfway between two of them — a hole in the middle of the
- * figure's subject, and where a word with nowhere else to go comes to rest. So this is the
- * same inverse-square repulsion charge uses, from the nearest point on the line rather than
- * from the words strung along it.
- *
- * **A repulsion and not a clamp**, which is the difference between a figure and a diagram.
- * Pushing each word out to a fixed clearance is not a force, it is a wall, and a wall gives
- * every word it touches the same coordinate: the board comes out as two hard vertical ranks
- * of tightly packed dots at exactly the corridor's edge, which is what the frame walls used
- * to do horizontally. Falling off with distance means a word close in is shoved hard, a word
- * already clear is barely touched, and nothing has a preferred place to pile up.
- *
- * Sideways only. A word's height is either the truth about its distance from the source or
- * the business of the links, and shifting it vertically to get it off the line would say
- * something false about the graph to fix something cosmetic.
- *
- * Reads its parameters through `current` rather than taking them as values: the force is built
- * once, and which words are on the route and which are showing their names both change as the
- * board is played.
- */
-function forceSpineCorridor(push: number, current: () => Corridor) {
-  let nodes: SimNode[] = [];
-
-  const force = (alpha: number) => {
-    const { onRoute, labelled, spineHalfWidth, spineHeight } = current();
-    for (const node of nodes) {
-      if (node.fx !== undefined || onRoute.has(node.id)) continue;
-      const y = node.y ?? 0;
-      // Only alongside the answer. Past either end there is no line to sit on, and the centre
-      // is the natural place for a word hanging off the source or the target.
-      if (y < 0 || y > spineHeight) continue;
-
-      // How far *into* the answer's ink this word reaches. Its own half-width counts, because
-      // a long name centred well clear of the line still crosses it — `landsliding` is 48
-      // units wide either way, so clearing its centre clears nothing.
-      const x = node.x ?? 0;
-      const clear = spineHalfWidth + CORRIDOR_GAP + boxOf(node.id, labelled.has(node.id)).w;
-      const inside = clear - Math.abs(x);
-      // Already clear: **nothing at all**. This is the whole difference between a figure and a
-      // diagram. A force that keeps pushing at every distance drives every word outward until
-      // it balances against its links, and since the links are all much the same length every
-      // word balances at the same place — two hard vertical ranks of dots at the corridor's
-      // edge, which is the frame walls again turned on their side. Acting only on overlap
-      // leaves the links and the charge to decide where a word actually sits.
-      if (inside <= 0) continue;
-      // Whichever side it is already on, so a crowd splits rather than all leaving one way.
-      // A word exactly on the line goes right, deterministically — a coin flip here would
-      // make two runs of the same board different figures.
-      const side = x === 0 ? 1 : Math.sign(x);
-      node.vx = (node.vx ?? 0) + inside * side * push * alpha;
-    }
-  };
-
-  force.initialize = (given: SimNode[]) => {
-    nodes = given;
-  };
-  return force;
-}
-
 export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
   const simRef = useRef<Simulation<SimNode, undefined> | null>(null);
   const nodesRef = useRef(new Map<string, SimNode>());
@@ -364,7 +197,7 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
   const corridorRef = useRef<Corridor>({
     onRoute: new Set(),
     labelled: new Set(),
-    spineHalfWidth: MARK_R,
+    spineHalfWidth: widestOf([], new Set()),
     spineHeight: 0,
   });
   /** The timer walking a growing board through its layers, if one is running. */
@@ -585,15 +418,13 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
      * one radius, which is the same lattice from a different direction.
      */
     const endOfLink = (end: string | SimNode) => (typeof end === 'string' ? end : end.id);
-    const linkDistance = (link: SimLink) => {
-      const busiest = Math.max(
-        degree.get(endOfLink(link.source)) ?? 1,
-        degree.get(endOfLink(link.target)) ?? 1,
+    const linkDistance = (link: SimLink) =>
+      lengthOf(
+        Math.max(
+          degree.get(endOfLink(link.source)) ?? 1,
+          degree.get(endOfLink(link.target)) ?? 1,
+        ),
       );
-      return (
-        LINK_MIN_DISTANCE + (LINK_DISTANCE - LINK_MIN_DISTANCE) / Math.sqrt(Math.max(busiest, 1))
-      );
-    };
 
     /** A word clears room in proportion to the crowd it has to hold. */
     const charge = (node: SimNode) =>
@@ -607,10 +438,7 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
      * whose words are all four letters. Taking a constant here would either crowd the long
      * boards or waste the short ones.
      */
-    let spineHalfWidth = MARK_R;
-    for (const word of spec.routeNodes) {
-      spineHalfWidth = Math.max(spineHalfWidth, boxOf(word, spec.labelled.has(word)).w);
-    }
+    const spineHalfWidth = widestOf(spec.routeNodes, spec.labelled);
 
     // What the forces read. Kept in a ref rather than closed over, because the forces are
     // built once and this changes on every guess.
@@ -654,23 +482,7 @@ export function useBoardLayout(spec: BoardSpec | null): BoardLayout | null {
       linkForceRef.current?.links(linkList);
     }
 
-    /**
-     * Run the layout to rest without drawing a frame of it.
-     *
-     * `simulation.tick()` steps the layout without dispatching the tick event, so nothing
-     * re-renders while this runs. Synchronous, and therefore paid for in blocked main
-     * thread — which is what SETTLE_DECAY is about.
-     */
-    const run = (alpha: number, ticks: number) => {
-      const animated = simulation.alphaDecay();
-      simulation.stop().alpha(alpha).alphaDecay(SETTLE_DECAY);
-      let steps = 0;
-      while (simulation.alpha() > simulation.alphaMin() && steps < ticks) {
-        simulation.tick();
-        steps += 1;
-      }
-      simulation.alphaDecay(animated);
-    };
+    const run = (alpha: number, ticks: number) => toRest(simulation, alpha, ticks);
 
     const settle = () => {
       run(1, SETTLE_LIMIT);
