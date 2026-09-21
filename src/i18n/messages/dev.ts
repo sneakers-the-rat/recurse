@@ -139,6 +139,81 @@ export const dev = defineMessages({
     description: 'Accessible name of that button.',
   },
 
+  // --- the same instruments over an open map ---------------------------------
+  walk: {
+    id: 'dev.walk',
+    defaultMessage: 'walk',
+    description:
+      'Grows a map by making that many random legal guesses, one at a time, each one animating in as a typed guess would. What the panel is for: the layout questions are all about a map of thousands of words, and this is how one is had without typing for an hour.',
+  },
+  stopWalk: {
+    id: 'dev.stopWalk',
+    defaultMessage: 'stop',
+    description:
+      'What the walk key says while a walk is running, so a long one can be called off. A walk of two thousand played one guess at a time takes as long as it takes.',
+  },
+  fill: {
+    id: 'dev.fill',
+    defaultMessage: 'fill',
+    description:
+      'Makes the same run of guesses as `walk` but all at once, with no animation — for getting a large map in hand to look at rather than watching one grow. What the contact sheet uses.',
+  },
+  walkHow: {
+    id: 'dev.walkHow',
+    defaultMessage: 'moves',
+    description: 'Placeholder in the box beside it, which takes a number of moves.',
+  },
+  walkLabel: {
+    id: 'dev.walkLabel',
+    defaultMessage: 'How many moves to walk',
+    description: 'Accessible name of that box.',
+  },
+  mana: {
+    id: 'dev.mana',
+    defaultMessage: 'mana',
+    description:
+      'Reading on the map bar: how many points are in hand. Doubles as the key that hands over enough of them to exercise the powers.',
+  },
+  pay: {
+    id: 'dev.pay',
+    defaultMessage: 'pay',
+    description:
+      'Hands over enough mana to buy anything, so the powers can be tried without earning first. Never recorded as anything.',
+  },
+  blank: {
+    id: 'dev.blank',
+    defaultMessage: 'blank',
+    description:
+      'Empties the map back to the one word it began at. The map’s own reset — named differently because the daily game’s reset restores a board and this throws away everything found.',
+  },
+  found: {
+    id: 'dev.found',
+    defaultMessage: 'found',
+    description: 'Reading on the map bar: how many words have been reached.',
+  },
+  figure: {
+    id: 'dev.figure',
+    defaultMessage: 'figure',
+    description:
+      'Reading on the map bar: how many words the whole board holds — everything found plus the rim of unfound ones around it.',
+  },
+  shown: {
+    id: 'dev.shown',
+    defaultMessage: 'shown',
+    description:
+      'Reading on the map bar: how many of those survive the cull to what is actually in shot. See detail.ts.',
+  },
+  territories: {
+    id: 'dev.territories',
+    defaultMessage: 'regions',
+    description: 'Reading on the map bar: how many territories the board is laid out as.',
+  },
+  standing: {
+    id: 'dev.standing',
+    defaultMessage: 'at',
+    description: 'Reading on the map bar: the word the next guess would be made from.',
+  },
+
   answer: {
     id: 'dev.answer',
     defaultMessage: 'answer',
@@ -304,5 +379,11 @@ export const modes = defineMessages({
     defaultMessage: 'phonemes',
     description:
       'The game played by ear, where a word is its pronunciation and a move finds a word inside a word by sound: coolest − coo = lust.',
+  },
+  explore: {
+    id: 'modes.explore',
+    defaultMessage: 'explore',
+    description:
+      'The open game: a map of a whole graph with no par and no day, kept between visits. Its two boards are the two vocabularies the other games are played in, so it is named as a game beside them and they are named as its lengths are.',
   },
 });

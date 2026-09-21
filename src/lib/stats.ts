@@ -31,7 +31,8 @@
 import type { Phrase } from '../i18n/format';
 import { stats as says } from '../i18n/messages/stats';
 import type { RawManifest } from './data';
-import { guessedWords, type GameState } from './game';
+import { guessedWords } from './found';
+import type { GameState } from './game';
 import type { Mark } from './share';
 
 /**

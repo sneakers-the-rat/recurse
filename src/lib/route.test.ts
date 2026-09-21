@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   idFromPath,
-  modeFromPath,
+  pageArg,
   pageFromPath,
   pagePath,
   pathFor,
@@ -107,14 +107,14 @@ describe('the rules page and the game it is of', () => {
   it('is a page like the others, with its game after it', () => {
     expect(pagePath('rules', '', PAGES, 'phonemes')).toBe('/recurse/rules/phonemes');
     expect(pageFromPath('/recurse/rules/phonemes', PAGES)).toBe('rules');
-    expect(modeFromPath('/recurse/rules/phonemes', PAGES)).toBe('phonemes');
+    expect(pageArg('rules', '/recurse/rules/phonemes', PAGES)).toBe('phonemes');
   });
 
   it('is the inverse of pagePath, game and all', () => {
     for (const base of ['/', PAGES]) {
       const path = pagePath('rules', '', base, 'letters');
       expect(pageFromPath(path, base)).toBe('rules');
-      expect(modeFromPath(path, base)).toBe('letters');
+      expect(pageArg('rules', path, base)).toBe('letters');
     }
   });
 
@@ -128,13 +128,13 @@ describe('the rules page and the game it is of', () => {
    * the same way an id naming no puzzle is a board that is not there.
    */
   it('reads whatever game the path names, without judging it', () => {
-    expect(modeFromPath('/rules/klingon', '/')).toBe('klingon');
-    expect(modeFromPath('/rules/PHONEMES', '/')).toBe('phonemes');
+    expect(pageArg('rules', '/rules/klingon', '/')).toBe('klingon');
+    expect(pageArg('rules', '/rules/PHONEMES', '/')).toBe('phonemes');
   });
 
   it('names no game for a bare rules path, or for any other path', () => {
     for (const path of ['/rules', '/rules/', '/stats/phonemes', '/2ed94464', '/']) {
-      expect(modeFromPath(path, '/')).toBeNull();
+      expect(pageArg('rules', path, '/')).toBeNull();
     }
   });
 
@@ -194,7 +194,7 @@ describe('the board state a link carries', () => {
 
   it('does not make a board look like a page', () => {
     expect(pageFromPath(`/2ed94464/${CODE}`, '/')).toBeNull();
-    expect(modeFromPath(`/2ed94464/${CODE}`, '/')).toBeNull();
+    expect(pageArg('rules', `/2ed94464/${CODE}`, '/')).toBeNull();
   });
 });
 

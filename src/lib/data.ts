@@ -30,6 +30,7 @@
 import { dateForDay, dayIndex, dayNumber, dayOfYear } from './daily';
 import { buildGraph, type Rows } from './graph';
 import { buildLexicon, PLAIN, type Lexicon, type RawLexicon } from './lexicon';
+import { buildRegions, type RawRegions, type Regions } from './regions';
 import type { Graph, GraphParams, Puzzle } from './types';
 
 /** `dictionary.json`. */
@@ -495,6 +496,35 @@ async function getJson<T>(name: string, immutable = true): Promise<T> {
  * letters board should pay for it.
  */
 const modes = new Map<number, Promise<ModeData>>();
+
+/**
+ * A mode's map, fetched only when something asks for it.
+ *
+ * The fifth file a mode ships, and the only one nothing on the way to today's board needs —
+ * the daily game knows nothing about territories. So it is not part of `loadMode`: a session
+ * that never opens the explore mode never pays for it, which is the same trade the lexicon
+ * makes about a mode nobody plays.
+ *
+ * Cached beside the graphs, and never re-fetched: its name carries the digest of the files it
+ * belongs to, so it is `force-cache` like the rest of them.
+ */
+export function loadRegions(mode: number, manifest: RawManifest): Promise<Regions> {
+  const cached = maps.get(mode);
+  if (cached) return cached;
+  const wanted = Promise.all([
+    getJson<RawRegions>(modeFile('regions', mode, manifest)),
+    loadMode(mode, manifest),
+  ])
+    .then(([raw, loaded]) => buildRegions(raw, loaded.graph.words))
+    .catch((error: unknown) => {
+      maps.delete(mode);
+      throw error;
+    });
+  maps.set(mode, wanted);
+  return wanted;
+}
+
+const maps = new Map<number, Promise<Regions>>();
 
 export function loadMode(mode: number, manifest: RawManifest): Promise<ModeData> {
   const cached = modes.get(mode);

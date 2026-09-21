@@ -24,6 +24,7 @@ import {
   between,
   clampCamera,
   ease,
+  leastScale,
   panBy,
   zoomAround,
   type Box,
@@ -271,7 +272,13 @@ export function usePanZoom(
       const factor = Math.exp(-event.deltaY * WHEEL_STEP);
       setCamera((current) =>
         clampCamera(
-          zoomAround(current, plateRef.current, factor, over),
+          zoomAround(
+            current,
+            plateRef.current,
+            factor,
+            over,
+            leastScale(boundsRef.current, plateRef.current),
+          ),
           boundsRef.current,
           plateRef.current,
         ),
@@ -345,7 +352,13 @@ export function usePanZoom(
             const factor = pinch.gap / lastSpread.current;
             setCamera((current) =>
               clampCamera(
-                zoomAround(current, plateRef.current, factor, pinch.mid),
+                zoomAround(
+                  current,
+                  plateRef.current,
+                  factor,
+                  pinch.mid,
+                  leastScale(boundsRef.current, plateRef.current),
+                ),
                 boundsRef.current,
                 plateRef.current,
               ),

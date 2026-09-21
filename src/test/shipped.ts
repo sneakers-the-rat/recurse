@@ -34,6 +34,7 @@ import { dateForDay, dayIndex, dayNumber, dayOfYear } from '../lib/daily';
 import type { RawLexicon } from '../lib/lexicon';
 import type { Puzzle } from '../lib/types';
 import type { PlateOptions } from '../lib/plate';
+import { buildRegions, type RawRegions, type Regions } from '../lib/regions';
 
 const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'data');
 
@@ -189,6 +190,21 @@ export function shippedData(band: number = DEFAULT_BAND): GameData {
   });
   cached.set(band, built);
   return built;
+}
+
+/**
+ * One mode's map: the territories the builder carved its common graph into.
+ *
+ * Read the same way the app reads it, off the same file, so a test cannot be about a
+ * partition the browser never sees. Per band for the same reason `shippedData` is.
+ */
+export function shippedRegions(band: number = DEFAULT_BAND): Regions {
+  const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
+  const mode = manifest.bands[band]?.mode ?? 0;
+  return buildRegions(
+    read<RawRegions>(modeFile('regions', mode, manifest)),
+    shippedData(band).graph.words,
+  );
 }
 
 /**

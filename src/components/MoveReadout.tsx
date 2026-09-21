@@ -19,6 +19,7 @@
 import { memo } from 'react';
 import { FormattedMessage } from 'react-intl';
 
+import { explore } from '../i18n/messages/explore';
 import { guess as says } from '../i18n/messages/guess';
 import { PLAIN, type Lexicon } from '../lib/lexicon';
 import { analyzeEdit, bestReading, judgeGuess } from '../lib/moves';
@@ -36,6 +37,19 @@ interface Props {
   lexicon?: Lexicon;
   /** Dim the whole readout once the guess has been rejected. */
   muted?: boolean;
+  /**
+   * Somewhere this word would take you, when it is not a move from here.
+   *
+   * The explore mode's fast travel, said *before* Guess is pressed — which is the whole point
+   * of it: a word already on the map is somewhere to stand, and typing its name jumps there
+   * rather than being refused for not being a move. Absent in the daily game, where a word
+   * that is not a move is simply not a move.
+   *
+   * It only ever shows when nothing plays. A word that is both a move from here and somewhere
+   * already found is a *move*, and describing it as travel would tell the player their guess
+   * did nothing.
+   */
+  travel?: string | null;
 }
 
 function Marked({
@@ -81,6 +95,7 @@ export const MoveReadout = memo(function MoveReadout({
   isWord = null,
   muted = false,
   lexicon = PLAIN,
+  travel = null,
 }: Props) {
   const read = (piece: string) => (lexicon.translated ? lexicon.transcribe(piece) : piece);
   /*
@@ -109,6 +124,15 @@ export const MoveReadout = memo(function MoveReadout({
   */
   const verdict = judgeGuess(graph, from, raw, isWord, lexicon);
   const word = (verdict.ok ? verdict.word : lexicon.parse(raw)[0]) ?? '';
+
+  // Nothing plays, but the map already holds this word: pressing Guess goes there.
+  if (raw && !verdict.ok && travel) {
+    return (
+      <p className={`label ${muted ? 'opacity-55' : ''}`} aria-live="polite">
+        <FormattedMessage {...explore.travel} values={{ word: lexicon.label(travel) }} />
+      </p>
+    );
+  }
 
   if (!raw || word === from) {
     return (

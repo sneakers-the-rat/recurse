@@ -1,5 +1,10 @@
 /**
- * Game state, as pure functions over an immutable snapshot.
+ * The daily game's state, as pure functions over an immutable snapshot.
+ *
+ * What a guess *does* to a board — which words it reveals, where it leaves the cursor, what a
+ * repeated move costs — is found.ts, because the explore mode asks the same question of the
+ * same graphs. What is here is everything that only makes sense with a puzzle in hand: two
+ * ends, a par to beat, hints to buy and a round that finishes.
  *
  * The rules, as they stand:
  *  - You start with the source word revealed and selected.
@@ -32,25 +37,31 @@
  * meant finishing under par without finding a shortcut.
  */
 
+import {
+  advance,
+  joins,
+  moveKey,
+  open,
+  replay,
+  type Found,
+  type LogEntry,
+} from "./found";
+import { hintLevels, ITSELF, type Spell } from "./hints";
 import { PLAIN, type Lexicon } from "./lexicon";
 import { judgeGuess } from "./moves";
-import type { Graph, Judgement, Move, Puzzle, Revealed } from "./types";
+import type { Graph, Judgement, Move, Puzzle } from "./types";
 
-export interface LogEntry {
-  from: string;
-  to: string;
-  move: Move;
-  /** Guess number this was, 1-based. */
-  order: number;
-}
 
-export interface GameState {
+/**
+ * A round of the daily game: what has been found, plus everything a puzzle adds.
+ *
+ * Extends `Found` structurally rather than nesting it, so every consumer still reads
+ * `state.revealed` and `state.log` and a step is `{ ...state, ...step.found }`.
+ */
+export interface GameState extends Found {
   puzzle: Puzzle;
-  /** Words the player has *reached*. The goal is not one of them until they arrive at it. */
-  revealed: Map<string, Revealed>;
   /** The word new guesses are made from — a revealed one or the goal. See `isFront`. */
   selected: string;
-  guesses: number;
   misses: number;
   /** Whether the moves made join the source to the goal. Derived; see `joins`. */
   solved: boolean;
@@ -80,165 +91,6 @@ export interface GameState {
    * ones, drawn on the edge, because that is what a move is and a node is not.
    */
   edgeHints: Set<string>;
-  log: LogEntry[];
-}
-
-/** The key a given-away move is remembered by, and drawn from. Directed. */
-export function moveKey(from: string, to: string): string {
-  return `${from} ${to}`;
-}
-
-/**
- * The key a move *made* is remembered by. **Undirected**, unlike `moveKey`.
- *
- * The two exist for opposite reasons and the difference is the point. A hint on a move is
- * about the word that was asked, so which end it was asked from is the whole content of it.
- * A move the player made is a move in both directions at once — the letters came out going
- * one way and would go back in going the other — so `a b` and `b a` are one entry, and the
- * game must not charge twice or draw twice for one thing.
- */
-export function edgeKey(a: string, b: string): string {
-  return a < b ? `${a} ${b}` : `${b} ${a}`;
-}
-
-/**
- * Do the moves made join these two words?
- *
- * A walk of the log, which is a handful of edges — nothing here is worth an index. The
- * source and the goal are both roots of the search space, so this is asked of them and
- * answers whether the round is over: two halves that touch anywhere are one chain.
- */
-function joins(from: string, to: string, log: readonly LogEntry[]): boolean {
-  if (from === to) return true;
-  const near = new Map<string, string[]>();
-  for (const { from: a, to: b } of log) {
-    if (!near.has(a)) near.set(a, []);
-    if (!near.has(b)) near.set(b, []);
-    near.get(a)!.push(b);
-    near.get(b)!.push(a);
-  }
-  const seen = new Set([from]);
-  const queue = [from];
-  while (queue.length > 0) {
-    const at = queue.shift()!;
-    for (const next of near.get(at) ?? []) {
-      if (next === to) return true;
-      if (seen.has(next)) continue;
-      seen.add(next);
-      queue.push(next);
-    }
-  }
-  return false;
-}
-
-/**
- * The order in which a word gives its letters up.
- *
- * Scattered, not front to back. A prefix is the one part of a word this game must
- * not hand over cheaply — words live inside other words, so `car·······` names the
- * family and most of the answer with it. A letter from the middle is a clue; the
- * first three letters are the solution.
- *
- * A function of the word, not a draw from `Math.random()`, because the order has to
- * be the same every time it is asked for. Two places depend on that:
- *
- * - A reload has to redraw the board exactly. The snapshot stores a level per word
- *   and nothing else, so the positions have to be recoverable from the word.
- * - `hintLabel` is called while rendering each node, so it has to be pure. Drawing
- *   at random per call would give the same word different letters from one render to
- *   the next, and the board re-renders whenever the layout is moving.
- *
- * The alternative is to choose positions at click time and store them in the
- * snapshot, which would make two players see a word differently. It costs a storage
- * version and a longer snapshot, and buys nothing this needs.
- */
-const orders = new Map<string, number[]>();
-
-function revealOrder(word: string): number[] {
-  const cached = orders.get(word);
-  if (cached) return cached;
-
-  // FNV-1a, then xorshift32: a couple of lines of arithmetic that scatter well
-  // enough for this. Nothing here is a secret — the point is an order that looks
-  // arbitrary and stays put, not one nobody can predict.
-  let seed = 0x811c9dc5;
-  for (let i = 0; i < word.length; i++) {
-    seed = ((seed ^ word.charCodeAt(i)) * 0x01000193) >>> 0;
-  }
-  const next = () => {
-    seed ^= seed << 13;
-    seed ^= seed >>> 17;
-    seed ^= seed << 5;
-    return (seed >>> 0) / 0x100000000;
-  };
-
-  const order = [...word].map((_, i) => i);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(next() * (i + 1));
-    [order[i], order[j]] = [order[j]!, order[i]!];
-  }
-  orders.set(word, order);
-  return order;
-}
-
-/**
- * How a word is *spelled*, for the purpose of hinting at it.
- *
- * **Hints are always about letters, in every game.** In the phonemes game a node is a
- * pronunciation, and everything else about it — the move, the graph, what a guess resolves to
- * — is phonemes; a hint is the exception, and has to be, because a hint is help naming the
- * word and nobody knows how many phonemes `thought` has or what `/θɔt/` looks like. Counting
- * five sounds at somebody is a riddle about IPA rather than a clue about the word.
- *
- * So everything below takes the *written* form, and the caller says what that is. The default
- * is the identity, which is exactly right for the letters game and is why nothing there — nor
- * any test written before this existed — has to know the seam is here at all. The phonemes
- * game passes `lexicon.label`.
- */
-export type Spell = (word: string) => string;
-
-const ITSELF: Spell = (word) => word;
-
-/**
- * What a hint level gives away, and so what a click buys.
- *
- * Level 1 is the letter count. Every level after that turns up one more letter, in
- * the word's own scattered order, so level `1 + n` shows `n` letters and the last
- * level shows the lot. Progressive on purpose: a letter count is often all anyone
- * needs to place a word, and someone properly stuck can keep asking until the word
- * is simply there.
- *
- * **Takes the written form**, not the token — see `Spell`. The scattered order is a function
- * of the string it is given, so it scatters the *letters* and stays put across reloads for the
- * same reason it always did.
- */
-export function hintLabel(word: string, level: number): string | null {
-  if (level <= 0) return null;
-  if (level === 1) return String(word.length);
-  const shown = new Set(
-    revealOrder(word).slice(0, Math.min(level - 1, word.length)),
-  );
-  return [...word].map((letter, i) => (shown.has(i) ? letter : "·")).join("");
-}
-
-/**
- * Levels a word has to give: the count, then one per letter.
- *
- * Of the *written* form, which in the phonemes game is longer or shorter than the token it is
- * drawn for — `thought` is seven letters and three phonemes. Every cap on a level goes through
- * here, so the tally and what the board draws cannot disagree about when a word is spent.
- */
-export function hintLevels(word: string, spell: Spell = ITSELF): number {
-  return 1 + spell(word).length;
-}
-
-/** Has this word been spelled out completely? */
-export function fullyHinted(
-  word: string,
-  level: number,
-  spell: Spell = ITSELF,
-): boolean {
-  return level >= hintLevels(word, spell);
 }
 
 /**
@@ -248,9 +100,6 @@ export function fullyHinted(
  * than one at a time. Dev mode's "spell this word out" deliberately does not go
  * through here at all — it is an inspection of the board, not help with it, and when
  * it *was* a hint one tap on a ten-letter word put ten on the tally.
- */
-/**
- * What a round's hints came to: one per level of every word, one per move marked.
  *
  * `spentHints` is in it because a shared board's code does not carry a level for a word it has
  * since named — see `GameState.spentHints`. Everything that shows a score comes through here,
@@ -265,17 +114,13 @@ export function hintCount(state: GameState): number {
 export function newGame(puzzle: Puzzle): GameState {
   return {
     puzzle,
-    revealed: new Map([
-      [puzzle.source, { word: puzzle.source, via: null, move: null, order: 0 }],
-    ]),
+    ...open(puzzle.source),
     selected: puzzle.source,
-    guesses: 0,
     misses: 0,
     solved: false,
     hints: new Map(),
     spentHints: 0,
     edgeHints: new Set(),
-    log: [],
   };
 }
 
@@ -311,11 +156,11 @@ export function isFront(state: GameState, word: string): boolean {
 /**
  * What the board is showing, for deciding where a guess lands.
  *
- * A typed word can name several nodes and the cursor can only be on one — see `landing` in
- * `applyGuess`. Which of them the player has already seen is a question about the *figure*
- * rather than about the graph, so it comes from `plate.ts` through the caller rather than
- * being worked out here: the board grows as words are found, and only the thing drawing it
- * knows what is on it now.
+ * A typed word can name several nodes and the cursor can only be on one — see `advance` in
+ * found.ts. Which of them the player has already seen is a question about the *figure* rather
+ * than about the graph, so it comes from `plate.ts` through the caller rather than being
+ * worked out here: the board grows as words are found, and only the thing drawing it knows
+ * what is on it now.
  */
 export interface Drawn {
   /** Words on a shortest route — the answer, and the line the board is laid out along. */
@@ -325,24 +170,34 @@ export interface Drawn {
 }
 
 /**
- * One reading per token.
+ * Where a guess that named several words leaves the cursor.
  *
- * The lexicon is decoded from a shipped file, and nothing downstream of it should have to
- * trust that a spelling lists each of its tokens once. Two readings of the same token are one
- * move: logged twice under one order they would draw one edge, restore as one — `restore`
- * drops a repeated edge — and leave a reload disagreeing with the game it restored.
+ * **The one already most a part of the board wins**, in four tiers:
+ *
+ *   an endpoint  — the goal or the word they started from. It finishes the round, and
+ *                  standing anywhere else after playing it reads as being ignored.
+ *   on the spine — a word on a shortest route: the answer, which is what the board is
+ *                  laid out along and what the player is looking for.
+ *   drawn        — already on the board somewhere, so they have seen it and it has a place.
+ *   new          — a node this guess has just brought into existence.
+ *
+ * Because a guess that names several tokens usually names one the player meant and one they
+ * have never heard of, and landing on the new one leaves them somewhere off to the side
+ * wondering what happened.
+ *
+ * `drawn` is the caller's, because which words are on the board is `plate.ts`'s question and
+ * the answer changes as the board grows. Without it only the endpoint tier can be told apart,
+ * which is the letters game and every test written before any of this.
  */
-function dedupe(
-  readings: { word: string; move: Move }[],
-): { word: string; move: Move }[] {
-  const seen = new Set<string>();
-  const once: { word: string; move: Move }[] = [];
-  for (const reading of readings) {
-    if (seen.has(reading.word)) continue;
-    seen.add(reading.word);
-    once.push(reading);
-  }
-  return once;
+function ranking(puzzle: Puzzle, drawn: Drawn | null): (word: string) => number {
+  return (word) =>
+    word === puzzle.target || word === puzzle.source
+      ? 0
+      : drawn?.spine.has(word)
+        ? 1
+        : drawn?.nodes.has(word)
+          ? 2
+          : 3;
 }
 
 /**
@@ -371,163 +226,30 @@ export function applyGuess(
     };
   }
 
-  /*
-    **Every reading the guess named, as one guess.**
-
-    A typed word can name several tokens — see `also` on `Judgement` — and every one of them
-    that makes a legal move from here is a move the player has just made. They all go on the
-    board and the tally goes up by one, because the player typed one word: charging per
-    pronunciation would charge for knowing less about the language, and adding only one of
-    them was the bug this replaced. On `does → dissenters` the reading that happened to sort
-    first was not the goal, so typing the goal's own name built a second node beside it and
-    the round could not be finished.
-
-    Readings whose move is already on the log are dropped rather than repeated — that is the
-    same rule a repeated move has always had — and if *none* survives, the whole guess is the
-    free navigation it always was.
-  */
-  const readings = dedupe([
-    { word: judgement.word, move: judgement.move },
-    ...judgement.also,
-  ]);
-  const known = new Set(
-    state.log.map((entry) => edgeKey(entry.from, entry.to)),
-  );
-  const fresh = readings.filter(
-    ({ word }) => !known.has(edgeKey(state.selected, word)),
+  const step = advance(
+    state,
+    state.selected,
+    judgement,
+    ranking(state.puzzle, drawn),
   );
 
-  /*
-    Which reading the cursor ends up on, and which one the guess bar reports.
-
-    **The one already most a part of the board wins**, in four tiers:
-
-      an endpoint  — the goal or the word they started from. It finishes the round, and
-                     standing anywhere else after playing it reads as being ignored.
-      on the spine — a word on a shortest route: the answer, which is what the board is
-                     laid out along and what the player is looking for.
-      drawn        — already on the board somewhere, so they have seen it and it has a place.
-      new          — a node this guess has just brought into existence.
-
-    Because a guess that names several tokens usually names one the player meant and one they
-    have never heard of, and landing on the new one leaves them somewhere off to the side
-    wondering what happened. Ties go to the first reading, which is the most familiar one —
-    the lexicon orders them.
-
-    `drawn` is the caller's, because which words are on the board is `plate.ts`'s question and
-    the answer changes as the board grows. Without it only the endpoint tier can be told
-    apart, which is the letters game and every test written before any of this.
-  */
-  const rank = ({ word }: { word: string }) =>
-    word === state.puzzle.target || word === state.puzzle.source
-      ? 0
-      : drawn?.spine.has(word)
-        ? 1
-        : drawn?.nodes.has(word)
-          ? 2
-          : 3;
-  const landing = (from: readonly { word: string; move: Move }[]) =>
-    from.reduce((best, one) => (rank(one) < rank(best) ? one : best), from[0]!);
-
-  if (fresh.length === 0) {
-    // Free: walking back along a move you already made is navigation, not progress. Asked the
-    // same question as a fresh guess, so re-typing a word puts the cursor where typing it the
-    // first time did.
-    const already = landing(readings);
+  if (!step.moved) {
     return {
       kind: "already-known",
-      state: { ...state, selected: already.word },
-      move: already.move,
-      word: already.word,
+      state: { ...state, selected: step.landed },
+      move: step.move,
+      word: step.landed,
     };
   }
 
-  /*
-    The landed reading goes **first on the log**, so that "the moves of guess N" and "what
-    guess N did" can be read off the same list: anything wanting one word per guess takes the
-    first entry of each order. See `guessedWords`, the trail in App's `result`, and the word
-    table in `recordOf`.
-  */
-  const landed = landing(fresh);
-  const made = [landed, ...fresh.filter((one) => one.word !== landed.word)];
-
-  const order = state.guesses + 1;
-  // A word already named keeps the entry it arrived with: `via` and `order` record how it
-  // was *first* reached, and a second way in is a move rather than another arrival.
-  const revealed = new Map(state.revealed);
-  for (const { word, move } of made) {
-    if (!revealed.has(word))
-      revealed.set(word, { word, via: state.selected, move, order });
-  }
-  const log = [
-    ...state.log,
-    ...made.map(({ word, move }) => ({
-      from: state.selected,
-      to: word,
-      move,
-      order,
-    })),
-  ];
-  const solved = joins(state.puzzle.source, state.puzzle.target, log);
-
+  const solved = joins(state.puzzle.source, state.puzzle.target, step.found.log);
   return {
     kind: "revealed",
-    move: landed.move,
-    word: landed.word,
+    move: step.move,
+    word: step.landed,
     solved,
-    state: {
-      ...state,
-      revealed,
-      selected: landed.word,
-      guesses: order,
-      solved,
-      log,
-    },
+    state: { ...state, ...step.found, selected: step.landed, solved },
   };
-}
-
-/**
- * Does this log entry begin a new guess, or belong to the one before it?
- *
- * **The one definition of what a guess is**, because three things need it and they must not
- * disagree: `restore` numbers the guesses, `guessedWords` counts them, and `actionsOf` in
- * actions.ts writes them down for a shared board. A typed word can name several tokens and put
- * a move on the log for each — see `applyGuess` — so the log is longer than the tally, and a
- * consumer that grouped it differently would hand back a different score.
- *
- * An entry belongs to the guess before it when it carries the same order *and* the same word
- * moved from. The `from` matters because every move of one guess is made from where the player
- * was standing: two genuinely separate guesses that both claim one order — which nothing here
- * writes, but a hand-edited snapshot could — then still count as two. That is the direction
- * worth guarding, since merging two invents a better score than was played.
- *
- * A `NaN` order is never equal to itself, so an entry whose order did not survive being
- * written down begins a guess of its own. That is `restore` wanting a number it cannot trust
- * to buy nothing, and it falls out of the comparison rather than needing a case.
- */
-export function newGuess(
-  entry: { order: number; from: string },
-  before: { order: number; from: string } | undefined,
-): boolean {
-  return (
-    before === undefined ||
-    entry.order !== before.order ||
-    entry.from !== before.from
-  );
-}
-
-/**
- * The word each guess landed on, in order: one per guess, however many moves it made.
- *
- * Anything counting *guesses* rather than moves has to come through here: the shared trail is
- * "one mark per guess" and the word table is about words the player typed, and both read as
- * double-counting otherwise. The first entry of each guess is the one it landed on, which
- * `applyGuess` guarantees.
- */
-export function guessedWords(log: readonly LogEntry[]): string[] {
-  return log
-    .filter((entry, at) => newGuess(entry, log[at - 1]))
-    .map((entry) => entry.to);
 }
 
 /** Move the cursor to another word a guess can be made from. */
@@ -629,10 +351,10 @@ export function moveHint(
  *
  * Only what cannot be derived. `revealed` is the source plus whatever the logged moves
  * landed on, `guesses` is how many *orders* the log holds — one guess can be several moves,
- * see `applyGuess` — and `solved` is whether those moves join the source to the goal, so
- * storing those too would be storing the same facts twice and inviting them to disagree. What is left is the log, where the cursor is (moving it costs
- * nothing, so it leaves no trace in the log), and the two tallies that are not about words
- * at all.
+ * see `advance` — and `solved` is whether those moves join the source to the goal, so
+ * storing those too would be storing the same facts twice and inviting them to disagree. What
+ * is left is the log, where the cursor is (moving it costs nothing, so it leaves no trace in
+ * the log), and the two tallies that are not about words at all.
  */
 export interface GameSnapshot {
   log: LogEntry[];
@@ -660,34 +382,16 @@ export function snapshot(state: GameState): GameSnapshot {
   };
 }
 
-function isMove(value: unknown): value is Move {
-  const move = value as Move | null;
-  return (
-    typeof move === "object" &&
-    move !== null &&
-    typeof move.sub === "string" &&
-    typeof move.pos === "number" &&
-    (move.kind === "add" || move.kind === "remove")
-  );
-}
-
 /**
  * Rebuild a game from a snapshot, or start a fresh one.
  *
- * Total by construction: anything that does not make sense is dropped rather
- * than trusted. A snapshot is a string that was in a browser for a month — it
- * may have been written by an older version, or by a bank in which one of these
- * words no longer exists, and a half-restored map that crashes the board is a
- * far worse outcome than a game that quietly starts again.
+ * Total by construction: what `replay` cannot make sense of is dropped rather than trusted,
+ * and so is everything below. A snapshot is a string that was in a browser for a month, and a
+ * half-restored map that crashes the board is a far worse outcome than a game that quietly
+ * starts again.
  *
- * A move is replayed only if it starts somewhere the player could have been standing — a
- * word already revealed, or the goal — so the trail stays connected to one end or the other
- * however mangled the input. A move that repeats one already replayed is dropped, because
- * the game does not charge for those and a snapshot that claims two of them would inflate
- * the score.
- *
- * `spell` is how a token is written, for clamping the hint levels — see `Spell`. Left out, a
- * word is its own spelling, which is the letters game.
+ * `spell` is how a token is written, for clamping the hint levels — see `Spell` in hints.ts.
+ * Left out, a word is its own spelling, which is the letters game.
  */
 export function restore(
   puzzle: Puzzle,
@@ -697,49 +401,8 @@ export function restore(
   const fresh = newGame(puzzle);
   if (!saved) return fresh;
 
-  const revealed = new Map(fresh.revealed);
-  const log: LogEntry[] = [];
-  const made = new Set<string>();
-  /*
-    **One guess can be several moves, so the count is guesses and not entries.**
-
-    `newGuess` is the definition, shared with everything else that has to agree about it. The
-    stored order is read for its *grouping* and never for its value: the counter goes up
-    whenever a guess begins, so entries dropped below leave no gap, a snapshot written before
-    any of this — where every entry has its own order — restores exactly as it always did, and
-    a number somebody typed into `localStorage` cannot run the tally anywhere.
-
-    Compared against the last entry *kept*, not the last one read: dropping an entry costs a
-    guess and is conservative, while letting a dropped one break up a group would invent one.
-  */
-  let previous: { order: number; from: string } | undefined;
-  let order = 0;
-  for (const entry of Array.isArray(saved.log) ? saved.log : []) {
-    if (!entry || typeof entry.to !== "string" || !isMove(entry.move)) continue;
-    // A move from a word to itself is not a move. It cannot be typed — an empty edit is
-    // refused — but a hand-edited snapshot could claim one, and it would cost a guess.
-    if (entry.from === entry.to) continue;
-    if (!revealed.has(entry.from) && entry.from !== puzzle.target) continue;
-    const key = edgeKey(entry.from, entry.to);
-    if (made.has(key)) continue;
-    made.add(key);
-    const here = {
-      order: Number.isFinite(entry.order) ? Number(entry.order) : NaN,
-      from: entry.from,
-    };
-    if (newGuess(here, previous)) order += 1;
-    previous = here;
-    if (!revealed.has(entry.to)) {
-      revealed.set(entry.to, {
-        word: entry.to,
-        via: entry.from,
-        move: entry.move,
-        order,
-      });
-    }
-    log.push({ from: entry.from, to: entry.to, move: entry.move, order });
-  }
-  const guesses = order;
+  // The goal is the one place a move may start from without having been reached.
+  const found = replay(saved.log, puzzle.source, new Set([puzzle.target]));
 
   // Levels are clamped to what the word can actually give: a stored 40 on a
   // five-letter word would otherwise inflate the hint tally for ever.
@@ -766,17 +429,15 @@ export function restore(
 
   return {
     puzzle,
-    revealed,
-    log,
+    ...found,
     selected:
-      revealed.has(saved.selected) || saved.selected === puzzle.target
+      found.revealed.has(saved.selected) || saved.selected === puzzle.target
         ? saved.selected
         : puzzle.source,
-    guesses,
     misses: Number.isFinite(saved.misses)
       ? Math.max(0, Math.trunc(saved.misses))
       : 0,
-    solved: joins(puzzle.source, puzzle.target, log),
+    solved: joins(puzzle.source, puzzle.target, found.log),
     hints,
     // Levels for words the figure no longer shows, which only a shared link carries. Read the
     // way every other stored number is: a value that is not a sane count buys nothing.

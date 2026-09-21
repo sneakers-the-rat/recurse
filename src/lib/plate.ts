@@ -31,10 +31,103 @@ export interface PlateEdge {
   b: string;
 }
 
-export interface Plate {
-  /** Words to draw, sorted for stable ordering. */
+/**
+ * The part of a board that every game has: which words are drawn, and every move between two
+ * of them.
+ *
+ * `Plate` is this plus everything the daily puzzle measures against its answer. An open board
+ * has no answer to measure against, so it is this and nothing else.
+ */
+export interface Figure {
   nodes: string[];
   edges: PlateEdge[];
+}
+
+/**
+ * Every edge there is between two drawn words — with one line drawn between what "there is"
+ * means for a word the player has been to and a word that is merely on the board.
+ *
+ * A word the player **reached by a move** shows *all* of its legal moves to words on the
+ * board. Anything less is a lie about where they are standing: a word arriving from off the
+ * corpus was drawn joined only to the word it sprouted from, so a rare word sitting between
+ * three drawn words looked like a spur off one of them. The edge list is shipped and indexed
+ * by word, so this is a row lookup per drawn word — no search, nothing to wait for, nothing to
+ * show progress of.
+ *
+ * A word **nobody has reached yet** shows its common moves only, and that is not conservatism
+ * about drawing: on a daily board a legal edge between two ordinary words the player has not
+ * found is a *shortcut*, and drawing it puts a line on the figure that is shorter than the par
+ * in the header. Which end of that line is `openly`'s to say.
+ *
+ * Pairs come back sorted and deduplicated, which is how every consumer names an edge.
+ */
+export function edgesAmong(
+  graph: Graph,
+  nodes: readonly string[],
+  openly: (word: string) => boolean,
+): PlateEdge[] {
+  const live = new Set(nodes);
+  const seen = new Set<string>();
+  const edges: PlateEdge[] = [];
+  for (const a of nodes) {
+    for (const b of openly(a) ? graph.neighbors(a) : graph.commonNeighbors(a)) {
+      if (!live.has(b)) continue;
+      const key = a < b ? `${a} ${b}` : `${b} ${a}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push(a < b ? { a, b } : { a: b, b: a });
+    }
+  }
+  return edges;
+}
+
+/**
+ * What an open board draws: everywhere the player has been, and one step of what is next.
+ *
+ * **The rim is the whole of the difference from a daily board.** A puzzle declares the words
+ * it draws and the player fills them in; an atlas declares nothing, so revealing a word puts
+ * an unnamed dot on the board for each of its common neighbours. That is how an open map says
+ * where there is more to find without saying what — and it is depth one and no further,
+ * because two steps out is most of the graph.
+ *
+ * `inAtlas` keeps the rim to words that are part of the map: a common word in a component too
+ * small to explore is not somewhere to go. See regions.rs. A word the player guessed that is
+ * legal but not common has no common neighbours at all, so it contributes no rim and hangs off
+ * the board as the leaf it is.
+ */
+export function atlasFigure(
+  graph: Graph,
+  inAtlas: (word: string) => boolean,
+  revealed: ReadonlySet<string>,
+  moves: readonly { from: string; to: string }[] = [],
+): Figure {
+  const live = new Set(revealed);
+  for (const word of revealed) {
+    for (const near of graph.commonNeighbors(word)) {
+      if (inAtlas(near)) live.add(near);
+    }
+  }
+
+  const nodes = [...live].sort();
+  const edges = edgesAmong(graph, nodes, (word) => revealed.has(word));
+
+  // And every move the player actually made, which `edgesAmong` can miss: a move between two
+  // words it does not think are joined — because one of them is off the common graph — is
+  // still a move that was played, and a figure that left it out would show the word floating.
+  const seen = new Set(edges.map(({ a, b }) => `${a} ${b}`));
+  for (const { from, to } of moves) {
+    if (!live.has(from) || !live.has(to)) continue;
+    const [a, b] = from < to ? [from, to] : [to, from];
+    const key = `${a} ${b}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    edges.push({ a, b });
+  }
+
+  return { nodes, edges };
+}
+
+export interface Plate extends Figure {
   /** Nodes on some shortest source→target route. */
   routeNodes: Set<string>;
   /** Moves from each drawn node to the target. */
@@ -270,40 +363,23 @@ export function buildPlate(
 
   const nodes = [...live].sort();
 
-  const seen = new Set<string>();
-  const edges: PlateEdge[] = [];
+  // The whole point of a secret is that finding it is the reward, so a word on one the player
+  // has an end of counts as reached and draws its legal moves too. See `secret` on Puzzle, and
+  // App's secret trail.
+  const reached = new Set(found.filter((entry) => entry.via !== null).map((entry) => entry.word));
+  const edges = edgesAmong(
+    graph,
+    nodes,
+    (word) => reached.has(word) || (options.secret?.has(word) ?? false),
+  );
+
+  const seen = new Set(edges.map(({ a, b }) => `${a} ${b}`));
   const addEdge = (a: string, b: string) => {
     const key = a < b ? `${a} ${b}` : `${b} ${a}`;
     if (seen.has(key)) return;
     seen.add(key);
     edges.push(a < b ? { a, b } : { a: b, b: a });
   };
-
-  /**
-   * Every edge there is between two drawn words — with one line drawn between what "there
-   * is" means for a word the player walked to and a word the puzzle merely declares.
-   *
-   * A word the player **reached by a move** shows *all* of its legal moves to words on the
-   * board. Anything less is a lie about where they are standing: a word arriving from off
-   * the corpus was drawn joined only to the word it sprouted from, so a rare word sitting
-   * between three drawn words looked like a spur off one of them. The edge list is shipped
-   * and indexed by word, so this is a row lookup per drawn word — no search, nothing to
-   * wait for, nothing to show progress of.
-   *
-   * A word **nobody has reached yet** shows its common moves only, and that is not
-   * conservatism about drawing: a legal edge between two ordinary words that the player has
-   * not found is a *shortcut*, and drawing it puts a line on the board that is shorter than
-   * the par in the header. The whole point of a secret is that finding it is the reward — so
-   * the board keeps quiet about one until the player has an end of it. See `secret` on
-   * Puzzle, and App's secret trail.
-   */
-  const reached = new Set(found.filter((entry) => entry.via !== null).map((entry) => entry.word));
-  const openly = (word: string) => reached.has(word) || (options.secret?.has(word) ?? false);
-  for (const a of nodes) {
-    for (const b of openly(a) ? graph.neighbors(a) : graph.commonNeighbors(a)) {
-      if (live.has(b)) addEdge(a, b);
-    }
-  }
 
   /**
    * **Every move the player has made is drawn**, and that is a stronger promise than the

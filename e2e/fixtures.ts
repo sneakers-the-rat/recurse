@@ -23,7 +23,7 @@ import type { Puzzle } from '../src/lib/types';
 export const gameData = shippedData;
 
 /**
- * Take one of the masthead menus — the archive, the stats, or the rules.
+ * Take one of the masthead's destinations — the archive, the record, the lesson or the rules.
  *
  * A phone keeps them behind the hamburger and a wider screen writes them out, and both are
  * in the DOM at every width — so which one a test can click is a question about the

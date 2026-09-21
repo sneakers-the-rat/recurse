@@ -18,6 +18,7 @@
  */
 
 /* eslint-disable formatjs/no-literal-string-in-jsx -- marks and ornament: the whole point of this file */
+import {base} from "../lib/route"
 
 /**
  * What separates one figure from the next.
@@ -133,9 +134,11 @@ export const Space = () => <>{' '}</>;
  * Two spans, so `Curse` can be blood-red and italic.
  */
 export const Wordmark = () => (
-  <span className="text-bone text-xl leading-none font-semibold tracking-tight">
-    Re<span className="text-blood-lit italic">Curse</span>
-  </span>
+  <a href={base()}>
+    <span className="text-bone text-xl leading-none font-semibold tracking-tight">
+      Re<span className="text-blood-lit italic">Curse</span>
+    </span>
+  </a>
 );
 
 /**
@@ -176,12 +179,22 @@ export const Wordmark = () => (
  * icons. The letters mark carries far more detail in the same box and so reads heavier at the
  * same weight; that is the cost of the two being legibly one system.
  *
+ * **The open game's mark is three words and two moves**, which is the smallest thing this game
+ * draws that is recognisably a board — and the same unit the calendar schedules by. The other
+ * two marks say what a *word* is here, by spelling or by sound; the open game does not change
+ * what a word is, it changes what you are looking at, so its mark is the graph rather than the
+ * alphabet. Circles and lines at the same weight, which is also what the plate is drawn in.
+ *
  * **A game with no icon draws nothing**, and the caller falls back to its name. Same rule as
- * `bandName`: adding a mode must not be able to break a screen that has never heard of it.
+ * `bandName`: adding a mode must not be able to break a screen that has never heard of it. It
+ * is not a comfortable fallback, though — on the masthead the name is a second whole word on a
+ * row that is three things wide, and it is what made the switch wrap on a map before this one
+ * existed.
  */
 const GAME_ICONS: Record<string, string> = {
   letters: 'icons/letters.svg',
   phonemes: 'icons/phonemes.svg',
+  explore: 'icons/explore.svg',
 };
 
 export function GameIcon({ game, className = '' }: { game: string; className?: string }) {
@@ -219,6 +232,16 @@ export function hasGameIcon(game: string): boolean {
  * glyph, and the button's own label — which *is* language — says what it opens.
  */
 export const Query = () => <>?</>;
+
+/**
+ * The plus on the power that puts a word straight onto an open map.
+ *
+ * The same argument as `Query`, and the same glyph as the sign on a move that adds letters —
+ * which is not a coincidence worth avoiding: both mean something arriving on the board, and a
+ * player who has learnt one reads the other. Bare rather than `MoveSign`, because this is not a
+ * move and has no direction to colour itself by; the button it sits on carries the words.
+ */
+export const Plus = () => <>+</>;
 
 /**
  * The cross that shuts a page.
