@@ -8,7 +8,13 @@
 
 import type { Locator, Page } from '@playwright/test';
 import { shortestPath, shortestPathNodes } from '../src/lib/graph';
-import { DEFAULT_BAND, shippedData, shippedIdForDay, shippedShard } from '../src/test/shipped';
+import {
+  DEFAULT_BAND,
+  shippedData,
+  shippedIdForDay,
+  shippedRedirects,
+  shippedShard,
+} from '../src/test/shipped';
 import { shardOf } from '../src/lib/data';
 import { dayIndex, dayNumber, type DailyPuzzle } from '../src/lib/daily';
 import { pathFor } from '../src/lib/route';
@@ -80,6 +86,54 @@ export function todayNumber(): number {
 /** Today's board, in the length a bare visit opens: short. */
 export function today(band: number = DEFAULT_BAND): DailyPuzzle {
   return boardOnDay(todayNumber(), band);
+}
+
+/**
+ * A board that has changed address, as `{ was, puzzle }` — or null when none has.
+ *
+ * Read out of the shipped redirects rather than made up, because the point is the deploy: a
+ * link somebody sent before the word list was curated, and the board it opens now. Null when
+ * no mode declares a `wasVocab`, which is a bank that has only ever had one vocabulary and has
+ * nothing to forward — the test skips rather than inventing an id, since an invented one would
+ * only re-test the fallback to today.
+ *
+ * **Of `DEFAULT_BAND`'s game**, because a caller is going to look for these two words on the
+ * screen. A puzzle stores its endpoints as *tokens* of its own alphabet, and in the phonemes
+ * game a token is a pronunciation — so the first redirect in the file is as likely as not to
+ * be a board whose header says `forgives` about a puzzle whose `source` is a run of phoneme
+ * codes. See `lexicon.ts`.
+ */
+export function boardThatMoved(): { was: string; puzzle: Puzzle } | null {
+  const { manifest } = gameData();
+  const mode = manifest.bands[DEFAULT_BAND]?.mode ?? 0;
+  for (const { was, now } of shippedRedirects()) {
+    const puzzle = shippedShard(shardOf(now)).find((one) => one.id === now);
+    if (puzzle && manifest.bands[puzzle.band]?.mode === mode) return { was, puzzle };
+  }
+  return null;
+}
+
+/**
+ * The same shared round, written against some other word list.
+ *
+ * **Made here rather than kept as a string**, because what makes a code stale is the *current*
+ * data moving: a fixture written down today would stop being stale at the next rebuild, or
+ * start being something else entirely. So a real code is taken and its stamp is moved off the
+ * one this build wrote.
+ *
+ * One bit, and a bit of the stamp rather than of anything after it, so what comes back is a
+ * whole readable code that merely disagrees about which words it means — which is the case
+ * worth a test, and the one the player cannot see for themselves. See `STAMP_BITS`.
+ */
+export function staleVersionOf(link: string): string {
+  // Base64url, spelled out here rather than reached for out of boardCode.ts: this is a test
+  // taking a wire format apart on purpose, and it should break if the alphabet moves.
+  const digits = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const code = link.split('/').pop()!;
+  // The stamp is the twelve bits after the three-bit version, so its last bit is bit 14.
+  const [at, bit] = [Math.floor(14 / 6), 5 - (14 % 6)];
+  const flipped = digits.indexOf(code[at]!) ^ (1 << bit);
+  return code.slice(0, at) + digits[flipped]! + code.slice(at + 1);
 }
 
 /**

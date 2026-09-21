@@ -75,13 +75,17 @@ export const LESSON: Lesson = {
   /**
    * `showing → towing`, a par-4 board of the letters game.
    *
-   * By id, because that is how a board is addressed — and an id is a digest of the game, the
-   * pair and the vocabulary (see graphgen's id.rs), so this moves when the word list does and
-   * not when taste does. The cards below name this board's own words, so a lesson pointed at
-   * anything else is nonsense: `wrongBoard` in Tutorial.tsx is what says so rather than
-   * teaching `showing + ad` over whatever came up this morning.
+   * By id, because that is how a board is addressed — and an id is a digest of the game and
+   * the pair (see graphgen's id.rs), so this moves only when `showing → towing` stops being a
+   * puzzle. It used to move whenever the *word list* did, which is what the vocabulary coming
+   * out of an id bought: a curation renamed every board in the bank, and this was one of the
+   * things that had to be repointed by hand afterwards.
+   *
+   * The cards below name this board's own words, so a lesson pointed at anything else is
+   * nonsense: `wrongBoard` in Tutorial.tsx is what says so rather than teaching `showing + ad`
+   * over whatever came up this morning.
    */
-  puzzle: '4c07601f3676',
+  puzzle: 'b80302712c87',
 
   steps: [
     {

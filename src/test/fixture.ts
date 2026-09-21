@@ -61,10 +61,15 @@ export function rowsOf(words: readonly string[], edges: readonly [string, string
   });
 }
 
-export function testGraph(extraWords: string[] = []): Graph {
+/**
+ * `vocab` is the digest of the word list this graph is, which a board code carries twelve bits
+ * of. Two graphs given different ones stand for the same toy dictionary before and after a
+ * curation, which is the only way to write a test about a code going stale. See `stampOf`.
+ */
+export function testGraph(extraWords: string[] = [], vocab?: string): Graph {
   const words = [...DICTIONARY, ...extraWords].sort();
   const rows = rowsOf(words, EDGES);
   // Every word ordinary, which is what these tests want: an empty common set means
   // "the whole dictionary counts". See buildGraph.
-  return buildGraph(PARAMS, words, rows, rows, new Set());
+  return buildGraph(vocab === undefined ? PARAMS : { ...PARAMS, vocab }, words, rows, rows, new Set());
 }

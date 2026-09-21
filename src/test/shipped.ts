@@ -11,11 +11,12 @@
  * file wants the same one.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   decodeGameData,
+  decodeRedirects,
   decodeShard,
   modeFile,
   shardName,
@@ -89,6 +90,27 @@ export function shippedShard(index: number): Puzzle[] {
 /** The manifest on its own, for tests that only want to know the shape of the calendar. */
 export function shippedManifest(): RawManifest {
   return read<RawManifest>(join('puzzles', 'manifest.json'));
+}
+
+/**
+ * Every redirect that shipped, as `[shard index, old id, new id]`.
+ *
+ * Empty when no mode declares a `wasVocab` — which is the ordinary state and not something to
+ * fail on, since a bank with one vocabulary has nothing to forward.
+ */
+export function shippedRedirects(): { shard: number; was: string; now: string }[] {
+  const manifest = shippedManifest();
+  const dir = join(dataDir, 'puzzles', 'was');
+  if (!existsSync(dir)) return [];
+  const out: { shard: number; was: string; now: string }[] = [];
+  for (let index = 0; index < manifest.shards; index++) {
+    const path = join(dir, shardName(index, manifest.version));
+    if (!existsSync(path)) continue;
+    for (const [was, now] of decodeRedirects(readFileSync(path, 'utf8'))) {
+      out.push({ shard: index, was, now });
+    }
+  }
+  return out;
 }
 
 /** One calendar year, read off disk. See `RawCalendar`. */

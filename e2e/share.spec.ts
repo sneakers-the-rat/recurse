@@ -8,7 +8,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { board, inShot, puzzleWithPar, result, tally } from './fixtures';
+import { board, inShot, puzzleWithPar, result, staleVersionOf, tally } from './fixtures';
 
 /** Chromium will only let the page read its own clipboard with these granted. */
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
@@ -272,4 +272,39 @@ test('the result is still there on a later visit', async ({ page }) => {
   await expect(result(page)).toContainText('Perfect');
   await expect(page.getByLabel(/Your guess/)).toHaveCount(0);
   expect(await page.locator('pre').innerText()).toBe(before);
+});
+
+/**
+ * A round shared before the word list changed says so.
+ *
+ * The other half of the same trade. An id no longer depends on the word list, so the *board*
+ * opens either way — but a code is a list of positions into lists that word list determines,
+ * so it may name words nobody played. That is the failure a visitor cannot see, which is why
+ * the code carries twelve bits of the vocabulary and the screen reads them. See `staleCode`.
+ */
+test('a round shared before the word list changed says so', async ({ page }) => {
+  const { puzzle, path } = puzzleWithPar(3);
+  await page.goto(board(puzzle, '?dev=0'));
+  await expect(page.locator('header')).toContainText(puzzle.source);
+  for (const word of path.slice(1)) await guess(page, word);
+
+  await page.getByRole('button', { name: 'Copy with board' }).click();
+  const link = (await page.evaluate(() => navigator.clipboard.readText()))
+    .trim()
+    .split('\n')
+    .at(-1)!;
+
+  // The same round, written against a word list this build has never seen. Built here rather
+  // than kept as a fixture because what makes it stale is the *current* data moving, so a
+  // stored string would stop being the thing under test at the next rebuild.
+  await page.goto(`/${puzzle.id}/${staleVersionOf(link)}`);
+
+  await expect(page.getByRole('region', { name: /Someone else/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: /Someone else/ })).toContainText(
+    /fresh link/i,
+  );
+  // The board is still the board. That is the whole of what taking the vocabulary out of the
+  // address bought: a stale link costs the round and never the board.
+  await expect(page.locator('header')).toContainText(puzzle.source);
+  await expect(page.locator('header')).toContainText(puzzle.target);
 });

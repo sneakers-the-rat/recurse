@@ -8,14 +8,21 @@ import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decodeDeltas, decodeRows, decodeGameData, modeFile, shardOf } from './data';
+import {
+  decodeDeltas,
+  decodeRedirects,
+  decodeRows,
+  decodeGameData,
+  modeFile,
+  shardOf,
+} from './data';
 import { DICTIONARY, EDGES, PARAMS } from '../test/fixture';
 import {
   shippedBank,
   shippedCalendar,
-  shippedData,
   shippedIdForDay,
   shippedManifest,
+  shippedRedirects,
   shippedShard,
 } from '../test/shipped';
 
@@ -131,6 +138,64 @@ describe('the calendar', () => {
     expect(orphans).toHaveLength(0);
     // And nothing on the calendar that is not in the bank.
     expect(onCalendar.size).toBe(new Set(shipped).size);
+  });
+});
+
+/**
+ * The redirects, which are what keeps a link alive across a change to the word list.
+ *
+ * A puzzle's id is a digest of its vocabulary, so curating that vocabulary renames every board
+ * — and a digest cannot be undone. The builder publishes what each board used to be called;
+ * these are the promises the client leans on when it follows one. See `liveId`, and
+ * `redirect_bodies` in graphgen's main.rs.
+ *
+ * Every assertion here is vacuously true of a bank with one vocabulary, which is the state a
+ * fresh game is in. It is not a reason to leave them out: the day a `wasVocab` is declared is
+ * the day they start being the only thing standing between a shared link and an error.
+ */
+describe('the redirects', () => {
+  const manifest = shippedManifest();
+  const moved = shippedRedirects();
+
+  it('says in the manifest how many there are, so a live id costs no fetch', () => {
+    // The client reads this before it asks for anything: at zero there is no `was/` directory,
+    // and a dead id is answered without a request that would 404.
+    expect(manifest.redirects ?? 0).toBe(moved.length);
+  });
+
+  it('files each one under its own id, so a dead link resolves in one fetch', () => {
+    // The whole of the addressing: the only thing in hand is the id that died, and the two
+    // digests are unrelated, so the file has to be named by the *old* one.
+    for (const one of moved) {
+      expect(shardOf(one.was), one.was).toBe(one.shard);
+    }
+  });
+
+  it('never forwards to a board this bank does not hold', () => {
+    const live = new Set(shippedBank().map((puzzle) => puzzle.id));
+    const dangling = moved.filter((one) => !live.has(one.now));
+    expect(dangling.slice(0, 5)).toEqual([]);
+  });
+
+  it('never shadows a live board, and never claims one id twice', () => {
+    // A redirect that sat on a working address would make a good link open a different
+    // puzzle, which is worse than the dead link it was meant to fix.
+    const live = new Set(shippedBank().map((puzzle) => puzzle.id));
+    expect(moved.filter((one) => live.has(one.was)).slice(0, 5)).toEqual([]);
+    expect(new Set(moved.map((one) => one.was)).size).toBe(moved.length);
+  });
+});
+
+describe('decodeRedirects', () => {
+  it('reads a shard of them, and ignores anything that is not a pair', () => {
+    const moved = decodeRedirects('aaaa\tbbbb\ncccc\tdddd\n');
+    expect(moved.get('aaaa')).toBe('bbbb');
+    expect(moved.get('cccc')).toBe('dddd');
+    expect(moved.get('bbbb')).toBeUndefined();
+    // A file that is empty, or a trailing newline, is not an error: a prefix no dead id
+    // starts with simply has no file, and a miss is the ordinary answer here.
+    expect(decodeRedirects('').size).toBe(0);
+    expect(decodeRedirects('nonsense\n').size).toBe(0);
   });
 });
 

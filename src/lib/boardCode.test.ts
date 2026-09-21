@@ -29,6 +29,7 @@ import {
   explain,
   isBoardCode,
   spending,
+  staleCode,
 } from "./boardCode";
 import {
   applyGuess,
@@ -271,6 +272,61 @@ describe("a round, through a code and back", () => {
     expect(back.log).toEqual([]);
     expect(back.guesses).toBe(0);
     expect(back.selected).toBe(puzzle.source);
+  });
+});
+
+/**
+ * The word list a code was written against, which a code says for itself.
+ *
+ * **The thing the puzzle id used to say and no longer does.** An id was a digest of the
+ * vocabulary, so a curated word list renamed every board and killed every link — to protect a
+ * round. Twelve bits at the head of the code protect the round instead, and leave the address
+ * alone. See `stampOf`, and graphgen's id.rs for the whole argument.
+ */
+describe("the word list a code was written against", () => {
+  // The same toy dictionary before and after a curation: same words, same moves, different
+  // digest. A code written against one of them is not a code for the other.
+  const before = testGraph([], "68336fe4");
+  const after = testGraph([], "489d5ef6");
+  const state = play(newGame(puzzle), "baseball", "ball");
+
+  it("is carried by every code, and matches the list it was written against", () => {
+    expect(staleCode(encodeBoard(snapshot(state), puzzle, before), before)).toBe(false);
+    expect(staleCode(encodeBoard(snapshot(state), puzzle, after), after)).toBe(false);
+  });
+
+  it("says so when the list has moved under it", () => {
+    const code = encodeBoard(snapshot(state), puzzle, before);
+    expect(staleCode(code, after)).toBe(true);
+  });
+
+  /**
+   * **And the round is still read.** This is the deliberate half: the bit stream is this
+   * format either way, so what a stale code names is a *plausible* round rather than
+   * nonsense — which is exactly why it cannot be left to be discovered. The screen draws it
+   * and says not to trust it; refusing outright would throw away a round that is usually
+   * right, and drawing it silently would be the failure nobody can see.
+   */
+  it("still reads the round, so the screen can show it and say not to trust it", () => {
+    const code = encodeBoard(snapshot(state), puzzle, before);
+    // The toy dictionary is the same either side, so this one comes back intact. Over a real
+    // curation it need not, and `decodeBoard` returning null is the other thing the screen
+    // has a sentence for.
+    expect(decodeBoard(code, puzzle, after)).not.toBeNull();
+  });
+
+  it("counts a code this build cannot read at all as stale", () => {
+    // The stamp is not in the same place in another format, so it cannot be compared — but a
+    // code this build did not write is certainly not one written against this word list, and
+    // "ask for a fresh link" is the same remedy.
+    const code = encodeBoard(snapshot(state), puzzle, before);
+    const other = code.replace(/^./, (digit) => (digit === "I" ? "Q" : "I"));
+    expect(staleCode(other, before)).toBe(true);
+  });
+
+  it("has no opinion about a string that is not a code", () => {
+    // Nothing is not stale. The caller already treats it as a link with no round in it.
+    for (const bad of ["", "not a code", "%20"]) expect(staleCode(bad, before)).toBe(false);
   });
 });
 

@@ -145,6 +145,23 @@ pub struct Mode {
     /// Declaring the digest here means the build stops and says so instead. See `build_mode`,
     /// which computes it and compares, and `id::vocab_spec` for what goes into it.
     pub vocab: Option<String>,
+    /// Vocabularies whose *addresses* still need forwarding, oldest first.
+    ///
+    /// **A migration, and it is meant to be deleted.** A puzzle's id used to be a digest of its
+    /// vocabulary, so curating the word list renamed every board in the game and every link
+    /// anybody had sent stopped resolving. It is not built that way any more — see id.rs — so
+    /// nothing after that change needs forwarding, and what is left here is the one generation
+    /// of links that was sent while it was.
+    ///
+    /// The builder knows every puzzle's pair, so for each of these it computes what that board
+    /// was called then and writes the redirect out; the client follows it on a miss. See
+    /// `redirect_bodies` in main.rs. Empty the list and the whole `puzzles/was/` directory
+    /// goes with it, which is the right thing to do once nobody is holding a link that old.
+    ///
+    /// A digest here is one this mode has really had, and there is nothing left to check it
+    /// against. The one mistake it can make is being the *current* vocabulary, which is a
+    /// paste into the wrong line and which `build_mode` refuses.
+    pub was_vocab: Vec<String>,
 }
 
 impl Mode {
@@ -487,6 +504,7 @@ impl Config {
                 too_frequent: at.words("tooFrequent")?,
                 too_frequent_clusters: at.word_sets("tooFrequentClusters")?,
                 vocab: at.raw("vocab"),
+                was_vocab: at.words("wasVocab")?,
                 bands,
                 name: name.clone(),
             };
@@ -579,6 +597,16 @@ fn check(mode: &Mode) -> Result<(), String> {
     }
     if let Some(declared) = mode.vocab.as_deref() {
         check_digest("vocab", declared)?;
+    }
+    // Every past vocabulary is a digest, and each one costs a redirect file per shard it
+    // reaches — so a repeat is a line that writes nothing and reads as a second generation
+    // that never happened. Checked here rather than deduplicated silently, because a repeated
+    // digest in a list of them is more likely a paste that meant to say something else.
+    for (at, was) in mode.was_vocab.iter().enumerate() {
+        check_digest("wasVocab", was)?;
+        if mode.was_vocab[..at].contains(was) {
+            return Err(format!("wasVocab lists {was} twice"));
+        }
     }
     if mode.min_sub < 1 {
         return Err("minSub must be at least 1".into());
@@ -748,6 +776,31 @@ mod tests {
         // cannot fill, which is only discoverable hours into a build.
         let bad = config("  - name: letters\n    bands: [short, medium, long]\n    bandCuts: [4]\n");
         assert!(bad.unwrap_err().contains("cuts"));
+    }
+
+    /// The vocabularies a mode has had, which is what lets a link from before a curation still
+    /// open its board. Absent is the ordinary state and means a mode has only ever had one.
+    #[test]
+    fn reads_the_vocabularies_a_mode_used_to_have() {
+        let loaded = config(
+            "  - name: letters\n    bands: [a]\n    vocab: e4c1f7b6\n\
+             \x20   wasVocab: [68336fe4, aabbccdd]\n\
+             \x20 - name: phonemes\n    bands: [b]\n",
+        )
+        .expect("loads");
+        assert_eq!(loaded.modes[0].was_vocab, ["68336fe4", "aabbccdd"]);
+        assert!(loaded.modes[1].was_vocab.is_empty());
+    }
+
+    /// A repeat writes no second redirect and reads as a generation that never happened, so it
+    /// is likelier a paste that meant to say something else than a harmless duplicate.
+    #[test]
+    fn refuses_a_past_vocabulary_listed_twice() {
+        let bad = config("  - name: letters\n    bands: [a]\n    wasVocab: [68336fe4, 68336fe4]\n")
+            .expect_err("refuses");
+        assert!(bad.contains("twice"), "{bad}");
+        // And each one still has to be a digest, with the same YAML-ate-the-leading-zero trap.
+        assert!(config("  - name: letters\n    bands: [a]\n    wasVocab: [nope]\n").is_err());
     }
 
     #[test]

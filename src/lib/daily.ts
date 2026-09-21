@@ -13,7 +13,6 @@
  * be a link to every puzzle after it.
  */
 
-import { idFromPath } from './route';
 import type { Puzzle } from './types';
 
 /**
@@ -102,11 +101,16 @@ export function puzzleById(bank: readonly Puzzle[], id: string): DailyPuzzle | n
 }
 
 /**
- * Which puzzle a URL is asking for: `path` is `window.location.pathname`.
+ * Which puzzle is being opened: the one `asked` names, or today's when it names nothing.
  *
- * The one named by the path, or the one `today` names when the path names nothing the loaded
- * shard holds. An id that resolves to nothing — a link shared before a rebuild changed that
- * answer — falls back the same way, and the caller rewrites the URL to say so.
+ * **An id rather than the URL it came out of.** Reading the path here was the same thing while
+ * a URL's id was the only id there could be — and it stopped being true once an id from before
+ * a rebuild could be *forwarded* to the board it has become. The caller resolves that (see
+ * `liveId` in data.ts) and hands the answer down, so this has one job and no opinion about
+ * where the id came from.
+ *
+ * An id that survives neither the shard nor the redirects falls back to today, and the caller
+ * rewrites the URL to say so.
  *
  * `today` is the id the calendar gives for the band and day being opened, looked up before
  * this is called: a date is a file lookup now rather than arithmetic, so it cannot be done
@@ -114,10 +118,9 @@ export function puzzleById(bank: readonly Puzzle[], id: string): DailyPuzzle | n
  */
 export function resolvePuzzle(
   bank: readonly Puzzle[],
-  path: string,
+  asked: string | null,
   today: string | null,
 ): DailyPuzzle | null {
-  const id = idFromPath(path);
-  const asked = id === null ? null : puzzleById(bank, id);
-  return asked ?? (today === null ? null : puzzleById(bank, today));
+  const found = asked === null ? null : puzzleById(bank, asked);
+  return found ?? (today === null ? null : puzzleById(bank, today));
 }

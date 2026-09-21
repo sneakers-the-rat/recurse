@@ -23,7 +23,29 @@ import { memo } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { round as says } from '../i18n/messages/round';
 
-export const SharedBoard = memo(function SharedBoard({ onPlay }: { onPlay: () => void }) {
+/**
+ * `round` is the round the link carried, when it could be read at all.
+ *
+ * **A link whose round was written against an older word list is the third state here**, and
+ * it is the one worth being careful about. A code is positions into lists the word list
+ * determines — see `staleCode` — so when the list moves, the same code names whatever now sits
+ * at those positions. Sometimes that does not decode, and sometimes it decodes into a round
+ * nobody played, which is the failure a visitor cannot see. Either way the remedy is one
+ * sentence and it is the same sentence, so it is said in both: ask for a fresh link.
+ *
+ * The board underneath opens regardless, because its *address* no longer depends on the word
+ * list. That is the whole point of the trade — a stale link costs the round and never the
+ * board.
+ */
+export const SharedBoard = memo(function SharedBoard({
+  onPlay,
+  round,
+  stale,
+}: {
+  onPlay: () => void;
+  round: boolean;
+  stale: boolean;
+}) {
   const intl = useIntl();
 
   return (
@@ -42,15 +64,24 @@ export const SharedBoard = memo(function SharedBoard({ onPlay }: { onPlay: () =>
         </span>
         {/* What it means, in the one clause that matters: nothing here is being kept. */}
         <span className="text-ash-lit">
-          <FormattedMessage {...says.sharedNote} />
+          <FormattedMessage {...(round ? says.sharedNote : says.staleRound)} />
         </span>
-        <button
-          onClick={onPlay}
-          className="label text-bone-dim hover:text-gilt ml-auto underline decoration-dotted underline-offset-4 transition-colors"
-          type="button"
-        >
-          <FormattedMessage {...says.playShared} />
-        </button>
+        {round && stale && (
+          <span className="text-blood-lit">
+            <FormattedMessage {...says.sharedStale} />
+          </span>
+        )}
+        {/* Nothing to take over when the round could not be read: the board below already is
+            the visitor's own. */}
+        {round && (
+          <button
+            onClick={onPlay}
+            className="label text-bone-dim hover:text-gilt ml-auto underline decoration-dotted underline-offset-4 transition-colors"
+            type="button"
+          >
+            <FormattedMessage {...says.playShared} />
+          </button>
+        )}
       </p>
     </section>
   );

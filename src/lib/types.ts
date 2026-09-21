@@ -23,6 +23,19 @@ export interface GraphParams {
   legalScowl: number;
   minWord: number;
   minSub: number;
+  /**
+   * The digest of this word list: the legal words, the alphabet, and the two lengths above.
+   *
+   * **Here because a board code is read against a graph, and this says which graph.** A code
+   * is a list of positions into lists these parameters determine, so it means something only
+   * against the word list it was written against — `stampOf` in boardCode.ts takes twelve bits
+   * of this and puts them at the head of every code, and `staleCode` compares them back.
+   *
+   * Optional only for data built before it was written; `stampOf` reads that as zero, and such
+   * data cannot be paired with a stamped code anyway. See graphgen's id.rs for why this lives
+   * here rather than in a puzzle's address.
+   */
+  vocab?: string;
 }
 
 export interface Puzzle {

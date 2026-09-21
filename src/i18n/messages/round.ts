@@ -148,6 +148,18 @@ export const round = defineMessages({
     description:
       'Leaves a shared board for the visitor’s own game on the same puzzle, which is whatever they had left there.',
   },
+  sharedStale: {
+    id: 'round.sharedStale',
+    defaultMessage: 'Shared before the word list changed, so it may name different words — ask for a fresh link',
+    description:
+      'Warns that a shared round was written against an older word list. A code is a list of positions into that list, so the moves shown may not be the ones the sender played. The round is still drawn; this says not to trust it.',
+  },
+  staleRound: {
+    id: 'round.staleRound',
+    defaultMessage: 'This link’s round was shared before the word list changed and cannot be read — ask for a fresh link',
+    description:
+      'Shown when a shared link carried a round that was written against an older word list and could not be decoded at all. The board itself still opens; only the round is gone.',
+  },
 
   theRound: {
     id: 'round.theRound',

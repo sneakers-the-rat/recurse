@@ -175,6 +175,8 @@
   "round.shareTitle": "ReCurse Words · Day {day} · {band} · {date}",
   "round.sharedBoard": "Someone else’s board",
   "round.sharedNote": "Nothing here is saved to your game",
+  "round.sharedStale": "Shared before the word list changed, so it may name different words — ask for a fresh link",
+  "round.staleRound": "This link’s round was shared before the word list changed and cannot be read — ask for a fresh link",
   "round.theRound": "The round",
   "round.trail": "Your route, as marks",
   "round.underParStat": "under par",

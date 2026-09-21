@@ -51,6 +51,8 @@ graphgen — build the recurse graph and puzzle bank
   graphgen routes <word>...      bank answers running through all of these words, and
                                  the top ten words they keep company with
   graphgen ngram [-n 2] [-k 20]  the commonest sets of n words that share an answer
+  graphgen subs [-k 120]         the subwords carrying the most moves, and what
+                                 tools/nonwords.txt costs the graph and a round
   graphgen --help
 
   --mode <name>                  ask only this game, rather than every one
@@ -84,6 +86,8 @@ enum Command {
     Routes(Vec<String>),
     /// The commonest sets of `n` words that share an answer. See `show_ngrams`.
     Ngram { k: usize, n: usize },
+    /// Which subwords carry the moves, and what excluding one costs. See `show_subs`.
+    Subs { k: usize },
 }
 
 /// Pull `--mode <name>` off the front, if it is there.
@@ -137,6 +141,25 @@ fn command(args: &[String]) -> Result<Command, String> {
                 return Err(format!("`-k` has to be at least 1.\n\n{USAGE}"));
             }
             Ok(Command::Ngram { k, n })
+        }
+        [verb, rest @ ..] if verb == "subs" => {
+            let mut k = 120usize;
+            let mut at = rest.iter();
+            while let Some(flag) = at.next() {
+                let value =
+                    at.next().ok_or_else(|| format!("`{flag}` needs a number.\n\n{USAGE}"))?;
+                let parsed = value
+                    .parse::<usize>()
+                    .map_err(|_| format!("`{flag}` needs a number, got {value:?}.\n\n{USAGE}"))?;
+                match flag.as_str() {
+                    "-k" => k = parsed,
+                    other => return Err(format!("unknown option {other:?}.\n\n{USAGE}")),
+                }
+            }
+            if k == 0 {
+                return Err(format!("`-k` has to be at least 1.\n\n{USAGE}"));
+            }
+            Ok(Command::Subs { k })
         }
         [verb, ..] => Err(format!("unknown command {verb:?}.\n\n{USAGE}")),
     }
@@ -205,6 +228,18 @@ impl Built<'_> {
     }
 }
 
+/// Whether `tools/nonwords.txt` is in force.
+///
+/// Every build applies it. The one caller that does not is `subs`, which exists to say what
+/// the list *costs*: it builds the graph the list was written against, so that a word already
+/// struck out still has the edge count that put it on the list, and so that the comparison is
+/// between two graphs rather than between one graph and a memory of another. See `show_subs`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Nonwords {
+    Applied,
+    Ignored,
+}
+
 /// What every mode is built from, loaded once.
 ///
 /// The SCOWL tiers are cached by size because two modes can ask for the same one, and
@@ -212,15 +247,22 @@ impl Built<'_> {
 /// one list and orders every mode's endpoints and labels.
 struct Corpora {
     scowl: HashMap<u32, std::collections::HashSet<String>>,
+    /// `tools/blocklist.txt`: words nobody wants to read.
     blocked: std::collections::HashSet<String>,
+    /// `tools/nonwords.txt`: spellings the word list holds that are not words.
+    ///
+    /// Kept apart from `blocked` rather than merged on the way in, because `subs` has to be
+    /// able to build the corpus without it. They do the same thing to a tier and answer
+    /// different questions — see the header of nonwords.txt.
+    nonwords: std::collections::HashSet<String>,
     rank: FxMap<String, usize>,
     /// CMUdict, loaded only if some mode is in the phonemes alphabet.
     said: Option<phonetic::Pronunciations>,
     /// A digest of each raw source this load actually read, for the tripwire in
     /// recurse.yaml's `sources:` block. See `words::Sources::check`.
     ///
-    /// The blocklist is deliberately not among them: it is a file in this repo rather than a
-    /// download, and it is already hashed into the bank cache key.
+    /// The two exclusion lists are deliberately not among them: they are files in this repo
+    /// rather than downloads, and they are already hashed into the bank cache key.
     seen: words::Sources,
 }
 
@@ -228,7 +270,9 @@ impl Corpora {
     /// Everything the modes being asked about are built from, and nothing else — so asking
     /// only the letters game never downloads or parses a pronunciation dictionary.
     fn load(cache: &Path, root: &Path, modes: &[&Mode]) -> Result<Corpora, String> {
-        let blocked = words::load_list(&root.join("tools").join("blocklist.txt"))?;
+        let tools = root.join("tools");
+        let blocked = words::load_list(&tools.join("blocklist.txt"))?;
+        let nonwords = words::load_list(&tools.join("nonwords.txt"))?;
         let mut seen = words::Sources::default();
         let mut scowl = HashMap::new();
         for mode in modes {
@@ -238,6 +282,26 @@ impl Corpora {
                 }
             }
         }
+        // What each list actually struck out, and what it did not. A name that matches nothing
+        // is a typo or a word that has since left SCOWL, and either way it is invisible unless
+        // it is counted: the list goes on looking like it is doing work it is not.
+        let held = |word: &String| scowl.values().any(|tier| tier.contains(word));
+        for (name, list) in [("blocklist", &blocked), ("nonwords", &nonwords)] {
+            let idle: Vec<&str> =
+                list.iter().filter(|w| !held(w)).map(String::as_str).collect();
+            eprintln!(
+                "  {name}.txt: {} of {} are in the word list{}",
+                list.len() - idle.len(),
+                list.len(),
+                match idle.len() {
+                    0 => String::new(),
+                    // Named, up to a handful: the fix is to delete the line, and that needs
+                    // the line. A long tail is a corpus that moved, which is a different job.
+                    n if n <= 8 => format!(" — {} is not: {}", n, idle.join(" ")),
+                    n => format!(" — {n} are not"),
+                }
+            );
+        }
         let rank: FxMap<String, usize> = words::load_frequency(cache, &mut seen)?
             .iter()
             .enumerate()
@@ -245,21 +309,37 @@ impl Corpora {
             .collect();
         let wanted = modes.iter().any(|mode| mode.alphabet == Alphabet::Phonemes);
         let said = if wanted { Some(phonetic::load(cache, &mut seen)?) } else { None };
-        Ok(Corpora { scowl, blocked, rank, said, seen })
+        Ok(Corpora { scowl, blocked, nonwords, rank, said, seen })
     }
 
-    /// One tier's spellings: in the list, not blocked, and long enough to be a subword.
+    /// One tier's spellings: in the list and not struck out by either exclusion list.
     ///
     /// The length test is in *letters* even for a phonemes mode, because at this point a
     /// word is still a spelling — the alphabet is applied by `Lexicon`, and its own minimum
     /// is enforced by `graph::build`.
-    fn tier(&self, size: u32) -> Vec<String> {
+    fn tier(&self, size: u32, nonwords: Nonwords) -> Vec<String> {
         let mut out: Vec<String> = self.scowl[&size]
             .iter()
             .filter(|w| !self.blocked.contains(*w))
+            .filter(|w| nonwords == Nonwords::Ignored || !self.nonwords.contains(*w))
             .cloned()
             .collect();
         out.sort();
+        out
+    }
+
+    /// Every spelling struck out of the corpora, sorted, for the bank cache key.
+    ///
+    /// Both lists together, because the key's business is what the search read and both
+    /// change that. Whether they are one file or two is this file's business and not the
+    /// key's. See `bank::key`.
+    fn banned(&self, nonwords: Nonwords) -> Vec<String> {
+        let mut out: Vec<String> = self.blocked.iter().cloned().collect();
+        if nonwords == Nonwords::Applied {
+            out.extend(self.nonwords.iter().cloned());
+        }
+        out.sort();
+        out.dedup();
         out
     }
 }
@@ -294,14 +374,15 @@ fn build_mode<'a>(
     corpora: &Corpora,
     config: &Config,
     cache: &Path,
-    blocklist: &[String],
+    nonwords: Nonwords,
     threads: usize,
     want: Want,
 ) -> Result<Built<'a>, String> {
     eprintln!("\n=== mode {} ({}) ===", mode.name, mode.alphabet.name());
 
-    let legal_spellings = corpora.tier(mode.legal_scowl);
-    let common_spellings = corpora.tier(mode.common_scowl);
+    let banned = corpora.banned(nonwords);
+    let legal_spellings = corpora.tier(mode.legal_scowl, nonwords);
+    let common_spellings = corpora.tier(mode.common_scowl, nonwords);
 
     let lex = match mode.alphabet {
         Alphabet::Letters => Lexicon::letters(legal_spellings, common_spellings),
@@ -350,6 +431,21 @@ fn build_mode<'a>(
         or `minSub` stops the build with what it would have cost. Leave it out and the build
         prints the digest and carries on, which is what a first build and a deliberate change
         both want.
+
+        **What it costs is rounds, not boards, and that is a deliberate change.** The
+        vocabulary used to be part of every puzzle id, so moving it renamed the whole bank and
+        killed every link anybody had sent. It is not any more — see id.rs — so a curation of
+        the word list leaves every address where it was, and what it invalidates is the codes:
+        a round shared under the old list is a list of positions into it. Those say so for
+        themselves now, by carrying twelve bits of this digest, so the stop here is a warning
+        about *how much* is being thrown away rather than the only thing standing between a
+        change and a wall of dead links.
+
+        **It refuses a build and tells an inspection.** What is at stake is a bank whose files
+        get shipped, and only a search writes one. An inspection prints; refusing to answer a
+        question *about* a corpus change because the corpus changed is backwards, and `subs`
+        is the case that makes it obvious — its whole job is to price the change, so it builds
+        the moved vocabulary on purpose and needs the new digest rather than a wall.
     */
     let vocab = id::digest(
         id::vocab_spec(mode.alphabet.name(), mode.min_word, mode.min_sub, &lex.legal).as_bytes(),
@@ -357,18 +453,45 @@ fn build_mode<'a>(
     );
     match mode.vocab.as_deref() {
         Some(declared) if declared != vocab => {
-            return Err(format!(
-                "mode {}: the vocabulary is {vocab}, and recurse.yaml declares {declared}.\n\
-                 Every puzzle id in this mode is a digest of its vocabulary, so this rebuild \
-                 would rename every board and invalidate every shared board code written \
-                 against the old ones.\n\
+            let cost = format!(
+                "the vocabulary is {vocab}, and {} declares {declared}.\n\
+                 Every board keeps its address — the vocabulary is not in an id — but a board \
+                 *code* is a list of positions into this word list, so every round anybody has \
+                 shared was written against the old one and will ask to be regenerated.\n\
                  If that is intended, set `vocab: {vocab}` for this mode; if it is not, the \
                  word list, minWord or minSub has moved since it was declared",
-                mode.name,
-            ));
+                config::FILE,
+            );
+            if want == Want::Search {
+                return Err(format!("mode {}: {cost}", mode.name));
+            }
+            eprintln!("  vocabulary: {vocab}, and {} declares {declared}", config::FILE);
+            eprintln!("    a build would refuse this: {cost}");
         }
         Some(_) => eprintln!("  vocabulary: {vocab}, as declared"),
         None => eprintln!("  vocabulary: {vocab} — declare it as `vocab:` to be told when it moves"),
+    }
+    /*
+        The current vocabulary is not a past one, and saying so is a paste into the wrong line —
+        the two are edited together and they sit next to each other. Left alone it would write a
+        redirect from every puzzle to itself, which `redirect_bodies` drops, so the symptom would
+        be a `wasVocab` entry that silently does nothing.
+
+        **A build only, for the same reason the `vocab:` tripwire is.** `subs` builds the corpus
+        *without* `tools/nonwords.txt` on purpose, which is exactly the vocabulary the list
+        above names — so refusing here would make the one command whose job is to price that
+        list the one command that cannot run.
+    */
+    if want == Want::Search && mode.was_vocab.contains(&vocab) {
+        return Err(format!(
+            "mode {}: {vocab} is this mode's vocabulary now and `wasVocab` lists it as a past \
+             one. `vocab:` takes the digest the build prints; `wasVocab:` takes the ones it \
+             used to print",
+            mode.name,
+        ));
+    }
+    if !mode.was_vocab.is_empty() {
+        eprintln!("  was: {}", mode.was_vocab.join(", "));
     }
 
     let legal_subs: FxSet<&str> =
@@ -400,7 +523,7 @@ fn build_mode<'a>(
     // files are rebuilt every run, because they are seconds and because their knobs are not
     // part of what the search depends on. See bank.rs.
     let phase = Instant::now();
-    let bank_path = bank::path(cache, &bank::key(mode, blocklist, config.shared.id_chars, &vocab));
+    let bank_path = bank::path(cache, &bank::key(mode, &banned, config.shared.id_chars, &vocab));
     let found = match bank::load(&bank_path) {
         Some(cached) if config.audit == Audit::Off => {
             eprintln!(
@@ -410,19 +533,34 @@ fn build_mode<'a>(
                 bank_path.file_name().unwrap_or_default().to_string_lossy(),
                 cached.candidates,
             );
-            // **Re-band what came out of the cache**, because `bandCuts` is not in the key.
-            //
-            // A puzzle's band is stamped where it is built, and the cached bank carries it —
-            // but the cuts decide only how the puzzles that were found get *labelled*, not
-            // which ones exist, so they are deliberately not part of what the search depends
-            // on. Left as they were read, moving a cut against a warm cache changed the band
-            // table in the report, the calendar and the shards not at all: the build said the
-            // old split, convincingly, and there was nothing to notice. Putting the cuts in
-            // the key instead would be correct and would cost a full re-search — a quarter of
-            // an hour — to relabel puzzles that have not moved.
+            /*
+                **Re-band and re-address what came out of the cache**, because neither
+                `bandCuts` nor the id formula is in the key.
+
+                Both are the same argument. A puzzle's band and its id are stamped where it is
+                built and the cached bank carries them, but neither decides *which* puzzles
+                exist — the cuts only label what was found, and the address is a digest of the
+                pair, which is in the cache verbatim. So neither belongs in what the search
+                depends on, and both are recomputed on the way back in.
+
+                Left as they were read, this is silent in exactly the way that is worst: moving
+                a cut against a warm cache changed the band table in the report, the calendar
+                and the shards not at all, and the build said the old split convincingly. An
+                id read back from a cache written under an older formula would be worse still —
+                a bank of addresses nothing else in the build agrees with.
+
+                Putting either in the key instead would be correct and would cost a full
+                re-search, a quarter of an hour, to relabel puzzles that have not moved.
+            */
             let mut puzzles = cached.puzzles;
             for puzzle in &mut puzzles {
                 puzzle.band = mode.global_band(mode.band_of(puzzle.par));
+                puzzle.id = id::puzzle_id(
+                    &mode.name,
+                    &puzzle.source,
+                    &puzzle.target,
+                    config.shared.id_chars,
+                );
             }
             select::Selection {
                 passed: puzzles.len(),
@@ -449,7 +587,6 @@ fn build_mode<'a>(
                 mode,
                 &lex,
                 &corpora.rank,
-                &vocab,
                 config.audit,
                 threads,
             )?;
@@ -520,34 +657,42 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
 
     let corpora = Corpora::load(&cache, &root, &asked)?;
     corpora.seen.check(&config.shared.sources)?;
-    let mut blocklist: Vec<String> = corpora.blocked.iter().cloned().collect();
-    blocklist.sort();
 
     // Every mode asked about, searched. They are independent — one alphabet, one pair of
     // graphs, one bank each — and only the calendar joins them, which is why nothing is
     // written until the last of them is done.
     let want = match command {
-        Command::Pair(..) => Want::Graphs,
+        Command::Pair(..) | Command::Subs { .. } => Want::Graphs,
         Command::Routes(..) | Command::Ngram { .. } => Want::Cached,
         Command::Build => Want::Search,
     };
+    // `subs` is the one command that reports on the corpus *without* `tools/nonwords.txt`,
+    // because its whole subject is what that list takes away. See `Nonwords`.
+    let nonwords = match command {
+        Command::Subs { .. } => Nonwords::Ignored,
+        _ => Nonwords::Applied,
+    };
     let mut built: Vec<Built> = Vec::with_capacity(asked.len());
     for mode in asked {
-        built.push(build_mode(mode, &corpora, &config, &cache, &blocklist, threads, want)?);
+        built.push(build_mode(mode, &corpora, &config, &cache, nonwords, threads, want)?);
     }
 
     // Both inspection commands run against every mode and say which one they are talking
     // about, because "the puzzle about these two words" now has an answer per game.
     match &command {
         Command::Pair(from, to) => return inspect_pair(&built, &corpora.rank, from, to),
+        Command::Subs { k } => {
+            return show_subs(&built, &corpora, &config, &cache, threads, *k)
+        }
         Command::Routes(asked) => {
-            return show_routes(&built, &config, &cache, &blocklist, asked)
+            return show_routes(&built, &config, &cache, &corpora.banned(nonwords), asked)
         }
         Command::Ngram { k, n } => {
+            let banned = corpora.banned(nonwords);
             for one in &built {
                 let path = bank::path(
                     &cache,
-                    &bank::key(one.mode, &blocklist, config.shared.id_chars, &one.vocab),
+                    &bank::key(one.mode, &banned, config.shared.id_chars, &one.vocab),
                 );
                 eprintln!("\n=== {} ===", one.mode.name);
                 show_ngrams(one, &path, *k, *n)?;
@@ -756,7 +901,6 @@ fn inspect_one(
             mode,
             &one.lex,
             rank,
-            &one.vocab,
             &tables[slot_of[&src]],
             &tables[slot_of[&tgt]],
             u8::MAX,
@@ -1452,6 +1596,499 @@ fn report_company(
     }
 }
 
+/*
+    What a subword is doing in a graph.
+
+    A move is "delete a run that is itself a word", so every edge in the graph is *carried* by
+    at least one subword, and a handful of them carry an enormous share: `ing` alone is behind
+    one move in thirty-seven. That is the number the exclusion list is chosen against, and
+    there was nowhere to read it — the pivot table counts words on the *answers*, which is a
+    question about the common graph and about taste, while this is a question about the legal
+    graph and about what a player can type.
+
+    `only` is the column that matters, and it is the same idiom the rule audit uses: the moves
+    this subword is the *sole* reason for, which is exactly what goes away if it goes. `port`
+    carries 74 moves and `re` carries 5,112, but an edge both of them make survives losing
+    either — a subword whose work is all done by something else costs the graph nothing.
+*/
+#[derive(Default, Clone, Copy)]
+struct Carrier {
+    /// Distinct moves it makes.
+    edges: usize,
+    /// Moves only it makes.
+    only: usize,
+    /// Readings at the front of the longer word, at its back, and strictly inside it.
+    ///
+    /// Counted per *reading* rather than per edge, because where a run sits is a property of
+    /// the reading: `banana − ana` is two readings of one move. An affix is a subword whose
+    /// readings are nearly all at one end, and that is what the column is for.
+    place: [usize; 3],
+}
+
+/// Every subword of one graph, with what it carries.
+///
+/// The same scan `graph::build` does, keeping the run that made each edge instead of throwing
+/// it away. Single-threaded because it is a second or two over the whole legal graph and the
+/// dedup wants one list; `graph::build` is threaded because a build runs it twice per mode.
+fn carriers<'a>(
+    graph: &'a graph::Graph,
+    lex: &Lexicon,
+    mode: &Mode,
+) -> FxMap<&'a str, Carrier> {
+    let subs: FxSet<&str> =
+        lex.legal.iter().filter(|w| w.len() >= mode.min_sub).map(String::as_str).collect();
+
+    // One entry per (longer word, shorter word, run). Sorted and deduplicated rather than
+    // counted into a map, because "how many subwords carry this edge" is the question `only`
+    // asks and a map keyed by subword cannot answer it.
+    let mut readings: Vec<(u32, u32, &str)> = Vec::new();
+    let mut place: FxMap<&str, [usize; 3]> = FxMap::default();
+    let mut scratch = String::with_capacity(64);
+    for (id, big) in graph.words.iter().enumerate() {
+        let n = big.len();
+        for i in 0..n {
+            for j in (i + mode.min_sub)..=n {
+                if n - (j - i) < mode.min_word {
+                    continue;
+                }
+                let sub = &big[i..j];
+                if !subs.contains(sub) {
+                    continue;
+                }
+                scratch.clear();
+                scratch.push_str(&big[..i]);
+                scratch.push_str(&big[j..]);
+                let Some(&small) = graph.index.get(scratch.as_str()) else {
+                    continue;
+                };
+                readings.push((id as u32, small, sub));
+                place.entry(sub).or_insert([0; 3])[if i == 0 {
+                    0
+                } else if j == n {
+                    1
+                } else {
+                    2
+                }] += 1;
+            }
+        }
+    }
+
+    readings.sort_unstable();
+    readings.dedup();
+
+    let mut out: FxMap<&str, Carrier> = FxMap::default();
+    let mut at = 0;
+    while at < readings.len() {
+        let (big, small, _) = readings[at];
+        let mut end = at + 1;
+        while end < readings.len() && (readings[end].0, readings[end].1) == (big, small) {
+            end += 1;
+        }
+        let alone = end - at == 1;
+        for &(_, _, sub) in &readings[at..end] {
+            let tally = out.entry(sub).or_default();
+            tally.edges += 1;
+            tally.only += usize::from(alone);
+        }
+        at = end;
+    }
+    for (sub, tally) in out.iter_mut() {
+        tally.place = place.get(sub).copied().unwrap_or_default();
+    }
+    out
+}
+
+/// The subwords carrying the most moves, and what `tools/nonwords.txt` costs.
+///
+/// The curation loop for that list, and the counterpart to `routes`: that one reads a word's
+/// exposure on the *answers*, this one reads a run's grip on the *legal graph* — which is the
+/// graph a guess is judged against and so the one that decides what a player can type. Both
+/// halves are here on purpose. A ranking with no cost beside it invites banning the top of it,
+/// and the top of it is where the real words are.
+///
+/// **It reports on the graph the list was written against**, so a run already on the list still
+/// shows the edge count that put it there, and the comparison is between two graphs rather than
+/// between one graph and a memory. See `Nonwords`.
+///
+///     npm run data -- subs
+///     npm run data -- --mode letters subs -k 300
+fn show_subs(
+    built: &[Built],
+    corpora: &Corpora,
+    config: &Config,
+    cache: &Path,
+    threads: usize,
+    k: usize,
+) -> Result<(), String> {
+    for one in built {
+        let mode = one.mode;
+        let carried = carriers(&one.legal, &one.lex, mode);
+        let total = one.legal.edges.len().max(1);
+        let common: FxSet<&str> = one
+            .lex
+            .common
+            .iter()
+            .filter(|w| w.len() >= mode.min_sub)
+            .map(String::as_str)
+            .collect();
+
+        let mut ranked: Vec<(&str, Carrier)> = carried.iter().map(|(&s, &c)| (s, c)).collect();
+        ranked.sort_unstable_by(|a, b| b.1.edges.cmp(&a.1.edges).then_with(|| a.0.cmp(b.0)));
+
+        eprintln!(
+            "\n  {} legal moves over {} words; {} subwords carry at least one",
+            one.legal.edges.len(),
+            one.legal.words.len(),
+            ranked.len(),
+        );
+        eprintln!(
+            "    {:>4}  {:<24} {:>7} {:>7} {:>7}  {:>6} {:>7}  {}",
+            "rank", "subword", "moves", "only", "share", "common", "freq", "front/back/in  listed"
+        );
+        for (at, (sub, tally)) in ranked.iter().take(k).enumerate() {
+            let readings = tally.place.iter().sum::<usize>().max(1);
+            let share = |n: usize| (100.0 * n as f64 / readings as f64).round() as usize;
+            let label = one.lex.label(sub);
+            eprintln!(
+                "    {:>4}  {:<24} {:>7} {:>7} {:>6.2}%  {:>6} {:>7}  {:>3}/{:>4}/{:>3}  {}",
+                at + 1,
+                show(&one.lex, sub),
+                tally.edges,
+                tally.only,
+                100.0 * tally.edges as f64 / total as f64,
+                if common.contains(sub) { "yes" } else { "no" },
+                match corpora.rank.get(&label) {
+                    Some(rank) => rank.to_string(),
+                    None => "-".to_string(),
+                },
+                share(tally.place[0]),
+                share(tally.place[1]),
+                share(tally.place[2]),
+                if corpora.nonwords.contains(&label) { "listed" } else { "" },
+            );
+        }
+        if ranked.len() > k {
+            eprintln!(
+                "    {} more carry {} moves between them; ask for more with -k",
+                ranked.len() - k,
+                ranked.iter().skip(k).map(|(_, c)| c.edges).sum::<usize>(),
+            );
+        }
+
+        report_exclusions(one, corpora, config, cache, threads)?;
+    }
+    Ok(())
+}
+
+/// What `tools/nonwords.txt` costs this mode: the graph, and then a round.
+///
+/// Three questions, in the order they matter.
+///
+/// **Can par move?** Only if the list reaches the common graph, since par is the shortest route
+/// through common words. Most of what belongs on this list is a bare affix that SCOWL's small
+/// tier never had, so the usual answer is no — and then the whole change is to what a player may
+/// type, which is what it was for. The common graph is compared rather than assumed.
+///
+/// **What does the legal graph lose?** Edges, degree, and words left with no move at all — the
+/// last being the one that can refuse puzzles, through `NotInLegalGraph`.
+///
+/// **What does a round lose?** Two numbers, over the bank cached for the vocabulary *without*
+/// the list: how many legal moves the words a board draws have, which is the fan of guesses
+/// available at every point in a round, and how many puzzles keep the shortcut `secret` records.
+/// Losing shortcuts is a gain rather than a cost — a shortcut through `ing` is beating par with
+/// a word nobody would call a word — so it is counted rather than judged.
+fn report_exclusions(
+    before: &Built,
+    corpora: &Corpora,
+    config: &Config,
+    cache: &Path,
+    threads: usize,
+) -> Result<(), String> {
+    let mode = before.mode;
+    if corpora.nonwords.is_empty() {
+        eprintln!("\n  tools/nonwords.txt is empty, so there is nothing to cost");
+        return Ok(());
+    }
+    /*
+        How many of the listed spellings are words here at all.
+
+        **A spelling, not a token.** In the letters alphabet a token is its own spelling and
+        this is set membership. In a translated one a spelling names every way of saying it,
+        which is how a ban list is read everywhere else — see `nodes_named` in select.rs — and
+        it cuts the other way too: a *token* survives as long as one spelling that names it is
+        not banned. `mis` and `miss` are both /mɪs/, so striking `mis` takes the spelling and
+        leaves the sound. That is why what the list reaches is read off the graphs below and
+        not off this set.
+    */
+    let mut spelled: FxSet<&str> = FxSet::default();
+    for token in before.lex.legal.iter().filter(|w| w.len() >= mode.min_sub) {
+        match before.lex.alphabet {
+            Alphabet::Letters => {
+                spelled.insert(token.as_str());
+            }
+            Alphabet::Phonemes => {
+                spelled.extend(before.lex.labels(token).iter().map(String::as_str))
+            }
+        }
+    }
+    eprintln!(
+        "\n  tools/nonwords.txt lists {} spellings; {} of them are subwords in this game",
+        corpora.nonwords.len(),
+        corpora.nonwords.iter().filter(|w| spelled.contains(w.as_str())).count(),
+    );
+
+    let after = build_mode(mode, corpora, config, cache, Nonwords::Applied, threads, Want::Graphs)?;
+
+    let say = |name: &str, a: &graph::Graph, b: &graph::Graph| {
+        let orphans = |g: &graph::Graph| g.adjacency.iter().filter(|row| row.is_empty()).count();
+        let degree = |g: &graph::Graph| 2.0 * g.edges.len() as f64 / g.words.len().max(1) as f64;
+        eprintln!(
+            "    {name}: {} -> {} moves ({:+.1}%), {} -> {} words, mean degree {:.2} -> {:.2}",
+            a.edges.len(),
+            b.edges.len(),
+            -100.0 * (a.edges.len() - b.edges.len()) as f64 / a.edges.len().max(1) as f64,
+            a.words.len(),
+            b.words.len(),
+            degree(a),
+            degree(b),
+        );
+        eprintln!(
+            "    {:width$}  {} -> {} words with no move at all, largest piece {} -> {}",
+            "",
+            orphans(a),
+            orphans(b),
+            largest_piece(a),
+            largest_piece(b),
+            width = name.len(),
+        );
+    };
+    eprintln!("  what it costs the graph:");
+    say("legal ", &before.legal, &after.legal);
+    say("common", &before.common, &after.common);
+    /*
+        Whether par can move, read off the common graph rather than off the list.
+
+        Par is the shortest route through *common* words, so the whole of the question is
+        whether the common graph moved — and a common graph that came out identical is a
+        stronger claim than any argument about which spellings were struck: the boards, the
+        bands and which pairs make puzzles at all are measured over it, so an untouched common
+        graph means the only thing this list changed is what a player may type.
+    */
+    let gone: Vec<&str> = {
+        let kept: FxSet<&str> = after.common.words.iter().map(String::as_str).collect();
+        before.common.words.iter().map(String::as_str).filter(|w| !kept.contains(w)).collect()
+    };
+    if gone.is_empty() && before.common.edges.len() == after.common.edges.len() {
+        eprintln!(
+            "    the common graph is untouched, so par, the boards and which pairs are \
+             puzzles at all cannot move"
+        );
+    } else {
+        eprintln!(
+            "    par can move: the common graph lost {} words and {} moves{}",
+            gone.len(),
+            before.common.edges.len() - after.common.edges.len(),
+            match gone.len() {
+                0 => String::new(),
+                n if n <= 12 => format!(
+                    " — {}",
+                    gone.iter().map(|w| show(&before.lex, w)).collect::<Vec<_>>().join(" ")
+                ),
+                _ => String::new(),
+            }
+        );
+    }
+
+    report_rounds(before, &after, corpora, config, cache)
+}
+
+/// The biggest connected piece of a graph, by words.
+fn largest_piece(graph: &graph::Graph) -> usize {
+    let mut seen = vec![false; graph.words.len()];
+    let mut stack: Vec<u32> = Vec::new();
+    let mut best = 0usize;
+    for start in 0..graph.words.len() {
+        if seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        stack.push(start as u32);
+        let mut size = 0usize;
+        while let Some(at) = stack.pop() {
+            size += 1;
+            for &near in graph.neighbors(at) {
+                if !seen[near as usize] {
+                    seen[near as usize] = true;
+                    stack.push(near);
+                }
+            }
+        }
+        best = best.max(size);
+    }
+    best
+}
+
+/// What the list costs inside a round, over the bank the game has now.
+///
+/// The bank read is the one cached for the vocabulary *without* the list, because those are the
+/// boards the question is about — a bank searched with the list in force would be a different
+/// set of puzzles and could not be compared against itself. It is the bank a build wrote last,
+/// so it is there until the list is applied and the cache is swept.
+fn report_rounds(
+    before: &Built,
+    after: &Built,
+    corpora: &Corpora,
+    config: &Config,
+    cache: &Path,
+) -> Result<(), String> {
+    let path = bank::path(
+        cache,
+        &bank::key(
+            before.mode,
+            &corpora.banned(Nonwords::Ignored),
+            config.shared.id_chars,
+            &before.vocab,
+        ),
+    );
+    let Some(bank) = bank::load(&path) else {
+        eprintln!(
+            "  what it costs a round: no bank is cached for this game's current vocabulary \
+             ({}), so there are no boards to measure against — run `npm run data` first",
+            path.file_name().unwrap_or_default().to_string_lossy(),
+        );
+        return Ok(());
+    };
+
+    // The fan of guesses a round offers: every word a board draws, and how many legal moves it
+    // has. Drawn words are common words, so they survive the list; a word that does not is
+    // counted as having no moves, which is the truth and would also be a refused puzzle.
+    let moves_at = |graph: &graph::Graph, word: &str| {
+        graph.id(word).map_or(0, |id| graph.neighbors(id).len())
+    };
+    let (mut drawn, mut was, mut now) = (0usize, 0usize, 0usize);
+    let mut stranded = 0usize;
+    for puzzle in &bank.puzzles {
+        for word in puzzle.board.split_whitespace() {
+            drawn += 1;
+            was += moves_at(&before.legal, word);
+            let left = moves_at(&after.legal, word);
+            now += left;
+            stranded += usize::from(left == 0);
+        }
+    }
+    let per = |total: usize| total as f64 / drawn.max(1) as f64;
+    eprintln!("  what it costs a round, over the {} puzzles cached:", bank.puzzles.len());
+    eprintln!(
+        "    a drawn word has {:.2} legal moves, {:.2} after ({:+.1}%); {stranded} of {drawn} \
+         drawn words end with none",
+        per(was),
+        per(now),
+        -100.0 * (was - now) as f64 / was.max(1) as f64,
+    );
+
+    /*
+        Par, when the list reached the common tier.
+
+        Silent while the common graph is untouched, which is the state the list is written to
+        keep — there is nothing to say about pars that cannot have moved. When an entry does
+        reach it, this is the cost that matters and the one the graph comparison above can only
+        hint at: a common move removed lengthens every answer that walked it, and a puzzle whose
+        par moves is a different puzzle — a different band, a different board, and in a long
+        enough answer no puzzle at all.
+
+        One search per distinct target, on the same grouping the shortcut pass uses. Bounded
+        where the search itself is bounded, so a pair the new graph pushes out of range reads as
+        out of range rather than as an enormous par.
+    */
+    if before.common.edges.len() != after.common.edges.len() {
+        let far = (before.mode.max_par + before.mode.slack) as u32;
+        let mut ends: FxMap<u32, Vec<(u32, u32)>> = FxMap::default();
+        let mut lost_word = 0usize;
+        for puzzle in &bank.puzzles {
+            let (Some(src), Some(tgt)) =
+                (after.common.id(&puzzle.source), after.common.id(&puzzle.target))
+            else {
+                lost_word += 1;
+                continue;
+            };
+            ends.entry(tgt).or_default().push((src, puzzle.par));
+        }
+        let mut walk = graph::Bfs::new(after.common.words.len());
+        let (mut same, mut longer, mut apart) = (0usize, 0usize, 0usize);
+        for (&tgt, group) in &ends {
+            walk.run(&after.common, tgt, far);
+            for &(src, par) in group {
+                match walk.get(src) {
+                    graph::UNREACHED => apart += 1,
+                    found if found == par => same += 1,
+                    _ => longer += 1,
+                }
+            }
+        }
+        eprintln!(
+            "    par holds for {same} of them, lengthens for {longer}, and {} are no longer \
+             within {far} moves of each other{}",
+            apart,
+            match lost_word {
+                0 => String::new(),
+                n => format!(" ({n} more lost an endpoint outright)"),
+            },
+        );
+    }
+
+    /*
+        The shortcuts. `secret` is the legal distance between the endpoints when it beats par —
+        a corner some rarer word cuts — and a corner cut by a bare affix is exactly the kind
+        this list is aimed at.
+
+        One search per distinct target rather than per puzzle: the bank reuses a few thousand
+        endpoints over hundreds of thousands of boards, and the legal graph averages under
+        three moves a word, so a search bounded at `par - 1` is cheap. Bounded there because
+        that is the whole question — a route no shorter than par is not a shortcut.
+    */
+    let mut by_target: FxMap<u32, Vec<(u32, u32, u32)>> = FxMap::default();
+    let mut lost_end = 0usize;
+    for puzzle in &bank.puzzles {
+        if puzzle.secret == 0 {
+            continue;
+        }
+        let (Some(src), Some(tgt)) =
+            (after.legal.id(&puzzle.source), after.legal.id(&puzzle.target))
+        else {
+            lost_end += 1;
+            continue;
+        };
+        by_target.entry(tgt).or_default().push((src, puzzle.par, puzzle.secret));
+    }
+    let held: usize = by_target.values().map(Vec::len).sum();
+    let mut bfs = graph::Bfs::new(after.legal.words.len());
+    let (mut kept, mut shorter) = (0usize, 0usize);
+    for (&tgt, group) in &by_target {
+        let deepest = group.iter().map(|&(_, par, _)| par).max().unwrap_or(0);
+        bfs.run(&after.legal, tgt, deepest.saturating_sub(1));
+        for &(src, par, secret) in group {
+            let found = bfs.get(src);
+            if found != graph::UNREACHED && found < par {
+                kept += 1;
+                shorter += usize::from(found > secret);
+            }
+        }
+    }
+    eprintln!(
+        "    {} puzzles have a shortcut under par; {} keep one ({} of those by a longer route), \
+         {} lose it{}",
+        held + lost_end,
+        kept,
+        shorter,
+        held - kept + lost_end,
+        match lost_end {
+            0 => String::new(),
+            n => format!(" — {n} of them because an endpoint is no longer a word"),
+        },
+    );
+    Ok(())
+}
+
 /// No two puzzles may want the same address.
 ///
 /// An id is the whole of a puzzle's URL, so a collision is not a cosmetic clash:
@@ -1731,6 +2368,107 @@ fn par_histogram(selection: &select::Selection) -> Vec<(u32, usize)> {
 ///
 /// Shards are TSV rather than JSON: the values are ASCII words and small integers, and
 /// the field names repeated 174,536 times were most of the bytes.
+/// What this bank's boards were called while the vocabulary was part of an address.
+///
+/// **A migration with an end date, not a layer.** Ids do not move when the word list does any
+/// more — see id.rs — so from here on there is nothing to forward. What there is, is every
+/// link sent under the old scheme, and no way to read one: a digest cannot be undone. Here the
+/// pair is in hand and a past vocabulary is a digest somebody wrote down, so for each of them
+/// the name a board went by then is recomputed and written against the name it goes by now.
+/// The client cannot hash and does not have to: a dead id names its own redirect file the same
+/// way a live one names its own shard.
+///
+/// Delete a mode's `wasVocab` when nobody is holding a link that old and this whole directory
+/// goes with it. That is the intended end of it.
+///
+/// **Sharded by the id that has died, not the one it becomes.** The whole point is that the
+/// only thing in hand is the dead id, and the two digests are unrelated — so a link resolves in
+/// one extra fetch, of a file nothing else ever asks for.
+///
+/// Three things are refused rather than written, because a redirect that is not certain is
+/// worse than no redirect at all — a dead link falls back to today's board, and a wrong one
+/// opens somebody else's:
+///
+/// * An id that has not moved. The vocabulary changed and this pair's address did not, which
+///   is a coincidence the digest allows and not something to redirect.
+/// * An id that is a *live* board's. The board that exists wins; shadowing it with a redirect
+///   would make a working link open a different puzzle.
+/// * An id two puzzles both used to have. At 48 bits over a bank this size it is a fraction of
+///   a percent likely per generation, and there is no way to tell which one a link meant.
+///
+/// Returns the per-shard bodies, and the tallies for the build report.
+fn redirect_bodies(
+    built: &[Built],
+    puzzles: &[select::Puzzle],
+    id_chars: usize,
+) -> (Vec<String>, usize, usize, usize) {
+    let live: FxSet<&str> = puzzles.iter().map(|puzzle| puzzle.id.as_str()).collect();
+    let mode_of = |band: usize| -> Option<&Mode> {
+        built
+            .iter()
+            .map(|one| one.mode)
+            .find(|mode| band >= mode.band_base && band < mode.band_base + mode.bands.len())
+    };
+
+    // `None` once two puzzles have both wanted it, which is how a collision poisons an entry
+    // instead of whichever puzzle came last silently winning it.
+    let mut moved: FxMap<String, Option<&str>> = FxMap::default();
+    let (mut shadowed, mut collided) = (0usize, 0usize);
+    for puzzle in puzzles {
+        let Some(mode) = mode_of(puzzle.band) else {
+            continue;
+        };
+        for was in &mode.was_vocab {
+            let old =
+                id::former_id(&mode.name, &puzzle.source, &puzzle.target, was, id_chars);
+            if old == puzzle.id {
+                continue;
+            }
+            if live.contains(old.as_str()) {
+                shadowed += 1;
+                continue;
+            }
+            match moved.get_mut(&old) {
+                Some(Some(already)) if *already == puzzle.id.as_str() => {}
+                Some(seen) => {
+                    if seen.is_some() {
+                        collided += 1;
+                    }
+                    *seen = None;
+                }
+                None => {
+                    moved.insert(old, Some(puzzle.id.as_str()));
+                }
+            }
+        }
+    }
+
+    let mut rows: Vec<Vec<(&str, &str)>> = vec![Vec::new(); id::SHARDS];
+    for (old, new) in &moved {
+        let Some(new) = new else { continue };
+        rows[id::shard_of(old)].push((old.as_str(), new));
+    }
+    let mut written = 0usize;
+    let bodies = rows
+        .iter_mut()
+        .map(|row| {
+            // Sorted, because the bank version is a digest of these bytes and two builds of
+            // one bank have to produce one version. A hash map's order is not an order.
+            row.sort_unstable();
+            written += row.len();
+            let mut out = String::with_capacity(row.len() * (2 * id_chars + 2));
+            for (old, new) in row.iter() {
+                out.push_str(old);
+                out.push('\t');
+                out.push_str(new);
+                out.push('\n');
+            }
+            out
+        })
+        .collect();
+    (bodies, written, shadowed, collided)
+}
+
 fn write_puzzle_shards(
     data: &Path,
     config: &Config,
@@ -1785,6 +2523,13 @@ fn write_puzzle_shards(
 
     // The calendar, built before the version because it is *part* of what the version names.
     let calendar = calendar_bodies(config, puzzles, dealt)?;
+    // And the redirects, for the same reason and with more of an edge to it: adding a past
+    // vocabulary rewrites these and touches no shard and no calendar year, so leaving them out
+    // of the version would leave their names unchanged — and they are fetched `force-cache`,
+    // so every browser that has ever asked for one would keep the answer from before the
+    // generation that was just added. Exactly the trap the calendar fell into once already.
+    let (redirects, forwarded, shadowed, collided) =
+        redirect_bodies(built, puzzles, config.shared.id_chars);
 
     // The digest covers every immutable file's contents — every shard and every calendar year —
     // so any change to any of them renames all of them.
@@ -1803,6 +2548,9 @@ fn write_puzzle_shards(
         everything.push_str(body);
     }
     for (_, body) in &calendar {
+        everything.push_str(body);
+    }
+    for body in &redirects {
         everything.push_str(body);
     }
     let version = id::digest(everything.as_bytes(), 8);
@@ -1891,9 +2639,14 @@ fn write_puzzle_shards(
     let last = date::civil_from_days(
         date::days_from_civil(epoch) + days.saturating_sub(1) as i64,
     );
+    // `redirects` is how many ids from an older vocabulary still open a board, and the client
+    // reads it as a yes-or-no: at zero there is no `was/` directory to ask about, so a dead id
+    // is a dead id and nothing is fetched to confirm it. A count rather than a flag because it
+    // is also the number worth seeing in a deploy — see `write_redirects`.
     let manifest = format!(
         "{{\"version\":\"{version}\",\"shards\":{},\"modes\":[{modes}],\"bands\":[{bands}],\
-         \"puzzles\":{},\"epoch\":\"{:04}-{:02}-{:02}\",\"days\":{days},\"years\":[{},{}]}}",
+         \"puzzles\":{},\"redirects\":{forwarded},\
+         \"epoch\":\"{:04}-{:02}-{:02}\",\"days\":{days},\"years\":[{},{}]}}",
         id::SHARDS,
         puzzles.len(),
         epoch.year,
@@ -1950,6 +2703,27 @@ fn write_puzzle_shards(
         words::write_file(&dir.join(format!("{year}-{version}.json")), body)?;
     }
 
+    /*
+        The redirects, in a directory of their own.
+
+        Named exactly as a shard is — `was/2e-{version}.tsv` — because they are addressed
+        exactly as a shard is: a dead id names its own file by its own first two hex digits,
+        in one fetch, with nothing looked up first. Reusing the name is what lets the client
+        reuse `shardName` and the sweeper below reuse `remove_stale_shards` unchanged.
+
+        Empty ones are not written. A bank with no past vocabulary has no directory at all, and
+        a prefix no dead id starts with has no file, so a miss is a 404 the client reads as "no
+        redirect" — which it has to handle anyway, since the whole thing is optional.
+    */
+    let was = dir.join("was");
+    for (index, body) in redirects.iter().enumerate() {
+        if body.is_empty() {
+            continue;
+        }
+        words::write_file(&was.join(name_of(index)), body)?;
+    }
+    let stale_was = remove_stale_shards(&was, &version)?;
+
     // Written last: a manifest naming shards that are not on disk yet would be a
     // deploy that serves a version it cannot fetch.
     words::write_file(&dir.join("manifest.json"), &manifest)?;
@@ -1973,6 +2747,33 @@ fn write_puzzle_shards(
         epoch.month,
         epoch.day,
     );
+    // Silent when no mode has a past vocabulary, since there is nothing to have gone wrong.
+    // `shadowed` and `collided` are the two ways a redirect is refused rather than written, and
+    // both are worth seeing: the first is arithmetic nobody can do anything about, and the
+    // second is the 48-bit birthday problem arriving, which is the moment to raise `idChars`.
+    if built.iter().any(|one| !one.mode.was_vocab.is_empty()) {
+        eprintln!(
+            "  wrote {} redirects into puzzles/was/ ({} of {} shards){}{}{}",
+            forwarded,
+            redirects.iter().filter(|body| !body.is_empty()).count(),
+            id::SHARDS,
+            if shadowed > 0 {
+                format!(", {shadowed} left alone as a live board's address")
+            } else {
+                String::new()
+            },
+            if collided > 0 {
+                format!(", {collided} dropped as two puzzles' old address")
+            } else {
+                String::new()
+            },
+            if stale_was > 0 {
+                format!(", removed {stale_was} from an older version")
+            } else {
+                String::new()
+            },
+        );
+    }
     Ok(())
 }
 
@@ -2239,15 +3040,31 @@ fn write_mode(dir: &Path, one: &Built) -> Result<String, String> {
     let legal_rows = rows_of(legal, &index, legal.edges.iter().copied());
     let common_rows = rows_of(common, &index, common.edges.iter().copied());
 
+    /*
+        The parameters, and one of them does a job the rest do not.
+
+        `vocab` is the digest of exactly what a board *code* indexes into — the legal word
+        list, the alphabet, and the two lengths that decide which runs count as moves. It is
+        here, on the graph, because that is where it is needed and where it cannot be got
+        wrong: a code is read against a graph, and the graph it is read against is the word
+        list it either was or was not written against. See `stampOf` in boardCode.ts, which
+        takes twelve bits of this and puts them at the head of every code.
+
+        It used to be in the puzzle *id* instead, which made the address of every board a
+        function of the word list — so curating the list renamed the whole bank and killed
+        every link anybody had sent, to protect a round. See id.rs for why that was the wrong
+        trade and this is the right one.
+    */
     let mut graph_json = String::with_capacity(legal.edges.len() * 8 + 1024);
     graph_json.push_str(&format!(
         "{{\"params\":{{\"commonScowl\":{},\"legalScowl\":{},\"minWord\":{},\"minSub\":{},\
-         \"alphabet\":\"{}\"}}",
+         \"alphabet\":\"{}\",\"vocab\":\"{}\"}}",
         mode.common_scowl,
         mode.legal_scowl,
         mode.min_word,
         mode.min_sub,
         mode.alphabet.name(),
+        one.vocab,
     ));
     for (name, rows) in [("legal", &legal_rows), ("common", &common_rows)] {
         let halves: Vec<Vec<u32>> = rows
