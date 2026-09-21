@@ -201,7 +201,24 @@ modes:
     # new digest is. Paste it here to accept.
     #
     # Delete the line and the build stops asking, which is what a first build wants.
-    vocab: 68336fe4
+    vocab: 489d5ef6
+    # Vocabularies whose *addresses* still need forwarding, oldest first.
+    #
+    # **A migration, and it is meant to be deleted.** An id used to be a digest of the
+    # vocabulary, so curating the word list renamed every board in the game and every link
+    # anybody had sent stopped resolving. It is not built that way any more — the vocabulary
+    # moved to where it is actually needed, twelve bits of it at the head of a board code, so
+    # a stale *round* says so and asks to be regenerated while every *board* keeps its
+    # address. See tools/graphgen/src/id.rs.
+    #
+    # What is left is the one generation of links that went out under the old scheme. The
+    # builder writes down what every board was called then, into puzzles/was/, and the client
+    # follows it when an id resolves to nothing. Empty this list and that whole directory goes
+    # with it, which is the right thing to do once nobody is holding a link that old.
+    #
+    # 68336fe4 is this game's vocabulary before tools/nonwords.txt: SCOWL 80 with the content
+    # blocklist and nothing else struck out of it.
+    wasVocab: [68336fe4]
     # Every day offers one puzzle of each of these, and `bandCuts` is where they
     # divide: the last par of the first band, then of the second. The final band is
     # everything above.
@@ -257,7 +274,12 @@ modes:
     # new digest is. Paste it here to accept.
     #
     # Delete the line and the build stops asking, which is what a first build wants.
-    vocab: f6fa701a
+    vocab: d2769dca
+    # See the letters game's, above. f6fa701a is this game before tools/nonwords.txt — and note
+    # that a list written in spellings lands here too, because banning a spelling bans every
+    # way of saying it and a sound survives only while some spelling still names it. Delete
+    # both games' lists together; they are one migration.
+    wasVocab: [f6fa701a]
     alphabet: phonemes
     bands: [short, medium, long]
     bandCuts: [4, 6]

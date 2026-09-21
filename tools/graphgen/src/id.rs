@@ -1,23 +1,33 @@
-//! Puzzle identifiers: the address a shared board is reached at, and the root of a
-//! small hash tree.
+//! Puzzle identifiers: the address a shared board is reached at.
 //!
 //! A puzzle's id is a BLAKE2s digest of a canonical JSON array — the game it belongs
-//! to, its two words in sorted order, and the digest of the vocabulary they were
-//! found in — asked for at exactly `idChars` hex digits:
+//! to and its two words in sorted order — asked for at exactly `idChars` hex digits:
 //!
-//!     ["letters","passing","starring","9f2c1e77"]  ->  a8ccda3b
+//!     ["letters","passing","starring"]  ->  79b61ea9
 //!
-//! **The vocabulary digest is in there because a shared board's code depends on it.**
-//! A code (see src/lib/boardCode.ts) says "the third of the legal moves from here"
-//! and "dictionary word 3187", so it is only meaningful against the exact word list
-//! and edge rules it was written against. Putting that digest in the address makes
-//! the dependency a *parent* of the thing that depends on it: an id resolves only
-//! where its codes resolve, and a new vocabulary is honestly a new set of puzzles
-//! rather than the same ones quietly reinterpreted. See `vocab_spec`.
+//! **What is deliberately not in it is the vocabulary**, and that was learnt the hard
+//! way. A shared board's *code* (see src/lib/boardCode.ts) says "the third of the legal
+//! moves from here" and "dictionary word 3187", so it is only meaningful against the
+//! exact word list it was written against — and the first answer to that was to hash
+//! the word list into the address, making the dependency a parent of the thing that
+//! depends on it.
 //!
-//! Nothing else about the bank is in it, and that is the other half of the trade.
-//! Par, the answer, the words the board draws and every selection knob can move
-//! without touching an address, because none of them can change what a code means.
+//! It worked, and it priced the wrong thing. Curating the word list is an ordinary
+//! act of maintenance: a hundred spellings SCOWL lists that nobody would call words
+//! come out, no board moves, no answer changes, and every link anybody has ever sent
+//! stops resolving. The two losses are not the same size. A stale *round* is a shame
+//! and genuinely cannot be read against another word list; a board that cannot be
+//! opened at all is a dead link, and nothing about the code required paying that.
+//!
+//! So the vocabulary moved to where it is actually needed. The code carries twelve
+//! bits of it, and a code whose stamp does not match the word list in front of it
+//! says so and asks for a fresh one — which is a sentence a player can act on, where
+//! a dead address is not. `former_id` is what the old scheme's addresses were, kept
+//! only to forward the links that were sent under it.
+//!
+//! Nothing else about the bank is in it either. Par, the answer, the words the board
+//! draws and every selection knob can move without touching an address, and now so
+//! can the word list.
 //!
 //! Asked for, not cut down to: the digest length is one of BLAKE2's parameters and
 //! goes into the state before a byte of message does, so a 4-byte digest is its own
@@ -113,12 +123,28 @@ pub fn vocab_spec(alphabet: &str, min_word: usize, min_sub: usize, words: &[Stri
     out
 }
 
-/// A puzzle's public address: the game, its two words sorted, and the vocabulary.
+/// A puzzle's public address: the game and its two words, sorted.
 ///
 /// `chars` must be even and between 2 and 64 — a hex digit is half a byte and the
 /// digest is a whole number of them. config.rs enforces that on the knob, so a bad
 /// value here is a programming error rather than a misconfiguration.
-pub fn puzzle_id(mode: &str, a: &str, b: &str, vocab: &str, chars: usize) -> String {
+pub fn puzzle_id(mode: &str, a: &str, b: &str, chars: usize) -> String {
+    let (first, second) = if a <= b { (a, b) } else { (b, a) };
+    digest(spec(&[mode, first, second]).as_bytes(), chars)
+}
+
+/// The address this board had while the vocabulary was part of it.
+///
+/// **A migration, with an end.** Every link sent before the scheme changed carries one of
+/// these, and the builder still holds each puzzle's pair, so it can say what each board used
+/// to be called and publish the map. See `redirect_bodies` in main.rs and `wasVocab` in
+/// recurse.yaml; when nobody is holding a link that old, both go.
+///
+/// Kept here rather than written out at the call site so that the old scheme has one
+/// definition, and so that this file says what it was — a reader who finds an id in the wild
+/// that `puzzle_id` cannot reproduce should be able to find out why from the one place ids
+/// are made.
+pub fn former_id(mode: &str, a: &str, b: &str, vocab: &str, chars: usize) -> String {
     let (first, second) = if a <= b { (a, b) } else { (b, a) };
     digest(spec(&[mode, first, second, vocab]).as_bytes(), chars)
 }
@@ -180,28 +206,41 @@ mod tests {
         assert!(!digest(spec(&["abc"]).as_bytes(), MAX_CHARS).starts_with(&short));
     }
 
-    /// The address names the game, the pair and the vocabulary — and nothing else,
-    /// which is what lets par and the drawn board move without breaking a link.
+    /// The address names the game and the pair — and nothing else, which is what lets par,
+    /// the drawn board and **the word list** move without breaking a link.
     #[test]
-    fn ids_name_the_game_the_pair_and_the_vocabulary() {
-        let one = puzzle_id("letters", "passing", "starring", "9f2c1e77", 8);
+    fn ids_name_the_game_and_the_pair_and_nothing_else() {
+        let one = puzzle_id("letters", "passing", "starring", 8);
         // The literal from this file's own header, which claims the input is a thing you can
         // paste into any other blake2s and check by hand:
         //
         //     python3 -c 'import hashlib; print(hashlib.blake2s(
-        //         b"[\"letters\",\"passing\",\"starring\",\"9f2c1e77\"]",
-        //         digest_size=4).hexdigest())'
+        //         b"[\"letters\",\"passing\",\"starring\"]", digest_size=4).hexdigest())'
         //
         // Asserted because the header said something else for a while and nothing noticed.
-        assert_eq!(one, "a8ccda3b");
+        assert_eq!(one, "79b61ea9");
         // Read the other way round it is the same puzzle, so the same address: a
         // move is its own inverse, and which end the builder wrote first is a
         // finding of the rules rather than a fact about the puzzle.
-        assert_eq!(puzzle_id("letters", "starring", "passing", "9f2c1e77", 8), one);
-        // A different game, or a different vocabulary, is a different set of
-        // puzzles — and a code written against one cannot be read against another.
-        assert_ne!(puzzle_id("phonemes", "passing", "starring", "9f2c1e77", 8), one);
-        assert_ne!(puzzle_id("letters", "passing", "starring", "00000000", 8), one);
+        assert_eq!(puzzle_id("letters", "starring", "passing", 8), one);
+        // A different game is a different puzzle about the same two words.
+        assert_ne!(puzzle_id("phonemes", "passing", "starring", 8), one);
+    }
+
+    /// The old scheme, kept only to forward the links it addressed.
+    ///
+    /// **It has to keep agreeing with itself for as long as anybody holds one of those
+    /// links**, so it is pinned the same way — and it has to differ from the new one, or the
+    /// migration would be forwarding ids to themselves.
+    #[test]
+    fn the_former_address_is_the_one_the_vocabulary_was_in() {
+        let was = former_id("letters", "passing", "starring", "9f2c1e77", 8);
+        assert_eq!(was, "a8ccda3b");
+        assert_eq!(former_id("letters", "starring", "passing", "9f2c1e77", 8), was);
+        assert_ne!(was, puzzle_id("letters", "passing", "starring", 8));
+        // A different vocabulary was a different address, which is the whole reason this
+        // scheme was left behind.
+        assert_ne!(former_id("letters", "passing", "starring", "00000000", 8), was);
     }
 
     /// Every input is on its own side of a delimiter, so no two different sets of
@@ -209,8 +248,8 @@ mod tests {
     #[test]
     fn parts_cannot_run_together() {
         assert_ne!(
-            puzzle_id("letters", "pass", "ingstarring", "9f2c1e77", 8),
-            puzzle_id("letters", "passing", "starring", "9f2c1e77", 8)
+            puzzle_id("letters", "pass", "ingstarring", 8),
+            puzzle_id("letters", "passing", "starring", 8)
         );
     }
 

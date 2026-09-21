@@ -3133,6 +3133,18 @@
       "value": "Nothing here is saved to your gameSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "round.sharedStale": [
+    {
+      "type": 0,
+      "value": "Shared before the word list changed, so it may name different words — ask for a fresh linkSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "round.staleRound": [
+    {
+      "type": 0,
+      "value": "This link’s round was shared before the word list changed and cannot be read — ask for a fresh linkSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "round.theRound": [
     {
       "type": 0,

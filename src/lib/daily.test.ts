@@ -13,7 +13,7 @@ import {
   puzzleById,
   resolvePuzzle,
 } from './daily';
-import { pathFor } from './route';
+import { idFromPath, pathFor } from './route';
 import { shardOf } from './data';
 import { DEFAULT_BAND, shippedData, shippedIdForDay } from '../test/shipped';
 import type { Puzzle } from './types';
@@ -152,35 +152,30 @@ describe('resolvePuzzle', () => {
   // called — a date is a file lookup now, so it cannot be done here without a fetch.
   const today = 'ba5eba11';
 
-  it('serves today at the root', () => {
-    expect(resolvePuzzle(bank, '/', today)).toMatchObject({ day: 1 });
+  it('serves today when nothing was asked for', () => {
+    expect(resolvePuzzle(bank, null, today)).toMatchObject({ day: 1 });
   });
 
-  it('serves the puzzle a path names, whether or not it is today', () => {
-    expect(resolvePuzzle(bank, '/decafbad', today)).toMatchObject({ day: 2 });
+  it('serves the puzzle it is asked for, whether or not it is today', () => {
+    expect(resolvePuzzle(bank, 'decafbad', today)).toMatchObject({ day: 2 });
   });
 
-  it('serves the length the path names, not the one today happens to be', () => {
+  it('serves the length the id names, not the one today happens to be', () => {
     // An id is the whole address, so it decides the length too — a link to a long board opens
     // a long board however the player last left the switch.
-    expect(resolvePuzzle(bank, '/cafed00d', today)?.puzzle.band).toBe(1);
+    expect(resolvePuzzle(bank, 'cafed00d', today)?.puzzle.band).toBe(1);
   });
 
   it('falls back to today for an id the bank does not have', () => {
-    // A link from before a rebuild. Today's board beats an error page.
-    expect(resolvePuzzle(bank, '/deadbeef', today)?.puzzle.id).toBe(today);
-  });
-
-  it('falls back to today for a path that names no puzzle at all', () => {
-    for (const path of ['/about', '/zzz', '/12', '']) {
-      expect(resolvePuzzle(bank, path, today)?.puzzle.id).toBe(today);
-    }
+    // A link from before a rebuild that the redirects could not revive either. Today's board
+    // beats an error page.
+    expect(resolvePuzzle(bank, 'deadbeef', today)?.puzzle.id).toBe(today);
   });
 
   it('comes back empty when even today is not in this shard', () => {
     // Which is what fetching the wrong shard looks like, rather than a bad day number.
-    expect(resolvePuzzle(bank, '/', 'deadbeef')).toBeNull();
-    expect(resolvePuzzle(bank, '/', null)).toBeNull();
+    expect(resolvePuzzle(bank, null, 'deadbeef')).toBeNull();
+    expect(resolvePuzzle(bank, null, null)).toBeNull();
   });
 });
 
@@ -226,11 +221,11 @@ describe('the shipped bank', () => {
   });
 
   it('resolves every id back to the puzzle it names', () => {
-    // The round trip a shared link makes: id -> path -> the board on screen. The band asked
-    // for is the fallback's business only, so an id resolves the same whatever it is.
+    // The round trip a shared link makes: id -> path -> id -> the board on screen. The band
+    // asked for is the fallback's business only, so an id resolves the same whatever it is.
     for (const puzzle of puzzles) {
       const path = pathFor(puzzle.id, '', '/');
-      expect(resolvePuzzle(puzzles, path, null)?.puzzle).toBe(puzzle);
+      expect(resolvePuzzle(puzzles, idFromPath(path), null)?.puzzle).toBe(puzzle);
     }
   });
 });

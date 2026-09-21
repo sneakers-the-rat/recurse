@@ -46,21 +46,26 @@ test('accepts an ordinary word that no puzzle is built from', async ({ page }) =
 
 test('a bare ending is a legal move, not a special case', async ({ page }) => {
   const { graph, puzzles } = gameData();
-  // -less, -ing and friends used to be refused outright. Whether a *solution*
-  // should lean on them is a puzzle-selection matter, never a rule of play.
-  const found = puzzles.find(
-    (p) => graph.isWord(`${p.source}less`) || graph.isWord(`${p.source}ing`),
-  );
-  test.skip(!found, 'no suitable source in the bank');
+  /*
+    -less and friends used to be refused outright. Whether a *solution* should lean on one is
+    a puzzle-selection matter, never a rule of play.
 
-  const suffixed = graph.isWord(`${found!.source}less`)
-    ? `${found!.source}less`
-    : `${found!.source}ing`;
+    **The ending has to be a word itself, and that is the part that moved.** `ing` is not one
+    any more — see tools/nonwords.txt — so `show + ing` is not a move for anybody. That is not
+    the special case coming back: it is the one rule there has ever been, applied to a word
+    list that no longer claims `ing` is English. `less` is a word and still plays, which is
+    what this asks about.
+  */
+  const endings = ['less', 'ness', 'ful', 'able'].filter((end) => graph.isWord(end));
+  const found = puzzles
+    .flatMap((puzzle) => endings.map((end) => ({ from: puzzle.source, to: `${puzzle.source}${end}` })))
+    .find((one) => graph.isWord(one.to) && graph.neighbors(one.from).includes(one.to));
+  test.skip(!found, 'no bare ending in the word list makes a move out of a bank word');
 
-  await startOn(page, found!.source);
-  await guess(page, suffixed);
+  await startOn(page, found!.from);
+  await guess(page, found!.to);
   await expect(error(page)).toHaveText('');
-  await expect(page.locator('main svg text', { hasText: new RegExp(`^${suffixed}$`) }).first())
+  await expect(page.locator('main svg text', { hasText: new RegExp(`^${found!.to}$`) }).first())
     .toBeVisible();
 });
 

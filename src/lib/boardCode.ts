@@ -178,15 +178,51 @@ const DIGIT_BITS = 6;
  * silently decoding an old link into a board nobody played. A version this does not know is
  * refused outright.
  *
- * **This is also the only guard on a change to how a list is *read*.** The id pins the
- * vocabulary, so the word list and the edge rules cannot move without every address moving —
- * but the order a neighbour row comes out in is decided by code, in the builder's row writer
- * and in `decodeRows`, and a change to either reinterprets every code ever shared while the
- * digest stands still. Nothing can detect that; bumping this is the only thing that turns it
- * from a wrong board into a refused one, and it has to be done by hand.
+ * **This is the guard on a change to how a list is *read*.** The order a neighbour row comes
+ * out in is decided by code, in the builder's row writer and in `decodeRows`, and a change to
+ * either reinterprets every code ever shared while nothing else moves. Nothing can detect
+ * that; bumping this is the only thing that turns it from a wrong board into a refused one,
+ * and it has to be done by hand. What it does *not* guard is the word list moving — that is
+ * `STAMP_BITS` below, and the two are different questions.
  */
-const VERSION = 2;
+const VERSION = 3;
 const VERSION_BITS = 3;
+
+/**
+ * Which word list this code was written against, as twelve bits of that mode's vocabulary
+ * digest, immediately after the version.
+ *
+ * **The whole of what the puzzle id used to carry, moved to where it is needed.** A code is a
+ * list of positions — the third legal move from here, dictionary word 3187 — so it means
+ * something only against the exact word list it was written against. The first answer to that
+ * was to hash the word list into every puzzle's *address*, which made the dependency a parent
+ * of the thing depending on it and worked exactly as designed: curating a hundred spellings
+ * nobody would call words renamed the entire bank and killed every link ever sent. See id.rs.
+ *
+ * Twelve bits is two characters of the code and a one-in-4,096 chance that two word lists
+ * stamp alike. What that buys is the difference between a sentence a player can act on —
+ * *this was shared before the word list changed; ask for a fresh link* — and a round that
+ * quietly names different words, which is the failure nobody can see.
+ *
+ * **Taken from the digest rather than counted**, because a counter is a thing to forget. The
+ * builder writes the vocabulary into `graph.params`, the graph is the word list, and a code is
+ * always read against a graph — so there is nowhere for the two to come apart.
+ */
+const STAMP_BITS = 12;
+
+/** How much of the digest twelve bits is: three hex digits. */
+const STAMP_DIGITS = 3;
+
+/**
+ * The stamp of the word list this graph *is*.
+ *
+ * Zero for data built before the vocabulary was written into the graph, which cannot be paired
+ * with a code that has a stamp — those are older than `VERSION` 3 and refused on that instead.
+ */
+export function stampOf(graph: Graph): number {
+  const vocab = graph.params.vocab ?? '';
+  return Number.parseInt(vocab.slice(0, STAMP_DIGITS), 16) || 0;
+}
 
 /** Chunk width for a counted thing: a tally, a level, how many of something follows. */
 const COUNT_CHUNK = 4;
@@ -878,6 +914,7 @@ function writeWritten(
   const at = cursor(puzzle);
 
   io.put(VERSION, VERSION_BITS);
+  io.put(stampOf(graph), STAMP_BITS);
   for (const one of ops) {
     if (one.w === "guess") io.put(1, 1);
     else if (one.w === "stand") {
@@ -922,6 +959,24 @@ function read(
   const { io } = reader(code, trace);
   if (
     io.take(VERSION_BITS, "version", (value) => `format ${value}`) !== VERSION
+  )
+    return null;
+  /*
+    **Read and not compared, but it does have to be *there*.**
+
+    Not compared, because a stamp that disagrees with this word list means the positions below
+    may name other words than the sharer's — and the bit stream is still this format and still
+    decodes, so a round shown beside "ask for a fresh link" is worth more to the two people
+    involved than a blank board. `staleCode` is what the screen asks.
+
+    There, because a code cut short in the middle of the header would otherwise leave the
+    cursor where it was and read the *stamp's own bits* as the first operation. Two characters
+    of a five-character code duly came back as a complete empty round, which is the one thing
+    the reader must never do with a fragment: half a board looks like somebody's round rather
+    than like a broken link.
+  */
+  if (
+    io.take(STAMP_BITS, "vocabulary", (value) => `word list ${value.toString(16)}`) === null
   )
     return null;
 
@@ -973,6 +1028,30 @@ function read(
 /** Is this even a code? Base64url and nothing else, so a stray character is an early no. */
 export function isBoardCode(code: string): boolean {
   return code.length > 0 && [...code].every((digit) => VALUE.has(digit));
+}
+
+/**
+ * Was this code written against some other word list than the one in front of it?
+ *
+ * **The question the screen asks, and the only one it can act on.** A board code is positions
+ * into lists the word list determines, so a curation of that list does not make a code
+ * *invalid* — it makes it mean something else, quietly, which is why it has to be asked rather
+ * than discovered. What comes back is a sentence for the player: this was shared before the
+ * words moved, so ask whoever sent it for a fresh link.
+ *
+ * True for a code of an older format too. The stamp cannot be read out of one — the bits are
+ * not in the same places — but a code this build cannot read is certainly not one this build
+ * wrote, and "ask for a fresh link" is the same answer and the same remedy.
+ *
+ * Cheap on purpose: fifteen bits off the front, no puzzle, no replay. A board with no code,
+ * or a string that is not one at all, is not stale — it is nothing, which the caller already
+ * handles.
+ */
+export function staleCode(code: string, graph: Graph): boolean {
+  if (!isBoardCode(code)) return false;
+  const { io } = reader(code);
+  if (io.take(VERSION_BITS, "version") !== VERSION) return true;
+  return io.take(STAMP_BITS, "vocabulary") !== stampOf(graph);
 }
 
 /**

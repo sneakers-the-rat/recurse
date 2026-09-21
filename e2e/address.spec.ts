@@ -7,7 +7,14 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { board, boardOnDay, puzzleWithPar, today, todayNumber } from './fixtures';
+import {
+  board,
+  boardOnDay,
+  boardThatMoved,
+  puzzleWithPar,
+  today,
+  todayNumber,
+} from './fixtures';
 
 /** The id in the address bar, whatever the base happens to be. */
 const idInUrl = (url: string) => new URL(url).pathname.replace(/^\//, '').split('?')[0];
@@ -50,6 +57,33 @@ test('an id that no longer exists falls back to today and says so', async ({ pag
   // The URL is corrected rather than left lying: reloading must not go looking for
   // the dead id again.
   await expect.poll(() => idInUrl(page.url())).toBe(now.puzzle.id);
+});
+
+/**
+ * A link sent before the addresses changed still opens its own board.
+ *
+ * **The migration, end to end.** A puzzle's id used to be a digest of the word list it was
+ * found in, so curating that list renamed the whole bank — and every link anybody had sent
+ * stopped resolving, falling back to today's board the way `/deadbeef` does above. The
+ * vocabulary is out of an id now, so it cannot happen again; what is left is the one
+ * generation of links that went out under the old scheme, and the builder publishes what each
+ * board used to be called so they land where they were meant to.
+ *
+ * Skipped once no mode declares a `wasVocab`, which is the intended end of the whole thing.
+ */
+test('a link from before the addresses changed opens its own board', async ({ page }) => {
+  const moved = boardThatMoved();
+  test.skip(moved === null, 'no mode declares a wasVocab: nothing left to forward');
+  const { was, puzzle } = moved!;
+
+  await page.goto(`/${was}`);
+  // Its own board, and not today's — which is what makes this a redirect rather than the
+  // fallback. Both endpoints, because the fallback would also show *a* board.
+  await expect(page.locator('header')).toContainText(puzzle.source);
+  await expect(page.locator('header')).toContainText(puzzle.target);
+  // And the address is corrected to the one the board has now, so what the player copies out
+  // of the bar is a link that resolves in one fetch rather than two.
+  await expect.poll(() => idInUrl(page.url())).toBe(puzzle.id);
 });
 
 test('stepping the bank in dev mode moves through history by id', async ({ page }) => {

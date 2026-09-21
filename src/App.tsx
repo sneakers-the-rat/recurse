@@ -58,6 +58,7 @@ import { usePlateSize } from './lib/usePlateSize';
 import {
   BANDS,
   idForDay,
+  liveId,
   loadCalendar,
   loadGameData,
   loadMode,
@@ -88,7 +89,13 @@ import {
   stateFromPath,
   type Page,
 } from './lib/route';
-import { decodeBoard, encodeBoard, explain, type Reading } from './lib/boardCode';
+import {
+  decodeBoard,
+  encodeBoard,
+  explain,
+  staleCode,
+  type Reading,
+} from './lib/boardCode';
 import { markGuesses, shareText } from './lib/share';
 import {
   addCompletion,
@@ -433,6 +440,15 @@ export default function App() {
    * and boardCode.ts for what one holds.
    */
   const [shared, setShared] = useState<string | null>(null);
+  /**
+   * Whether the round a link carried was written against some other word list.
+   *
+   * Kept beside `shared` rather than derived, because the two answers come apart: a stale code
+   * that still decodes is a shared board with a warning on it, and one that does not is a
+   * board with no round and a reason. Only the first of them sets `shared`, and both have
+   * something to say. See `staleCode`.
+   */
+  const [staleShare, setStaleShare] = useState(false);
 
   /**
    * Open a board, and make the URL say which one.
@@ -503,6 +519,9 @@ export default function App() {
           ? decodeBoard(code, chosen.puzzle, dataRef.current.graph)
           : null;
       setShared(sent && code ? code : null);
+      setStaleShare(
+        !!code && !teaching && !!dataRef.current && staleCode(code, dataRef.current.graph),
+      );
       setState(
         teaching
           ? restore(chosen.puzzle, loadTutorial(chosen.puzzle.id)?.game ?? null, spellNow)
@@ -584,6 +603,7 @@ export default function App() {
     if (!puzzle) return;
     const manifest = dataRef.current?.manifest;
     setShared(null);
+    setStaleShare(false);
     setState(restore(puzzle, manifest ? loadGame(gameKey(puzzle, manifest)) : null, spell));
     setError(null);
     window.history.pushState(null, '', pathFor(puzzle.id, window.location.search));
@@ -661,30 +681,56 @@ export default function App() {
    * nothing.
    */
   const bankForPath = useCallback(
-    async (loaded: GameData, path: string, band: number): Promise<Puzzle[]> => {
+    async (
+      loaded: GameData,
+      path: string,
+      band: number,
+    ): Promise<{ bank: Puzzle[]; asked: string | null }> => {
       const { manifest } = loaded;
       const asked = idFromPath(path);
       if (asked !== null) {
         const bank = puzzleById(loaded.puzzles, asked)
           ? loaded.puzzles
           : await loadShard(shardOf(asked), manifest.version);
-        // Only if it is really there. An id that names nothing is a link from before a rebuild,
-        // and the answer to that is today's board, from today's own shard.
-        if (puzzleById(bank, asked)) return bank;
+        // Only if it is really there. An id that names nothing here is a link from before a
+        // rebuild — and whether that is a board with a new address or no board at all is what
+        // the redirects say.
+        if (puzzleById(bank, asked)) return { bank, asked };
+        const moved = await liveId(asked, manifest);
+        if (moved !== null) {
+          const forwarded = await loadShard(shardOf(moved), manifest.version);
+          // Checked rather than trusted, the same as the id that got us here: a redirect
+          // naming a board this bank does not hold is two files disagreeing, and the answer
+          // to that is the answer to any other dead id.
+          if (puzzleById(forwarded, moved)) return { bank: forwarded, asked: moved };
+        }
       }
       const today = await idForDay(band, dayNumber(new Date(), manifest.epoch), manifest);
-      if (today !== null && puzzleById(loaded.puzzles, today)) return loaded.puzzles;
-      return today === null ? loaded.puzzles : loadShard(shardOf(today), manifest.version);
+      if (today !== null && puzzleById(loaded.puzzles, today)) {
+        return { bank: loaded.puzzles, asked: today };
+      }
+      return {
+        bank: today === null ? loaded.puzzles : await loadShard(shardOf(today), manifest.version),
+        asked: today,
+      };
     },
     [],
   );
 
-  /** Which board a path names, once the shard that can say is in hand. */
+  /**
+   * Which board a path names, once the shard that can say is in hand.
+   *
+   * **The id it comes back with need not be the one in the URL.** A link from before a
+   * curation of the word list resolves to the board it has become, and `show` then rewrites
+   * the address — so the URL still names the board on screen, which is the invariant, by way
+   * of the board having moved rather than the link having died.
+   */
   const boardForPath = useCallback(
     async (loaded: GameData, path: string, band: number) => {
       const { manifest } = loaded;
       const today = await idForDay(band, dayNumber(new Date(), manifest.epoch), manifest);
-      return resolvePuzzle(await bankForPath(loaded, path, band), path, today);
+      const { bank, asked } = await bankForPath(loaded, path, band);
+      return resolvePuzzle(bank, asked, today);
     },
     [bankForPath],
   );
@@ -1493,12 +1539,27 @@ export default function App() {
   const openById = useCallback(
     (id: string) => {
       if (!data) return;
-      void loadShard(shardOf(id), data.manifest.version).then((bank) => {
-        const chosen = puzzleById(bank, id);
-        if (chosen) void showBoard(chosen, 'push');
-      });
+      const { manifest } = data;
+      void loadShard(shardOf(id), manifest.version)
+        .then(async (bank) => {
+          // A stats record keeps the address its round was played at, and says so: the pair is
+          // what identifies a round, and the id is a convenience that may have gone stale. So
+          // the same redirect an arriving link follows applies here, and a history that has
+          // outlived a curation of the word list still opens its own boards.
+          const found = puzzleById(bank, id);
+          if (found) return found;
+          const moved = await liveId(id, manifest);
+          if (moved === null) return null;
+          return puzzleById(await loadShard(shardOf(moved), manifest.version), moved);
+        })
+        .then((chosen) => {
+          if (chosen) void showBoard(chosen, 'push');
+        })
+        .catch(() => {
+          // A board that will not load is a row that does nothing, not a screen that breaks.
+        });
     },
-    [data, show],
+    [data, showBoard],
   );
 
   /**
@@ -1944,6 +2005,9 @@ export default function App() {
    * one. `takeOver` is the way out, and it is the only one.
    */
   const frozen = shared !== null;
+  // The strip has something to say for a link whose round could not be read at all, so it is
+  // shown for that too — the board opened, and the reason the round did not is worth a line.
+  const fromLink = frozen || staleShare;
 
   return (
     /**
@@ -2016,7 +2080,7 @@ export default function App() {
           is what the result underneath it has to be read as: "Perfect" is a verdict on the
           round somebody sent, not on anything that happened here.
         */}
-        {frozen && <SharedBoard onPlay={takeOver} />}
+        {fromLink && <SharedBoard onPlay={takeOver} round={frozen} stale={staleShare} />}
 
         {/* Above the board, so finishing is unmissable and the figure is untouched. */}
         {finished && result && (

@@ -17,8 +17,12 @@ use crate::word::{by_length, is_compound_swap, readings};
 
 #[derive(Debug, Clone)]
 pub struct Puzzle {
-    /// The puzzle's public address: a digest of the game, the pair and the vocabulary
-    /// those words were found in. See id.rs.
+    /// The puzzle's public address: a digest of the game and its two words, sorted. See id.rs.
+    ///
+    /// Stamped here rather than anywhere later because this is where a puzzle comes into
+    /// existence — but it is **recomputed on the way out of the bank cache**, the same as
+    /// `band` and for the same reason: the search does not depend on it, so the formula is
+    /// deliberately not part of what the cache is keyed on. See `build_mode`.
     pub id: String,
     /// The first day of the calendar this puzzle appears on, assigned by `calendar::deal`.
     /// Metadata rather
@@ -953,7 +957,6 @@ pub fn select(
     mode: &Mode,
     lex: &Lexicon,
     rank: &FxMap<String, usize>,
-    vocab: &str,
     audit: Audit,
     threads: usize,
 ) -> Result<Selection, String> {
@@ -1152,7 +1155,7 @@ pub fn select(
             let overexposed = &overexposed;
             handles.push(scope.spawn(move || {
                 judge_candidates(
-                    &stripe, common, common_subs, legal, mode, lex, rank, vocab, tables, slot_of,
+                    &stripe, common, common_subs, legal, mode, lex, rank, tables, slot_of,
                     unreachable_u8, full, overexposed, judging,
                 )
             }));
@@ -1249,7 +1252,6 @@ pub fn judge_candidates(
     mode: &Mode,
     lex: &Lexicon,
     rank: &FxMap<String, usize>,
-    vocab: &str,
     tables: &[Vec<u8>],
     slot_of: &FxMap<u32, usize>,
     unreachable_u8: u8,
@@ -1284,7 +1286,6 @@ pub fn judge_candidates(
                 mode,
                 lex,
                 rank,
-                vocab,
                 &tables[slot_of[&src]],
                 &tables[slot_of[&tgt]],
                 unreachable_u8,
@@ -1334,7 +1335,6 @@ pub fn judge_direction(
     mode: &Mode,
     lex: &Lexicon,
     rank: &FxMap<String, usize>,
-    vocab: &str,
     from_src_row: &[u8],
     from_tgt_row: &[u8],
     unreachable_u8: u8,
@@ -1525,13 +1525,7 @@ pub fn judge_direction(
     Verdict {
         broken,
         puzzle: Some(Puzzle {
-            id: puzzle_id(
-                &mode.name,
-                common.word(src),
-                common.word(tgt),
-                vocab,
-                mode.id_chars,
-            ),
+            id: puzzle_id(&mode.name, common.word(src), common.word(tgt), mode.id_chars),
             // Set by `calendar::deal`, which is what decides the calendar.
             day: 0,
             // Set here rather than in `schedule`, because par divides a mode's bands and

@@ -128,3 +128,8 @@ then GitHub Pages. Pages must be set to deploy from GitHub Actions
 ## ai disclosure
 
 i used the text robot to brute force some of the game since this is a game and it being correct doesn't matter. i already had the core of the game written, and i've been playing with this idea for more than 5 years, so this is not a case of "hey chappie t make me a word game." it makes a mess of raw material and then i have to painstakingly pull out the twigs. this game was just gathering dust otherwise, so i tried what they say about the vibe coding, and i would say it took about the same amount of time but with substantially more fucked up code. to its credit, the game exists where before it didn't really, in a sort of "hatereading makes you put in effort because it sucks so bad" kind of way.
+
+## Licensing
+
+The intention with this game is for it to be free to play, own, use, modify, and distribute for normal people, but not for commercial use.
+Until I can figure out a good way to license this, I'll leave it as copyright reserved.

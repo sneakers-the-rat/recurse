@@ -146,6 +146,17 @@ export interface RawManifest {
   }[];
   puzzles: number;
   /**
+   * How many ids from an older vocabulary still open a board. See `liveId`.
+   *
+   * Read as a yes-or-no on the way to a fetch: at zero there is no `puzzles/was/` directory to
+   * ask about, so a dead id is a dead id and nothing goes over the network to confirm it. A
+   * count rather than a flag because it is also the number worth seeing in a deploy.
+   *
+   * Optional, because a bank built before redirects existed has no such field and its boards
+   * are perfectly good — the missing value reads as none, which is the truth about it.
+   */
+  redirects?: number;
+  /**
    * Day 0, as `YYYY-MM-DD`. Written down once, in `RECURSE_EPOCH`, because the builder names
    * its calendar files by calendar year and so counts days from the same place the browser
    * does. The client used to hard-code it; see `EPOCH` in daily.ts.
@@ -598,6 +609,56 @@ export async function loadShard(index: number, version: string): Promise<Puzzle[
 }
 
 /**
+ * One shard's redirects, as written by `redirect_bodies`: `oldId\tnewId` a line.
+ *
+ * A `Map` rather than an array because it is only ever asked one question.
+ */
+export function decodeRedirects(text: string): Map<string, string> {
+  const moved = new Map<string, string>();
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    const [was, now] = line.split('\t');
+    if (was && now) moved.set(was, now);
+  }
+  return moved;
+}
+
+/** Redirect files fetched so far, by shard. A session that needs one needs one. */
+const redirects = new Map<number, Promise<Map<string, string>>>();
+
+/**
+ * What an id from before a rebuild has become, or null if it is simply not a board.
+ *
+ * **The one way back from a dead link, and it has to be a lookup.** An id is a digest of the
+ * game, the pair and the vocabulary those words were found in, so curating the word list
+ * renames every board — and nothing can be read back out of a digest. The builder can do it
+ * because it holds the pair, so it publishes what every board used to be called; this reads
+ * that. See `redirect_bodies` in graphgen's main.rs.
+ *
+ * **Nothing is fetched until an id has really failed**, and nothing at all when the manifest
+ * says there is nothing to fetch. This is the miss path of the miss path: a live id never
+ * reaches it, and a bank with no past vocabulary has no `was/` directory to ask about.
+ *
+ * Never throws. A redirect that cannot be fetched is no redirect, and the caller's answer to
+ * that is the answer it already had — today's board. The rule the rest of this module follows
+ * about a dead id, applied to the attempt to revive one.
+ */
+export async function liveId(id: string, manifest: RawManifest): Promise<string | null> {
+  if (!id || !manifest.redirects) return null;
+  const shard = shardOf(id);
+  let moved = redirects.get(shard);
+  if (!moved) {
+    moved = get(`puzzles/was/${shardName(shard, manifest.version)}`, true)
+      .then(async (response) => decodeRedirects(await response.text()))
+      // A prefix no dead id starts with has no file at all, so a 404 is the ordinary case
+      // rather than a failure. Kept either way: asking twice would 404 twice.
+      .catch(() => new Map<string, string>());
+    redirects.set(shard, moved);
+  }
+  return (await moved).get(id) ?? null;
+}
+
+/**
  * One calendar year, fetched and kept.
  *
  * Cached in memory per year and `force-cache` over the network, because a past year cannot
@@ -698,9 +759,25 @@ async function fetchGameData(
   // The board's own band if the shard really holds it, and the band asked for otherwise —
   // which covers a link shared before a rebuild, where the fallback is today's board of
   // whatever length the player last chose.
-  const found = asked === null ? undefined : puzzles.find((puzzle) => puzzle.id === asked);
+  let found = asked === null ? undefined : puzzles.find((puzzle) => puzzle.id === asked);
+  let bank = puzzles;
+  // A link from before a curation of the word list names a board that still exists under a new
+  // address, and the redirects say which. Followed *here*, before the mode is chosen, because
+  // the mode decides which graph gets fetched: left to be discovered upstream the board opens
+  // correctly and pays for a whole second mode's dictionary and graph to do it.
+  if (asked !== null && !found) {
+    const moved = await liveId(asked, manifest);
+    if (moved !== null) {
+      const forwarded = await loadShard(shardOf(moved), manifest.version);
+      const there = forwarded.find((puzzle) => puzzle.id === moved);
+      if (there) {
+        found = there;
+        bank = forwarded;
+      }
+    }
+  }
   const mode = modeOfBand(found?.band ?? wantedBand, manifest);
 
   const loaded = await loadMode(mode, manifest);
-  return { ...loaded, puzzles, manifest };
+  return { ...loaded, puzzles: bank, manifest };
 }

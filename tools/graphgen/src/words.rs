@@ -176,7 +176,11 @@ pub fn load_frequency(cache: &Path, seen: &mut Sources) -> Result<Vec<String>, S
         .collect())
 }
 
-/// A newline list with `#` comments, as used for the blocklist and affix list.
+/// One banned word per line with `#` comments, as used by `tools/blocklist.txt` and
+/// `tools/nonwords.txt`.
+///
+/// A file that is not there is an empty list rather than an error — both are optional, and a
+/// checkout that has deleted one has said what it means.
 pub fn load_list(path: &Path) -> Result<HashSet<String>, String> {
     if !path.exists() {
         return Ok(HashSet::new());
@@ -257,6 +261,37 @@ mod tests {
     #[test]
     fn pins_nothing_when_nothing_is_declared() {
         assert!(seen(&[("scowl80.txt", b"base\n")]).check(&BTreeMap::new()).is_ok());
+    }
+
+    /// One word per line, and everything from a `#` onwards is not one.
+    #[test]
+    fn reads_a_word_list_a_line_at_a_time() {
+        let dir = std::env::temp_dir().join("graphgen-load-list");
+        fs::create_dir_all(&dir).expect("a temp dir");
+        let path = dir.join("list.txt");
+        write_file(
+            &path,
+            "# a comment\n\
+             ing\n\
+             \n\
+             ST  # trailing comments, and case\n",
+        )
+        .expect("writes");
+        let read = load_list(&path).expect("reads");
+        assert_eq!(read.len(), 2);
+        assert!(read.contains("ing"));
+        assert!(read.contains("st"));
+        // Not the comment, and not the `#` that started it.
+        assert!(!read.contains("comment"));
+        assert!(!read.contains("#"));
+        fs::remove_file(&path).ok();
+    }
+
+    /// Neither list is required. A checkout with no `nonwords.txt` is a game with nothing
+    /// struck out of its word list, which is a state to build in rather than fail in.
+    #[test]
+    fn a_list_that_is_not_there_is_an_empty_one() {
+        assert!(load_list(Path::new("no/such/list.txt")).expect("no error").is_empty());
     }
 
     /// Asking only about the letters game never downloads CMUdict, so a declaration for a file
