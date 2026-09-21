@@ -18,6 +18,7 @@
  */
 
 /* eslint-disable formatjs/no-literal-string-in-jsx -- marks and ornament: the whole point of this file */
+import {base} from "../lib/route"
 
 /**
  * What separates one figure from the next.
@@ -133,9 +134,11 @@ export const Space = () => <>{' '}</>;
  * Two spans, so `Curse` can be blood-red and italic.
  */
 export const Wordmark = () => (
-  <span className="text-bone text-xl leading-none font-semibold tracking-tight">
-    Re<span className="text-blood-lit italic">Curse</span>
-  </span>
+  <a href={base()}>
+    <span className="text-bone text-xl leading-none font-semibold tracking-tight">
+      Re<span className="text-blood-lit italic">Curse</span>
+    </span>
+  </a>
 );
 
 /**
