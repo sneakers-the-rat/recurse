@@ -215,7 +215,8 @@ const Words = memo(function Words({
                   standing
                   level={hints.get(word) ?? 0}
                   degree={degree}
-                  showName={showsName(degree, zoom)}
+                  // Where you stand is always named, however small it is on screen.
+                  showName={word === selected || showsName(degree, zoom)}
                   sprouting={entrance !== undefined}
                   delay={entrance?.delay ?? 0}
                   grow={entrance?.duration ?? 0}
@@ -471,7 +472,7 @@ export function AtlasPlate({
       */}
       <g>
         {territories.map((one) =>
-          one.region >= 0 && one.words.length >= WORTH_DRAWING ? (
+          one.words.length >= WORTH_DRAWING ? (
             <g
               key={one.slot}
               data-slot={one.slot}

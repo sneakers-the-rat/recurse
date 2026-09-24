@@ -6,29 +6,15 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { gameData } from './fixtures';
-import { buildRegions, type RawRegions } from '../src/lib/regions';
-import { modeFile, type RawManifest } from '../src/lib/data';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { mapData } from './fixtures';
 
 test.skip(!process.env.RECURSE_LOOK, 'contact sheet: run with RECURSE_LOOK=1');
 
 test.setTimeout(20 * 60 * 1000);
 
-const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'data');
-
-/** The word with the most common moves in the largest region of the letters game's graph. */
+/** The word with the most common moves in the largest region of the letters map. */
 function busiest(): string {
-  const manifest = JSON.parse(
-    readFileSync(join(dataDir, 'puzzles', 'manifest.json'), 'utf8'),
-  ) as RawManifest;
-  const regions = buildRegions(
-    JSON.parse(readFileSync(join(dataDir, modeFile('regions', 0, manifest)), 'utf8')) as RawRegions,
-    gameData().graph.words,
-  );
-  const { graph } = gameData();
+  const { graph, regions } = mapData();
   const biggest = [...Array(regions.count).keys()].sort(
     (one, two) => regions.words(two).length - regions.words(one).length,
   )[0]!;

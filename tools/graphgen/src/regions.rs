@@ -1,11 +1,13 @@
-//! Partitions a mode's common graph into regions, the open map's territories.
+//! Partitions a mode's legal graph into regions, the open map's territories.
 //!
 //! The client lays words out inside a region and regions against each other, and names each
 //! region on the map. It is computed here so every map of a mode has the same regions and they
-//! do not move as words are revealed.
+//! do not move as words are revealed. Over the legal graph, so every word a guess can reach from
+//! the map has a region.
 //!
 //! Components smaller than `min_component` are left off the map (the words stay legal guesses);
-//! Louvain partitions the rest, deterministically for a given seed.
+//! Louvain partitions the rest, deterministically for a given seed. A word with one move is then
+//! put in its neighbour's region.
 
 use crate::graph::Graph;
 
@@ -23,6 +25,8 @@ pub struct Regions {
     pub dropped: usize,
     /// Components that survived the filter. Louvain may split one into several regions.
     pub components: usize,
+    /// Words with one move that Louvain had put outside their neighbour's region.
+    pub leaves_moved: usize,
 }
 
 /// How the regions came out, for the build's report. Not a median: the many three- and
@@ -72,7 +76,26 @@ pub fn build(graph: &Graph, min_component: usize, rank: &[usize], seed: u64) -> 
     }
 
     let mut level = Weighted::of(graph, &local, back.len());
-    let communities = louvain(&mut level, seed);
+    let mut communities = louvain(&mut level, seed);
+
+    // A word with one move belongs with the word it is joined to. Its neighbour has at least two
+    // moves, since a kept component has at least `min_component` words.
+    let mut leaves_moved = 0;
+    for (dense, &id) in back.iter().enumerate() {
+        let near: Vec<u32> = graph
+            .neighbors(id)
+            .iter()
+            .map(|&other| local[other as usize])
+            .filter(|&other| other != u32::MAX)
+            .collect();
+        if let [only] = near[..] {
+            let theirs = communities[only as usize];
+            if communities[dense] != theirs {
+                communities[dense] = theirs;
+                leaves_moved += 1;
+            }
+        }
+    }
 
     // Ordered by first member so the output is stable.
     let mut members: Vec<Vec<u32>> = vec![Vec::new(); communities.iter().copied().max().map_or(0, |m| m as usize + 1)];
@@ -92,7 +115,7 @@ pub fn build(graph: &Graph, min_component: usize, rank: &[usize], seed: u64) -> 
         regions.push(Region { name, words });
     }
 
-    Regions { regions, dropped: keep.iter().filter(|&&k| !k).count(), components }
+    Regions { regions, dropped: keep.iter().filter(|&&k| !k).count(), components, leaves_moved }
 }
 
 /// Which words sit in a connected component of at least `least` words, and how many such
@@ -472,5 +495,26 @@ mod tests {
             placement(&once, graph.words.len()),
             placement(&twice, graph.words.len())
         );
+    }
+
+    #[test]
+    fn puts_a_word_with_one_move_in_its_neighbours_region() {
+        // Two clumps joined by a bridge, with leaves hanging off both clumps and the bridge.
+        let graph = graph_of(
+            &[
+                ("aa", "ab"), ("aa", "ac"), ("aa", "ad"), ("ab", "ac"), ("ab", "ad"), ("ac", "ad"),
+                ("ba", "bb"), ("ba", "bc"), ("ba", "bd"), ("bb", "bc"), ("bb", "bd"), ("bc", "bd"),
+                ("ad", "ba"),
+                ("aa", "la"), ("ba", "lb"), ("ad", "lc"), ("ba", "ld"),
+            ],
+            &[],
+        );
+        let rank = vec![0; graph.words.len()];
+        let found = build(&graph, 3, &rank, 7);
+        let of = placement(&found, graph.words.len());
+        let region = |w: &str| of[graph.id(w).unwrap() as usize];
+        for (leaf, parent) in [("la", "aa"), ("lb", "ba"), ("lc", "ad"), ("ld", "ba")] {
+            assert_eq!(region(leaf), region(parent), "{leaf} is with {parent}");
+        }
     }
 }

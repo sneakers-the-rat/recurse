@@ -22,6 +22,7 @@ import {
   shardName,
   calendarName,
   idOnDay,
+  mapMode,
   shardOf,
   type GameData,
   type RawCommon,
@@ -192,14 +193,36 @@ export function shippedData(band: number = DEFAULT_BAND): GameData {
   return built;
 }
 
-/** The shipped regions of the daily mode `band` belongs to, over that mode's graph. */
-export function shippedRegions(band: number = DEFAULT_BAND): Regions {
+/** A game's open map: the mode it is drawn on (see `mapMode`), with that mode's regions. */
+export interface ShippedMap extends GameData {
+  regions: Regions;
+}
+
+const maps = new Map<string, ShippedMap>();
+
+/** The open map of `game`, read the way `Explore` reads it. */
+export function shippedMap(game = 'letters'): ShippedMap {
+  const held = maps.get(game);
+  if (held) return held;
   const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
-  const mode = manifest.bands[band]?.mode ?? 0;
-  return buildRegions(
-    read<RawRegions>(modeFile('regions', mode, manifest)),
-    shippedData(band).graph.words,
-  );
+  const mode = mapMode(game, manifest);
+  const file = (what: string) => modeFile(what, mode, manifest);
+  const data = decodeGameData({
+    dictionary: read<RawDictionary>(file('dictionary')),
+    graph: read<RawGraph>(file('graph')),
+    manifest,
+    mode,
+    common: read<RawCommon>(file('common')),
+    lexicon:
+      manifest.modes[mode]?.alphabet !== 'letters' ? read<RawLexicon>(file('lexicon')) : undefined,
+    puzzles: [],
+  });
+  const built = {
+    ...data,
+    regions: buildRegions(read<RawRegions>(file('regions')), data.graph.words),
+  };
+  maps.set(game, built);
+  return built;
 }
 
 /**

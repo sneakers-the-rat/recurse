@@ -185,7 +185,7 @@ const RELEASE = 7;
 
 /** A region: its words, its plate, and where it sits. */
 export interface Territory {
-  /** Its index in `Regions`, or negative for an island (see `clusterGraph`). */
+  /** Its index in `Regions`. */
   region: number;
   /** Its index in the layout's list, stable while the map is open. */
   slot: number;
@@ -207,7 +207,7 @@ export interface Territory {
 export interface Remembered {
   /** Each word's offset within its region. */
   offsets: ReadonlyMap<string, Point>;
-  /** Each region's position, by index in `Regions`. Islands are not kept. */
+  /** Each region's position, by index in `Regions`. */
   places: ReadonlyMap<number, Point>;
 }
 
@@ -290,8 +290,10 @@ export function atlasLayout(
   let room = roomFor(sizes);
   const places: Place[] = [];
   const regionNodes: SimNode[] = [];
-  /** Which place a word lives in. Also how an island is found again, having no stable key. */
+  /** Which place a word lives in. */
   const where = new Map<string, Place>();
+  /** Which place holds each region, by index in `Regions`. */
+  const byRegion = new Map<number, Place>();
   /** Whether each word was revealed last pass, so a mark growing reheats its region. */
   const shown = new Map<string, boolean>();
   /** How many words have been seeded on each word. See `birth`. */
@@ -521,19 +523,14 @@ export function atlasLayout(
     place.sim.alpha(place.nodes.every((node) => settled.offsets.has(node.id)) ? 0 : 1);
     reshape(place);
     places.push(place);
+    byRegion.set(cluster.region, place);
     regionNodes.push(place.node);
     return place;
   }
 
-  /**
-   * The place already holding a cluster. Found by any of its words, since island keys renumber.
-   */
+  /** The place already holding a cluster's region. */
   function findPlace(cluster: Cluster): Place | undefined {
-    for (const word of cluster.words) {
-      const home = where.get(word);
-      if (home) return home;
-    }
-    return undefined;
+    return byRegion.get(cluster.region);
   }
 
   // --- the map scale ----------------------------------------------------------------
@@ -701,7 +698,7 @@ export function atlasLayout(
   } else {
     // Remembered places first, so new ones are seated against them.
     for (const one of places) {
-      const kept = one.cluster.region >= 0 ? settled.places.get(one.cluster.region) : undefined;
+      const kept = settled.places.get(one.cluster.region);
       if (kept) seat(one, kept);
     }
     for (const one of places) if (!one.seated) seat(one, seatOf(one.slot));
@@ -852,10 +849,7 @@ export function atlasLayout(
       const seats = new Map<number, Point>();
       for (const one of places) {
         for (const node of one.nodes) offsets.set(node.id, { x: node.x ?? 0, y: node.y ?? 0 });
-        // Island keys do not survive a reload.
-        if (one.cluster.region >= 0) {
-          seats.set(one.cluster.region, { x: one.node.x ?? 0, y: one.node.y ?? 0 });
-        }
+        seats.set(one.cluster.region, { x: one.node.x ?? 0, y: one.node.y ?? 0 });
       }
       return { offsets, places: seats };
     },

@@ -40,7 +40,7 @@ import {
   fitCamera,
   GENEROUS_SCALE,
   MAX_SCALE,
-  MIN_SCALE,
+  leastScale,
   grown,
   OVERDRAW,
   showBox,
@@ -225,7 +225,8 @@ export function AtlasBoard({
         ? {
             cx: record.camera.cx,
             cy: record.camera.cy,
-            scale: clamp(record.camera.scale, MIN_SCALE, MAX_SCALE),
+            // The same floor a gesture has on this board, which can be below `MIN_SCALE`.
+            scale: clamp(record.camera.scale, leastScale(bounds, plateSize), MAX_SCALE),
           }
         : whole(bounds, plateSize),
     [record.camera, bounds, plateSize],

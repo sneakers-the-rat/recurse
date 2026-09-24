@@ -4,30 +4,11 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { gameData } from './fixtures';
-import { buildRegions, type RawRegions } from '../src/lib/regions';
-import { modeFile, type RawManifest } from '../src/lib/data';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-
-const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'data');
-
-/** The letters game's regions, over the letters game's word list. */
-function map() {
-  const manifest = JSON.parse(
-    readFileSync(join(dataDir, 'puzzles', 'manifest.json'), 'utf8'),
-  ) as RawManifest;
-  const raw = JSON.parse(
-    readFileSync(join(dataDir, modeFile('regions', 0, manifest)), 'utf8'),
-  ) as RawRegions;
-  return buildRegions(raw, gameData().graph.words);
-}
+import { mapData } from './fixtures';
 
 /** The word with the most common moves in the largest region. */
 function busy(): string {
-  const { graph } = gameData();
-  const regions = map();
+  const { graph, regions } = mapData();
   const biggest = [...Array(regions.count).keys()].sort(
     (one, two) => regions.words(two).length - regions.words(one).length,
   )[0]!;
@@ -66,7 +47,7 @@ async function tally(page: Page): Promise<number> {
 }
 
 test('a map starts from a typed word and draws what is one move from it', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   await start(page, from);
 
@@ -79,8 +60,7 @@ test('a map starts from a typed word and draws what is one move from it', async 
 });
 
 test('refuses a word with nowhere to go, and says why', async ({ page }) => {
-  const { graph } = gameData();
-  const regions = map();
+  const { graph, regions } = mapData();
   const lonely = graph.words.find(
     (word) => graph.isCommon(word) && !regions.has(word) && word.length > 3,
   );
@@ -96,7 +76,7 @@ test('refuses a word with nowhere to go, and says why', async ({ page }) => {
 test('a guess is free, and what it lands on is drawn with its own moves around it', async ({
   page,
 }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   const next = graph.commonNeighbors(from)[0]!;
   await start(page, from);
@@ -109,7 +89,7 @@ test('a guess is free, and what it lands on is drawn with its own moves around i
 
 // Unlike the daily board, the map draws a subword only for moves of the word under the pointer.
 test('a subword is drawn for the move under the pointer and no other', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   const next = graph.commonNeighbors(from)[0]!;
   const sub = graph.findMove(from, next)!.sub;
@@ -130,7 +110,7 @@ test('a subword is drawn for the move under the pointer and no other', async ({ 
 });
 
 test('typing somewhere already found goes there rather than being refused', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   // Travel happens only when nothing plays, so stand two moves out, where the start is no move.
   const near = new Set(graph.commonNeighbors(from));
@@ -243,7 +223,7 @@ test('the instrument panel grows a map without anybody typing', async ({ page })
 
 // Given a word, the run goes breadth first from it (`spread` in atlas.ts).
 test('a run can be aimed outward from one word', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   await start(page, from, '?dev=1');
 
@@ -294,7 +274,7 @@ test('a walk is played one guess at a time', async ({ page }) => {
 // A dropped word has no move in the log, so its edge to `from` is gilt only because both ends
 // are found. The edge is dim gilt until one end is pointed at.
 test('a move between two found words is drawn as one, typed or not', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   const rim = graph.commonNeighbors(from)[0]!;
   await start(page, from, '?dev=1');
@@ -314,7 +294,7 @@ test('a move between two found words is drawn as one, typed or not', async ({ pa
 });
 
 test('a power says what to do next, and refuses what cannot be paid for', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   await start(page, from);
 
@@ -328,7 +308,7 @@ test('a power says what to do next, and refuses what cannot be paid for', async 
 });
 
 test('a map keeps itself, and comes back where it was left', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const from = busy();
   const next = graph.commonNeighbors(from)[0]!;
   await start(page, from);
@@ -361,7 +341,7 @@ async function camera(page: Page) {
 // The path names only the game, so the map shown is the one opened last, even among maps made
 // the same day. See `opened` in atlasStore.ts.
 test('a new map is the one that opens, and so is one picked off the list', async ({ page }) => {
-  const { graph } = gameData();
+  const { graph } = mapData();
   const first = busy();
   const second = graph.commonNeighbors(first)[0]!;
 

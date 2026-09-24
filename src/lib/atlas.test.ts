@@ -26,18 +26,20 @@ import {
 } from './atlas';
 import { PLAIN } from './lexicon';
 import { buildRegions, type Regions } from './regions';
-import { shippedData, shippedRegions } from '../test/shipped';
+import { shippedMap } from '../test/shipped';
 import type { Graph } from './types';
 
-const data = shippedData();
-const regions = shippedRegions();
-const graph: Graph = data.graph;
+const { graph: shippedGraph, regions } = shippedMap();
+const graph: Graph = shippedGraph;
 
-/** The first word of the biggest region, so there is room to move. */
+/** The word with the most common moves in the biggest region, so there is room to move. */
 const biggest = [...Array(regions.count).keys()].sort(
   (one, two) => regions.words(two).length - regions.words(one).length,
 )[0]!;
-const START = regions.words(biggest)[0]!;
+const START = regions
+  .words(biggest)
+  .slice()
+  .sort((one, two) => graph.commonNeighbors(two).length - graph.commonNeighbors(one).length)[0]!;
 
 /** A fresh map after `steps` guesses. */
 function grown(steps: number): Atlas {
@@ -401,13 +403,14 @@ describe('the map’s vocabulary', () => {
 
   it('puts every word it does hold in exactly one region', () => {
     const counted = new Set<string>();
+    const wrong: string[] = [];
     for (let region = 0; region < regions.count; region++) {
       for (const word of regions.words(region)) {
-        expect(counted.has(word)).toBe(false);
+        if (counted.has(word) || regions.of(word) !== region) wrong.push(word);
         counted.add(word);
-        expect(regions.of(word)).toBe(region);
       }
     }
+    expect(wrong).toEqual([]);
     expect(counted.size).toBe(regions.size);
   });
 

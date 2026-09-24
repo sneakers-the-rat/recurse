@@ -12,6 +12,7 @@ import {
   DEFAULT_BAND,
   shippedData,
   shippedIdForDay,
+  shippedMap,
   shippedRedirects,
   shippedShard,
 } from '../src/test/shipped';
@@ -21,6 +22,8 @@ import { pathFor } from '../src/lib/route';
 import type { Puzzle } from '../src/lib/types';
 
 export const gameData = shippedData;
+/** The letters game's open map: its own graph and regions. */
+export const mapData = shippedMap;
 
 /**
  * Take one of the masthead's destinations: the archive, stats, tutorial or how-to.

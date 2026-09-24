@@ -216,7 +216,7 @@ struct Built<'a> {
     vocab: String,
     legal: graph::Graph,
     common: graph::Graph,
-    /// The open map's regions, by common-graph word id. See regions.rs.
+    /// The open map's regions, by legal-graph word id. See regions.rs.
     regions: regions::Regions,
     /// Before `schedule`, which runs once over the merged bank.
     ///
@@ -518,9 +518,10 @@ fn build_mode<'a>(
     let legal = tier("legal ", &lex.legal, &legal_subs);
     let common = tier("common", &lex.common, &common_subs);
 
-    // Regions for the open map. Cheap next to building either graph.
+    // Regions for the open map, over the legal graph so that every word a guess can reach has
+    // one. Cheap next to building either graph.
     let phase = Instant::now();
-    let ranks: Vec<usize> = common
+    let ranks: Vec<usize> = legal
         .words
         .iter()
         .map(|token| {
@@ -529,12 +530,12 @@ fn build_mode<'a>(
             corpora.rank.get(spelling).copied().unwrap_or(usize::MAX)
         })
         .collect();
-    let regions = regions::build(&common, mode.min_component, &ranks, config.shared.seed);
+    let regions = regions::build(&legal, mode.min_component, &ranks, config.shared.seed);
     let size = regions.sizes();
     eprintln!(
         "  regions: {} over {} words in {} component(s) — {} of ten words or more, holding {} \
          of them ({:.0}%), largest {}. {} word(s) are off the map, in components under {}. \
-         {:.1}s",
+         {} one-move word(s) moved to their neighbour's region. {:.1}s",
         size.count,
         size.words,
         regions.components,
@@ -544,6 +545,7 @@ fn build_mode<'a>(
         size.largest,
         regions.dropped,
         mode.min_component,
+        regions.leaves_moved,
         phase.elapsed().as_secs_f64(),
     );
 
@@ -3197,10 +3199,10 @@ fn regions_body(one: &Built, index: &FxMap<&str, u32>) -> String {
         let mut ids: Vec<u32> = region
             .words
             .iter()
-            .filter_map(|&id| index.get(one.common.word(id)).copied())
+            .filter_map(|&id| index.get(one.legal.word(id)).copied())
             .collect();
         ids.sort_unstable();
-        let mut row = format!("{{\"name\":\"{}\",\"words\":[", one.lex.label(one.common.word(region.name)));
+        let mut row = format!("{{\"name\":\"{}\",\"words\":[", one.lex.label(one.legal.word(region.name)));
         push_deltas(&mut row, ids);
         row.push_str("]}");
         rows.push(row);

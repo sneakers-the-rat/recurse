@@ -6,8 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { shippedData, shippedManifest, shippedRegions } from '../test/shipped';
-import { mapMode } from './data';
+import { shippedMap } from '../test/shipped';
 import { openAtlas, spread } from './atlas';
 import { atlasFigure } from './plate';
 import { atlasLayout, roomFor, type Sizes } from './atlasLayout';
@@ -20,10 +19,7 @@ const RUN = process.env.RECURSE_ARRANGE === '1';
 
 describe.skipIf(!RUN)('opening a saved map', () => {
   it('says what a pass over a settled arrangement costs', { timeout: 600_000 }, () => {
-    const manifest = shippedManifest();
-    const map = mapMode(manifest.bands[0]!.name.split('-')[0]!, manifest);
-    const { graph, lexicon } = shippedData(map);
-    const regions = shippedRegions(map);
+    const { graph, lexicon, regions } = shippedMap('letters');
 
     // A declaration, because the eslint parser reads `<T>` on an arrow as JSX.
     function took<T>(what: string, run: () => T): T {

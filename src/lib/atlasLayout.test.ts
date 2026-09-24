@@ -25,7 +25,7 @@ import { openAtlas, wander } from './atlas';
 import { PLAIN } from './lexicon';
 import { atlasFigure, type Figure } from './plate';
 import type { Point } from './types';
-import { shippedData, shippedRegions } from '../test/shipped';
+import { shippedMap } from '../test/shipped';
 
 /** Inside a positively wound convex ring, or on its edge. */
 function inside(at: Point, ring: readonly Point[]): boolean {
@@ -124,25 +124,13 @@ describe('clusterGraph', () => {
     expect(clusters.links.every((link) => link.weight === 1)).toBe(true);
   });
 
-  it('adopts a word with no region of its own into its neighbours’', () => {
+  it('leaves out a word in no region', () => {
     const { figure, regions } = toy();
-    // In no region, joined to one word.
     const stray = { nodes: [...figure.nodes, 'zz'], edges: [...figure.edges, { a: 'w01', b: 'zz' }] };
     const clusters = clusterGraph(stray, regions);
 
     expect(clusters.clusters).toHaveLength(3);
-    expect(clusters.home.get('zz')).toBe(clusters.home.get('w01'));
-  });
-
-  it('gives a word joined to nothing a territory of its own, keyed apart from the real ones', () => {
-    const { figure, regions } = toy();
-    const alone = { nodes: [...figure.nodes, 'zz'], edges: figure.edges };
-    const clusters = clusterGraph(alone, regions);
-
-    expect(clusters.clusters).toHaveLength(4);
-    const island = clusters.clusters[clusters.home.get('zz')!]!;
-    expect(island.words).toEqual(['zz']);
-    expect(island.region).toBeLessThan(0);
+    expect(clusters.home.has('zz')).toBe(false);
   });
 });
 
@@ -251,9 +239,8 @@ describe('atlasLayout', () => {
 
 /** Over the real map, grown with `wander` (atlas.ts). */
 describe('arranged over the real map', () => {
-  it('never lets two words lie over each other, however busy the word', () => {
-    const { graph } = shippedData();
-    const regions = shippedRegions();
+  it('never lets two words lie over each other, however busy the word', { timeout: 30_000 }, () => {
+    const { graph, regions } = shippedMap();
     const busiest = regions
       .words(
         [...Array(regions.count).keys()].sort(
@@ -292,9 +279,8 @@ describe('arranged over the real map', () => {
    * Lopsidedness is the length of the mean unit vector from a hub to its neighbours in the same
    * territory: 0 when they surround it, 1 when they are all to one side.
    */
-  it('draws a word inside its own neighbourhood, however busy the word', () => {
-    const { graph } = shippedData();
-    const regions = shippedRegions();
+  it('draws a word inside its own neighbourhood, however busy the word', { timeout: 30_000 }, () => {
+    const { graph, regions } = shippedMap();
 
     let seed = 3;
     const dice = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
@@ -348,9 +334,8 @@ describe('arranged over the real map', () => {
   });
 
   // The subword sits at `labelAlong`, as the plate places it; it must be clear of both marks.
-  it('leaves room on every move made to write its subword', () => {
-    const { graph } = shippedData();
-    const regions = shippedRegions();
+  it('leaves room on every move made to write its subword', { timeout: 30_000 }, () => {
+    const { graph, regions } = shippedMap();
 
     let seed = 7;
     const dice = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
