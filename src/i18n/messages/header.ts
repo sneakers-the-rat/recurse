@@ -23,7 +23,7 @@ export const header = defineMessages({
     id: 'header.chooseBoard',
     defaultMessage: 'Choose a board',
     description:
-      'Accessible name of the button that opens the board menu. A board and not a length, because the menu holds every game there is — the three lengths of each daily one, and the open map of each vocabulary.',
+      'Accessible name of the button that opens the board menu, which lists every length of each daily game and the open maps.',
   },
   boardMenu: {
     id: 'header.boardMenu',

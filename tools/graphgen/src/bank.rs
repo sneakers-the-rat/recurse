@@ -241,7 +241,7 @@ pub fn load(path: &Path) -> Option<Bank> {
 mod tests {
     use crate::config::Config;
 
-    /// Enough of a file to load, differing only in the knob under test.
+    /// A minimal config's first mode, with `extra` appended to its block.
     fn mode(extra: &str) -> crate::config::Mode {
         Config::parse(&format!(
             "shared:\n  epoch: 2025-01-01\n  seed: 1\n  idChars: 12\n  minGap: 45\n\
@@ -258,19 +258,7 @@ mod tests {
         .remove(0)
     }
 
-    /**
-        The bank's key covers the knobs that decide **which puzzles exist**, and nothing else.
-
-        `minComponent` decides which words the explore mode draws a map of. It refuses no
-        candidate, moves no endpoint and changes no board — so putting it in the key would cost
-        a quarter of an hour of searching to arrive at exactly the bank that was already
-        cached, every time somebody tuned the map. That is the failure this guards: it is
-        silent, and the only sign of it is a build that suddenly takes fifteen minutes.
-
-        The other direction is guarded by every other line of `key`: a knob that *does* decide
-        which puzzles exist and is left out means a stale bank chosen by the old rules is read
-        straight back. See the note on `FORMAT`.
-    */
+    // `minComponent` affects only the open map, so changing it must not force a re-search.
     #[test]
     fn the_key_ignores_a_knob_that_decides_no_puzzle() {
         let three = mode("    minComponent: 3\n");
@@ -284,7 +272,7 @@ mod tests {
         );
     }
 
-    /// And the ones that *do* decide a puzzle still move it, so the guard above is not vacuous.
+    // Keeps the test above from passing vacuously.
     #[test]
     fn the_key_moves_with_a_knob_that_does() {
         let one = mode("");

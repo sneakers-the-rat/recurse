@@ -63,12 +63,10 @@ import type { Point } from './types';
 const ROW_HEIGHT = 80;
 
 /**
- * How firmly a move holds. Its *length* is `linkDistance` in forces.ts, which both figures
- * share; how hard the spring pulls is this figure's own decision.
+ * How firmly a move holds; its length is `linkDistance` in forces.ts.
  *
- * Flat, because d3's default is `1 / min(degree)`, which makes a hub's bonds
- * the weakest on the board — the opposite of what is wanted here, since the short hub links
- * are the whole mechanism by which a cluster forms.
+ * Flat, because d3's default of `1 / min(degree)` makes a hub's links the weakest on the board,
+ * and the short hub links are what form a cluster.
  *
  * But it is a spring and not a rod. At 1 a link is a hard constraint, and a hard constraint is
  * the one thing repulsion cannot argue with: a hub's crowd was drawn as a knot of dots 13 to
@@ -112,7 +110,7 @@ const CHARGE_PER_MOVE = -14;
 const CHARGE_REACH = 160;
 
 /**
- * How firmly a word already overlapping the answer is moved off it. See `forceSpineCorridor`.
+ * How firmly a word overlapping the answer is moved off it. See `forceSpineCorridor`.
  *
  * Well under 1, and scaled by alpha, so this nudges rather than places. A word is pushed out
  * over several ticks while the links and the charge are still deciding where it belongs, and it

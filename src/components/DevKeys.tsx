@@ -1,19 +1,11 @@
 /**
- * What an instrument is made of: a key, a reading, and a field.
- *
- * There are two dev bars — one for a puzzle and one for a map — and they are separate because
- * almost everything either says is about its own game. What they share is the *look*: flat
- * mono, thin outlines, no ornament, so a screenshot of either is never mistaken for the real
- * thing. That look is three elements, and this is them.
- *
- * Split out rather than generalised: neither bar is a special case of the other, and widening
- * one to hold the other's controls would make a component that is mostly branches.
+ * The controls shared by the two dev bars, `DevBar` and `AtlasDevBar`: a button, a readout and
+ * a text field, all flat and outlined so a screenshot of either bar is never mistaken for the game.
  */
 
 import type { MessageDescriptor } from 'react-intl';
 import { FormattedMessage } from 'react-intl';
 
-/** Every control in either bar is the same flat outlined thing. */
 export function Key({
   onClick,
   label,
@@ -35,7 +27,7 @@ export function Key({
   );
 }
 
-/** `name value`, the only other shape in a bar. */
+/** `name value`. */
 export function Stat({
   name,
   children,
@@ -50,19 +42,21 @@ export function Stat({
   );
 }
 
-/** Somewhere to type a number or a word, in the same hand as the keys. */
 export function Field({
   value,
   onChange,
   placeholder,
   label,
   width = 'w-16',
+  wrong = false,
 }: {
   value: string;
   onChange: (next: string) => void;
   placeholder: string;
   label: string;
   width?: string;
+  /** Draw the field in red: what is typed is something the bar cannot act on. */
+  wrong?: boolean;
 }) {
   return (
     <input
@@ -70,8 +64,13 @@ export function Field({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       aria-label={label}
+      aria-invalid={wrong || undefined}
       autoComplete="off"
-      className={`${width} border border-neutral-700 bg-transparent px-1.5 py-0.5 outline-none focus:border-neutral-500`}
+      className={`${width} border bg-transparent px-1.5 py-0.5 outline-none ${
+        wrong
+          ? 'border-red-800 text-red-400 focus:border-red-600'
+          : 'border-neutral-700 focus:border-neutral-500'
+      }`}
     />
   );
 }

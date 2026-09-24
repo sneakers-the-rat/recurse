@@ -118,9 +118,10 @@ import {
   lookAt,
   openingCamera,
   playCamera,
+  grown,
+  OVERDRAW,
   viewOf,
   type Camera,
-  type Plate,
 } from './lib/camera';
 import { usePanZoom } from './lib/usePanZoom';
 import { useDevMode } from './lib/useDevMode';
@@ -290,24 +291,12 @@ export default function App() {
    * back button pops. Null is the board.
    */
   const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname));
-  /**
-   * Which map the explore page has open, kept beside the path so a push re-renders.
-   *
-   * The path is the truth — see `openAtlas` — and this is what makes React notice it moved.
-   * A `popstate` puts both back; see the listener below.
-   */
+  /** The game named by `explore/{game}`, mirrored from the path so a push re-renders. */
   const [atlasAt, setAtlasAt] = useState<string | null>(() =>
     pageArg('explore', window.location.pathname),
   );
 
-  /**
-   * Which day is on screen, for the one caller that cannot depend on it.
-   *
-   * The switch is handed to a memoised header, so a handler rebuilt every render is the header
-   * redrawn on every frame of a settle — which is what an inline `(next) => openDay(at.day,
-   * next)` was quietly doing. What it needs to know is which day the switch is changing the
-   * length *of*, and a ref is how something built once reads something that moves.
-   */
+  // The day on screen, read by `pick` through a ref so the memoised header's handler is stable.
   const atRef = useRef<{ day: number } | null>(null);
   const [years, setYears] = useState<ReadonlyMap<number, RawCalendar>>(new Map());
   const needYear = useCallback(
@@ -357,9 +346,7 @@ export default function App() {
   const openPage = useCallback((wanted: Page) => {
     window.history.pushState(null, '', pagePath(wanted, window.location.search));
     setPage(wanted);
-    // A page's second segment is part of its address, so going to the bare page has to let go
-    // of it — otherwise taking `Explore` from the masthead while a map is open puts `/explore`
-    // in the bar and leaves the map on screen.
+    // The bare page is the list of maps, so drop any open map with it.
     if (wanted === 'explore') setAtlasAt(null);
   }, []);
 
@@ -367,13 +354,7 @@ export default function App() {
   const openStats = useCallback(() => openPage('stats'), [openPage]);
 
 
-  /**
-   * Which of the open game's boards is on screen, in the path.
-   *
-   * `explore/letters` and `explore/phonemes` are the two of them, and `explore` on its own is
-   * the list of maps — which is not a board and so is not in the switch. Pushed rather than
-   * replaced, so the back button comes out of a map into wherever it was opened from.
-   */
+  /** Push `explore/{game}`, or `explore` for the list of maps. */
   const openAtlas = useCallback((mode: string | null) => {
     window.history.pushState(
       null,
@@ -743,12 +724,8 @@ export default function App() {
     // direct visit still needs a board resolved underneath — leaving a page has to land
     // somewhere — so the board is loaded and then the address put back.
     const arrived = pageFromPath(window.location.pathname);
-    /*
-      And what it carried, for the two pages that carry something: which game's rules, which
-      map. Read **now**, because `show` below rewrites the address to a board's id before this
-      effect is finished with it — and then putting the page back from a pathname that no
-      longer has it wrote a bare `explore` over the id of the map somebody had open.
-    */
+    // The page's second segment (`rules/{game}`, `explore/{game}`), read before `showBoard`
+    // below rewrites the address.
     const carried = arrived
       ? (pageArg(arrived, window.location.pathname) ?? undefined)
       : undefined;
@@ -779,8 +756,7 @@ export default function App() {
         // the board somebody sent rather than as an empty one.
         await showBoard(chosen, 'replace', 'play', codeForBoard(chosen, window.location.pathname));
         if (arrived) {
-          // With its second segment, or arriving at `rules/phonemes` rewrites itself to a
-          // bare `rules` and loses which game — and `explore/{map}` loses which map.
+          // Put the page back with its second segment.
           window.history.replaceState(
             null,
             '',
@@ -813,9 +789,7 @@ export default function App() {
         return;
       }
       if (wanted) {
-        // Two pages carry something in a second segment — which game's rules, which map — so
-        // stepping back into one has to read it again: the page and its argument are one
-        // address and the history entry holds both.
+        // Re-read the second segment of the two pages that have one.
         if (wanted === 'rules') setRulesFor(pageArg('rules', window.location.pathname));
         if (wanted === 'explore') setAtlasAt(pageArg('explore', window.location.pathname));
         setPage(wanted);
@@ -1088,7 +1062,7 @@ export default function App() {
   const spineHeight = laid?.spineHeight ?? 1;
   const figure = laid?.figure ?? { minX: 0, maxX: 0, minY: 0, maxY: spineHeight };
   const play = useMemo(() => playCamera(spineHeight, plateSize), [spineHeight, plateSize]);
-  const { camera, jumpTo, glideTo, engaged, handlers } = usePanZoom(
+  const { camera, drawnFrom, nudge, dragging, jumpTo, glideTo, engaged, handlers } = usePanZoom(
     play,
     plateSize,
     figure,
@@ -1118,7 +1092,14 @@ export default function App() {
     glideTo,
   });
 
+  // `view` is the current window; `frame` is what the surface was last drawn for, which lags a
+  // drag and overhangs by `OVERDRAW`. See `nudgeOf` in camera.ts.
   const view = useMemo(() => viewOf(camera, plateSize), [camera, plateSize]);
+  const overhang = dragging ? OVERDRAW : 0;
+  const frame = useMemo(
+    () => viewOf(drawnFrom, grown(plateSize, overhang)),
+    [drawnFrom, plateSize, overhang],
+  );
 
   /**
    * Moving the camera on the player's behalf.
@@ -1335,12 +1316,7 @@ export default function App() {
 
   const openHelp = useCallback(() => setShowHelp(true), []);
 
-  /**
-   * The five ways off whatever board is on screen, as one object.
-   *
-   * Every masthead takes the same five and passing them one at a time is how two of them come
-   * to offer four each. See `Ways` in Masthead.tsx.
-   */
+  /** The masthead's links off the board, shared by every masthead. See `Ways` in Masthead.tsx. */
   const ways: Ways = useMemo(
     () => ({
       onPuzzles: openArchive,
@@ -1403,33 +1379,11 @@ export default function App() {
     [data, showBoard],
   );
 
-  /**
-   * Dev only: step the calendar, the order the game plays. The
-   * URL that results is still the puzzle's id — the day is how dev mode moves, never
-   * how a board is addressed.
-   *
-   * Asynchronous because a date is a lookup in that year's calendar file and the board is then
-   * in whichever shard its id names, so a step can cost two fetches. Both are cached for the
-   * session, and consecutive days are in unrelated shards by construction.
-   *
-   * Stepping stays in the length being played. Moving between lengths is the header's job.
-   */
-  /**
-   * Go and play something else.
-   *
-   * **The two kinds of board are opened quite differently and the switch does not care.** A
-   * daily one keeps the day and changes the length — a link to Tuesday's short board leads to
-   * Tuesday's long one, not to today's — and needs a shard fetched before it can be drawn. An
-   * open one is a map this browser already holds, or none yet, and is a page. What they have
-   * in common is that they are both things to play, which is what `Boards` offers and this
-   * resolves.
-   */
+  /** Open what the board switch picked: a daily band, or an open-game map page. */
   const pick = useCallback(
     (wanted: Playing) => {
       if ('daily' in wanted) {
-        // The day is kept and the length changes: a link to Tuesday's short board leads to
-        // Tuesday's long one, not to today's. Coming from a map there is no day being played,
-        // so it is today's.
+        // Keep the day and change the band; from a map, where no day is open, today.
         openDay(atRef.current?.day ?? dayNumber(new Date(), dataRef.current?.manifest.epoch), wanted.daily);
         return;
       }
@@ -1444,6 +1398,17 @@ export default function App() {
     [openDay],
   );
 
+  /**
+   * Dev only: step the calendar, the order the game plays. The
+   * URL that results is still the puzzle's id — the day is how dev mode moves, never
+   * how a board is addressed.
+   *
+   * Asynchronous because a date is a lookup in that year's calendar file and the board is then
+   * in whichever shard its id names, so a step can cost two fetches. Both are cached for the
+   * session, and consecutive days are in unrelated shards by construction.
+   *
+   * Stepping stays in the length being played. Moving between lengths is the header's job.
+   */
   const goToPuzzle = useCallback((next: number) => openDay(next, band), [openDay, band]);
 
   /** Out of the lesson and on to the board the player actually came for. */
@@ -1891,23 +1856,7 @@ export default function App() {
     );
   }
 
-  /*
-    The board on screen and the graph under it have to belong to the same game.
-
-    `showBoard` loads the other mode and puts the board up in one go, and React batches the
-    two together — but "the batching held" is not something to draw a board on the strength
-    of. If they ever disagree, the source of the puzzle is not a node of the graph, and what
-    that produces is a plate built from nothing rather than an error. So it is checked, and a
-    mismatch reads as still loading, which is exactly what it is.
-  */
-  /**
-   * The explore mode, which is a different game and not a board of this one.
-   *
-   * **Above the loading guard**, unlike every other page: the archive and the record are
-   * about the bank and so genuinely need it, and this needs nothing but the manifest. Below
-   * it, a visit to `/explore` would sit on a spinner waiting for a daily board it is never
-   * going to draw. See `Explore`, which fetches its own graph and its own map.
-   */
+  // Before the loading guard: the open game needs only the manifest and loads its own data.
   if (page === 'explore' && data) {
     return (
       <Explore
@@ -1920,6 +1869,15 @@ export default function App() {
     );
   }
 
+  /*
+    The board on screen and the graph under it have to belong to the same game.
+
+    `showBoard` loads the other mode and puts the board up in one go, and React batches the
+    two together — but "the batching held" is not something to draw a board on the strength
+    of. If they ever disagree, the source of the puzzle is not a node of the graph, and what
+    that produces is a plate built from nothing rather than an error. So it is checked, and a
+    mismatch reads as still loading, which is exactly what it is.
+  */
   const paired = data === null || state === null
     ? false
     : data.mode === modeOfBand(state.puzzle.band, data.manifest);
@@ -2123,6 +2081,9 @@ export default function App() {
             namesWords={devMode}
             spelled={spelled}
             view={view}
+            frame={frame}
+            overhang={overhang}
+            nudge={nudge}
             gestures={handlers}
             engaged={engaged}
             onSelect={selectWord}

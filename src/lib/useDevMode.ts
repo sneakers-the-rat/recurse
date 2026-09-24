@@ -1,24 +1,8 @@
 /**
- * Whether the instrument panel is showing, and a way to turn it on and off *in place*.
+ * Whether the dev instruments are showing, shared by both games. Off unless asked for.
  *
- * **Off unless asked for, everywhere.** It used to come up by itself in a development
- * build, which meant the game as written was never the game as seen: every `npm run dev`
- * page load, and most of what gets looked at while working, arrived with a bar of
- * instruments across the top of it.
- *
- * Asking is `?dev`, the switch in the help panel, or Ctrl+D, and all three are the same
- * toggle. The keystroke needs a keyboard and the parameter needs a URL bar, so on a phone
- * the switch is the only one of the three there is — and inspecting a real board on a real
- * phone is most of what the panel is for.
- *
- * The `dev` parameter is kept in step either way, so a reload holds whichever was chosen and
- * the state of the instruments is a thing that can be sent to somebody. Ctrl rather than a
- * bare key because GuessBar sends unmodified keystrokes to the guess field, where a shortcut
- * would arrive as a letter.
- *
- * **One toggle for every game there is.** Both boards ask it, so it is here rather than in the
- * daily game's shell: the switch is about the page and not about a puzzle, and a second copy of
- * it would be a second `?dev` that disagreed with the first on the way between two screens.
+ * `?dev`, the switch in the help panel and Ctrl+D are one toggle, and toggling keeps `?dev` in
+ * the URL in step so a reload keeps it. Ctrl because GuessBar sends bare keys to the guess field.
  */
 
 import { useCallback, useEffect, useState } from 'react';

@@ -9,10 +9,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  dailyGames,
   decodeDeltas,
   decodeRedirects,
   decodeRows,
   decodeGameData,
+  mapMode,
   modeFile,
   shardOf,
 } from './data';
@@ -62,29 +64,20 @@ describe('the vocabulary each game is pinned to', () => {
   });
 
   /**
-   * **And it is the vocabulary `recurse.yaml` declares**, which is what says no board has been
-   * renamed.
-   *
-   * Every puzzle id is a digest of its mode, its pair and its vocabulary, so a vocabulary that
-   * has moved is every link anybody has shared, broken. The builder refuses to disagree with
-   * the declared digest — but only on a machine that ran the builder, and what ships is
-   * `public/data`. This is the same tripwire read off the artefact: if these two ever part
-   * company, the bank on disk was built from a word list nobody declared.
-   *
-   * It is deliberately not a *literal* digest written down here. Pinning the number in a test
-   * would mean editing the test to accept a change, which is the one place a tripwire must not
-   * be convenient; `vocab:` in recurse.yaml is where that decision is made.
+   * The builder's `vocab:` tripwire, checked against what shipped. A moved vocabulary stales
+   * every shared board code. The digest is read from recurse.yaml, not pinned here.
    */
   it('is the one recurse.yaml declares, so no board has been renamed', () => {
     const config = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'recurse.yaml'),
       'utf8',
     );
-    // `name:` then, somewhere under it and before the next mode, `vocab:`.
+    // Each `- name:` and the `vocab:` under it, across both `modes:` and `explore:`. Names
+    // may contain a hyphen (`explore-letters`).
     const declared = new Map<string, string>();
     let mode: string | null = null;
     for (const line of config.split('\n')) {
-      const named = /^\s*-\s*name:\s*(\w+)/.exec(line);
+      const named = /^\s*-\s*name:\s*([\w-]+)/.exec(line);
       if (named) mode = named[1]!;
       const vocab = /^\s*vocab:\s*'?([0-9a-f]{8})'?/.exec(line);
       if (vocab && mode) declared.set(mode, vocab[1]!);
@@ -92,6 +85,25 @@ describe('the vocabulary each game is pinned to', () => {
     expect(declared.size, 'recurse.yaml declares a vocab per mode').toBe(manifest.modes.length);
     for (const one of manifest.modes) {
       expect(one.vocab, one.name).toBe(declared.get(one.name));
+    }
+  });
+
+  // A band's `mode` indexes this list, so a map graph among the games would re-point bands.
+  it('lists the open game’s graphs after the games, so no band’s mode moves', () => {
+    const daily = dailyGames(manifest);
+    expect(daily.length).toBeGreaterThan(0);
+    expect(manifest.modes.slice(0, daily.length)).toEqual(daily);
+    for (const band of manifest.bands) {
+      expect(manifest.modes[band.mode]?.of, band.name).toBeUndefined();
+    }
+  });
+
+  it('draws every game’s map on a graph of that game', () => {
+    for (const game of dailyGames(manifest)) {
+      const drawn = manifest.modes[mapMode(game.name, manifest)];
+      expect(drawn, game.name).toBeDefined();
+      expect(drawn!.of ?? drawn!.name, game.name).toBe(game.name);
+      expect(drawn!.alphabet, game.name).toBe(game.alphabet);
     }
   });
 

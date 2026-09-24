@@ -1,13 +1,6 @@
 /**
- * The explore mode, played in a real browser.
- *
- * Words are taken off the shipped data rather than written down, the way every other spec here
- * does it — a rebuild moves which words are in which territory, and a test naming one would be
- * asserting the bank rather than the game.
- *
- * What is checked is the shape of the mode and not its taste: a map starts, grows, remembers
- * itself, travels, pays out and spends. Whether the map *reads* is the contact sheet's
- * question, which asserts nothing and is meant to be looked at.
+ * The open map in a browser: starting, guessing, travel, missions, powers, the dev bar, saving
+ * and the list of maps. Words come from the shipped data. Layout is `atlas.spec.ts`'s job.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -20,7 +13,7 @@ import { dirname, join } from 'node:path';
 
 const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'data');
 
-/** The letters map, read the way the app reads it. */
+/** The letters game's regions, over the letters game's word list. */
 function map() {
   const manifest = JSON.parse(
     readFileSync(join(dataDir, 'puzzles', 'manifest.json'), 'utf8'),
@@ -31,7 +24,7 @@ function map() {
   return buildRegions(raw, gameData().graph.words);
 }
 
-/** A word with plenty of room around it, so a test can walk without running out. */
+/** The word with the most common moves in the largest region. */
 function busy(): string {
   const { graph } = gameData();
   const regions = map();
@@ -46,12 +39,7 @@ function busy(): string {
 
 const guessField = (page: Page) => page.getByLabel(/Your guess/);
 
-/**
- * Start a letters map at `word` and wait for the board.
- *
- * Straight to the game's own address, which is where the board switch sends you: with no map
- * of it yet that is the list, ready to make one of this game. See `open` in Explore.tsx.
- */
+/** Start a letters map at `word` from `/explore/letters`, and wait for the board. */
 async function start(page: Page, word: string, search = '') {
   await page.goto(`/explore/letters${search}`);
   await page.getByRole('textbox').first().fill(word);
@@ -60,7 +48,7 @@ async function start(page: Page, word: string, search = '') {
   await expect(page.locator(`g[data-word="${word}"]`)).toBeVisible();
 }
 
-/** Everything drawn, and everything reached. */
+/** Every word drawn, found or not. */
 async function drawn(page: Page) {
   return page.locator('g[data-word]').evaluateAll((nodes) =>
     nodes.map((node) => (node as HTMLElement).dataset.word ?? ''),
@@ -72,7 +60,6 @@ async function guess(page: Page, word: string) {
   await page.getByRole('button', { name: 'Guess', exact: true }).click();
 }
 
-/** How many words the map says have been found. */
 async function tally(page: Page): Promise<number> {
   const text = await page.locator('header').innerText();
   return Number(/FOUND\s+(\d+)/i.exec(text)?.[1] ?? '0');
@@ -83,7 +70,7 @@ test('a map starts from a typed word and draws what is one move from it', async 
   const from = busy();
   await start(page, from);
 
-  // The rim: every common neighbour of the start is on the board, unnamed.
+  // The rim: the start's common neighbours, drawn unnamed.
   const board = new Set(await drawn(page));
   for (const near of graph.commonNeighbors(from).slice(0, 6)) {
     expect(board, `${near} should be on the rim of ${from}`).toContain(near);
@@ -117,20 +104,35 @@ test('a guess is free, and what it lands on is drawn with its own moves around i
 
   await expect(page.locator(`g[data-word="${next}"] text.word`)).toHaveText(next);
   expect(await tally(page)).toBe(2);
-  // And the guess bar is now standing on it.
   await expect(page.getByText(new RegExp(`from\\s+${next}`, 'i'))).toBeVisible();
+});
+
+// Unlike the daily board, the map draws a subword only for moves of the word under the pointer.
+test('a subword is drawn for the move under the pointer and no other', async ({ page }) => {
+  const { graph } = gameData();
+  const from = busy();
+  const next = graph.commonNeighbors(from)[0]!;
+  const sub = graph.findMove(from, next)!.sub;
+  await start(page, from);
+  await guess(page, next);
+
+  const words = page.locator('svg[role="img"] text.word');
+  // Only the two found words are named.
+  await expect(words).toHaveCount(2);
+  await expect(words.filter({ hasText: new RegExp(`^${sub}$`) })).toHaveCount(0);
+
+  const mark = (await page.locator(`g[data-word="${from}"]`).boundingBox())!;
+  await page.mouse.move(mark.x + mark.width / 2, mark.y + mark.height / 2);
+  await expect(words.filter({ hasText: new RegExp(`^${sub}$`) })).toHaveCount(1);
+
+  await page.mouse.move(mark.x + mark.width / 2, mark.y - 240);
+  await expect(words).toHaveCount(2);
 });
 
 test('typing somewhere already found goes there rather than being refused', async ({ page }) => {
   const { graph } = gameData();
   const from = busy();
-  /*
-    Two steps out, because the word you came from is always a move *back*.
-
-    Travel is what happens when nothing plays, so a test of it has to stand somewhere the
-    start is genuinely not reachable from — which is any word two moves away that is not
-    itself beside the start.
-  */
+  // Travel happens only when nothing plays, so stand two moves out, where the start is no move.
   const near = new Set(graph.commonNeighbors(from));
   const step = graph
     .commonNeighbors(from)
@@ -150,35 +152,22 @@ test('typing somewhere already found goes there rather than being refused', asyn
   await expect(page.getByText(new RegExp(`go to ${from}`, 'i'))).toBeVisible();
   await page.getByRole('button', { name: 'Guess', exact: true }).click();
   await expect(page.getByText(new RegExp(`from\\s+${from}`, 'i'))).toBeVisible();
-  // Travel is not discovery: nothing new was found.
   expect(await tally(page)).toBe(3);
 });
 
-/**
- * Open the missions drawer, which is shut when a map opens.
- *
- * Shut because the table is five lines over a board that wants the height — see `Missions`. So
- * every test of what is in it has to open it first, and what the shut line says is a test of its
- * own.
- */
+/** Open the missions drawer, which starts shut. */
 async function showMissions(page: Page) {
   await page.getByRole('button', { name: /show missions/i }).click();
 }
 
-/** The rows with a *Take* on them, which is what an offer is and a mission in hand is not. */
+/** Rows with a Take button: offers, not missions in hand. */
 function onOffer(page: Page) {
   return page
     .locator('li')
     .filter({ has: page.getByRole('button', { name: /^take$/i }) });
 }
 
-/**
- * The words currently on offer, exactly.
- *
- * Read out and compared rather than matched with `hasText`, which is a substring: an offer of
- * `abort` is replaced by the next word at its own distance, and at that rung the next word
- * alphabetically was `aborts`.
- */
+/** The words on offer, compared exactly: `hasText` matches substrings (`abort`, `aborts`). */
 async function offered(page: Page): Promise<string[]> {
   return (await onOffer(page).allInnerTexts()).map((row) => row.trim().split(/\s+/)[0]!);
 }
@@ -189,16 +178,10 @@ test('missions name a word and what it pays, and never say where from', async ({
   await expect(onOffer(page).first()).toBeVisible();
 
   const text = await onOffer(page).first().innerText();
-  // How far out, and what it pays. Never which found word it is that far from.
   expect(text).toMatch(/\d+ away/i);
   expect(text).toMatch(/\+\d+/);
 });
 
-/**
- * **The drawer is shut and still says what is in it**, which is the whole reason it may be shut:
- * the two things worth knowing without opening it are how many slots are full and how many words
- * are on the table.
- */
 test('the missions drawer folds away, and says what it holds while it is shut', async ({
   page,
 }) => {
@@ -224,8 +207,7 @@ test('a mission is taken into a slot, and there are only so many', async ({ page
   const gaveUp = page.getByRole('button', { name: /give up/i });
   const takes = page.getByRole('button', { name: /^take$/i });
 
-  // Every slot is drawn whether or not there is anything in it, which is how the player can
-  // see there is a limit before they meet it.
+  // Every slot is drawn, empty or not.
   const slots = await empty.count();
   expect(slots).toBeGreaterThan(0);
 
@@ -233,30 +215,23 @@ test('a mission is taken into a slot, and there are only so many', async ({ page
   await takes.first().click();
   await expect(empty).toHaveCount(slots - 1);
   await expect(gaveUp).toHaveCount(1);
-  // Taken is no longer offered, and its place on the table is filled.
+  // The taken offer is replaced.
   expect(await offered(page)).not.toContain(before[0]);
   expect(await offered(page)).toHaveLength(before.length);
 
-  // Fill the rest: with every slot full nothing more can be accepted, and the button says so
-  // rather than disappearing.
+  // With every slot full, Take is disabled rather than hidden.
   for (let n = 1; n < slots; n++) await takes.first().click();
   await expect(empty).toHaveCount(0);
   await expect(gaveUp).toHaveCount(slots);
   await expect(takes.first()).toBeDisabled();
 
-  // Given up one at a time, each freeing its own slot.
   await gaveUp.first().click();
   await expect(empty).toHaveCount(1);
   await expect(gaveUp).toHaveCount(slots - 1);
   await expect(takes.first()).toBeEnabled();
 });
 
-/**
- * The instruments, which are the same `?dev` the daily board has and almost none of the same
- * controls — see `AtlasDevBar`. The two walks are what is worth a test: the contact sheet builds
- * its maps with `fill`, so a map of two thousand words rests on that working, and `walk` is the
- * one a person reaches for.
- */
+// `fill` is what atlas.spec.ts builds its maps with. See AtlasDevBar.tsx.
 test('the instrument panel grows a map without anybody typing', async ({ page }) => {
   await start(page, busy(), '?dev=1');
   expect(await tally(page)).toBe(1);
@@ -266,19 +241,46 @@ test('the instrument panel grows a map without anybody typing', async ({ page })
   await expect.poll(() => tally(page)).toBeGreaterThan(5);
 });
 
-/**
- * And `walk` plays the same run **one guess at a time**, which is the only way the question the
- * panel exists for — what does a guess onto a hub look like arriving — can be answered at all.
- *
- * Asserted as the tally climbing rather than arriving: a walk made all at once is one number one
- * frame later, and that is exactly what this is not.
- */
+// Given a word, the run goes breadth first from it (`spread` in atlas.ts).
+test('a run can be aimed outward from one word', async ({ page }) => {
+  const { graph } = gameData();
+  const from = busy();
+  await start(page, from, '?dev=1');
+
+  const near = graph.commonNeighbors(from);
+  await page.getByLabel(/how many moves to walk/i).fill('8');
+  await page.getByLabel(/which word to walk out from/i).fill(from);
+  await page.getByRole('button', { name: /^fill$/ }).click();
+  await expect.poll(() => tally(page)).toBe(9);
+
+  const found = await page.locator('g[data-word] circle[stroke-width="1.4"]').count();
+  expect(found).toBeGreaterThan(1);
+  await expect(page.locator(`g[data-word="${near[0]}"]`)).toBeVisible();
+});
+
+// A run can only start from a found word; any other is marked invalid.
+test('the run’s origin says when it names nowhere', async ({ page }) => {
+  const from = busy();
+  await start(page, from, '?dev=1');
+  const box = page.getByLabel(/which word to walk out from/i);
+
+  await box.fill('zzzznotaword');
+  await expect(box).toHaveAttribute('aria-invalid', 'true');
+  await page.getByRole('button', { name: /^fill$/ }).click();
+  expect(await tally(page)).toBe(1);
+
+  await box.fill(from);
+  await expect(box).not.toHaveAttribute('aria-invalid', 'true');
+  await box.fill('');
+  await expect(box).not.toHaveAttribute('aria-invalid', 'true');
+});
+
+// Checked by the tally rising in steps, which a one-pass run would not do.
 test('a walk is played one guess at a time', async ({ page }) => {
   await start(page, busy(), '?dev=1');
 
   await page.getByLabel(/how many moves to walk/i).fill('6');
   await page.getByRole('button', { name: /^walk$/ }).click();
-  // The key offers to call it off while one is running, which is the whole reason it says so.
   await expect(page.getByRole('button', { name: /^stop$/ })).toBeVisible();
 
   await expect.poll(() => tally(page), { timeout: 30_000 }).toBeGreaterThan(1);
@@ -289,32 +291,26 @@ test('a walk is played one guess at a time', async ({ page }) => {
   await expect(page.getByRole('button', { name: /^walk$/ })).toBeVisible({ timeout: 60_000 });
 });
 
-/**
- * **A move between two words the player has found is drawn as a move they have**, whether or not
- * they typed it. On a daily board that would contradict par; here there is no par and nothing to
- * be earnt by typing a word you are already looking at.
- *
- * Tested through a *drop*, because a drop is the one way to put a word on the map with no move
- * behind it: nothing is in the log, so the line between it and the word beside it can only be
- * gilt because both ends are found.
- */
+// A dropped word has no move in the log, so its edge to `from` is gilt only because both ends
+// are found. The edge is dim gilt until one end is pointed at.
 test('a move between two found words is drawn as one, typed or not', async ({ page }) => {
   const { graph } = gameData();
   const from = busy();
   const rim = graph.commonNeighbors(from)[0]!;
   await start(page, from, '?dev=1');
 
-  // Mana enough to buy anything, then the power, then the word typed into the guess field.
+  // `pay` is the dev bar's grant of points.
   await page.getByRole('button', { name: /^pay$/ }).click();
   await page.getByRole('button', { name: /drop a word/i }).click();
   await guess(page, rim);
   await expect(page.locator(`g[data-word="${rim}"] text.word`)).toHaveText(rim);
 
   const key = [from, rim].sort().join(' ');
-  await expect(page.locator(`g[data-edge="${key}"] line`).first()).toHaveAttribute(
-    'stroke',
-    'var(--color-gilt)',
-  );
+  const line = page.locator(`g[data-edge="${key}"] line`).first();
+  await expect(line).toHaveAttribute('stroke', 'var(--color-gilt-dim)');
+
+  await page.locator(`g[data-word="${from}"] circle[role="button"]`).hover();
+  await expect(line).toHaveAttribute('stroke', 'var(--color-gilt)');
 });
 
 test('a power says what to do next, and refuses what cannot be paid for', async ({ page }) => {
@@ -325,7 +321,7 @@ test('a power says what to do next, and refuses what cannot be paid for', async 
   await page.getByRole('button', { name: /count letters/i }).click();
   await expect(page.getByText(/tap a word you have not found/i)).toBeVisible();
 
-  // Nothing has been earned yet, so the next tap is refused rather than spending nothing.
+  // Nothing earned yet.
   const rim = graph.commonNeighbors(from)[0]!;
   await page.locator(`g[data-word="${rim}"] circle[role="button"]`).click();
   await expect(page.getByText(/not enough mana/i)).toBeVisible();
@@ -339,71 +335,51 @@ test('a map keeps itself, and comes back where it was left', async ({ page }) =>
   await guess(page, next);
 
   const at = page.url();
-  const before = await camera(page);
-  // The map is written down on a pause, so give it one.
+  // Wait for the save and for the camera to finish moving after the guess, then read it.
   await page.waitForTimeout(1400);
+  const before = await camera(page);
   await page.reload();
 
   await expect(page.locator(`g[data-word="${next}"] text.word`)).toHaveText(next);
   expect(page.url()).toBe(at);
   expect(await tally(page)).toBe(2);
 
-  /*
-    And looking at the same place from the same distance, which is half of what coming back to
-    a map you know even means.
-
-    The camera and not the `viewBox`: the two are the same fact but the box is the camera
-    *through the plate's pixel size*, and the plate is a few pixels taller or shorter depending
-    on whether the missions row has wrapped. Asserting the box compares the window to the
-    furniture around it.
-  */
+  // Centre and width only: the plate's height varies with whether the missions row wraps.
   const after = await camera(page);
   expect(after.cx).toBeCloseTo(before.cx, 1);
   expect(after.cy).toBeCloseTo(before.cy, 1);
   expect(after.width).toBeCloseTo(before.width, 1);
 });
 
-/** Where the map is being looked at from, read off the one transform the plate has. */
+/** The viewBox's centre and width. */
 async function camera(page: Page) {
   const box = (await page.locator('svg[role="img"]').getAttribute('viewBox'))!;
   const [x, y, width, height] = box.split(' ').map(Number) as [number, number, number, number];
   return { cx: x + width / 2, cy: y + height / 2, width };
 }
 
-/**
- * **Which map of a game is in front of you is the one you opened last**, and two made on the same
- * day have to be told apart.
- *
- * This is the whole of how the mode is addressed: `explore/letters` names the *game*, so nothing
- * in the path says which map, and the store answers. It answered with a `YYYY-MM-DD`, which two
- * maps made today tie on — and what broke the tie was IndexedDB's key order over random ids, so
- * making a second map opened the first one instead. See `opened` in atlasStore.
- */
+// The path names only the game, so the map shown is the one opened last, even among maps made
+// the same day. See `opened` in atlasStore.ts.
 test('a new map is the one that opens, and so is one picked off the list', async ({ page }) => {
   const { graph } = gameData();
   const first = busy();
-  // A second start word in the same game, so both maps are letters maps made the same day.
   const second = graph.commonNeighbors(first)[0]!;
 
   await start(page, first);
   await page.waitForTimeout(1400);
 
-  // A second map, made from the list. It is the one that opens.
   await page.getByRole('button', { name: /^maps$/i }).click();
   await page.getByLabel(/start from/i).fill(second);
   await page.getByRole('button', { name: 'Begin' }).click();
   await expect(page.locator(`g[data-word="${second}"] text.word`)).toHaveText(second);
   expect(await tally(page)).toBe(1);
 
-  // And going back to the first one off the list — where a map's own name is what opens it —
-  // opens *that* one, and puts it back at the head of the list.
   await page.waitForTimeout(1400);
   await page.getByRole('button', { name: /^maps$/i }).click();
   await expect(page.locator('main li button').first()).toHaveText(second);
   await page.getByRole('button', { name: first, exact: true }).click();
   await expect(page.locator(`g[data-word="${first}"] text.word`)).toHaveText(first);
 
-  // A reload comes back to it too, the path naming the game rather than the map.
   await page.waitForTimeout(1400);
   await page.reload();
   await expect(page.locator(`g[data-word="${first}"] text.word`)).toHaveText(first);
@@ -414,7 +390,6 @@ test('the list holds every map, and can lose one', async ({ page }) => {
   await start(page, from);
   await page.waitForTimeout(1400);
 
-  // The list hangs off the map, the switch offering boards rather than lists of them.
   await page.getByRole('button', { name: /^maps$/i }).click();
   await expect(page.getByRole('button', { name: from, exact: true })).toBeVisible();
 
@@ -423,11 +398,6 @@ test('the list holds every map, and can lose one', async ({ page }) => {
   await expect(page.getByText(/no maps yet/i)).toBeVisible();
 });
 
-/**
- * **The open game is a board in the switch, beside the six the day offers**, and going to one
- * and back is the same gesture as changing length. That is the whole of how it is reached:
- * it is a game, not a page about one.
- */
 test('the switch offers both maps, and goes back to a daily board', async ({ page }) => {
   await start(page, busy());
   await expect(page).toHaveURL(/\/explore\/letters$/);
@@ -440,12 +410,11 @@ test('the switch offers both maps, and goes back to a daily board', async ({ pag
   );
   await expect(page.getByRole('option', { name: /explore phonemes/i })).toBeVisible();
 
-  // Off to a daily board, which is a board id and not a page.
   await page.getByRole('option', { name: /letters medium/i }).click();
   await expect(page).toHaveURL(/\/[0-9a-f]{4,}$/);
   await expect(page.locator('main svg circle').first()).toBeVisible();
 
-  // And back to the map that was open, which is remembered rather than addressed.
+  // The same map comes back, though the path does not name it.
   await boards.click();
   await page.getByRole('option', { name: /explore letters/i }).click();
   await expect(page).toHaveURL(/\/explore\/letters$/);

@@ -11,9 +11,9 @@
  * the same two words and the same two numbers.
  */
 
-import { Fragment, memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { memo, type CSSProperties } from 'react';
 import { FormattedMessage, useIntl, type MessageDescriptor } from 'react-intl';
-import { bandName, boardName, gameName } from '../i18n/bands';
+import { gameName } from '../i18n/bands';
 import { header } from '../i18n/messages/header';
 import { rules as rulesSays } from '../i18n/messages/rules';
 import { Diamond, Query } from './marks';
@@ -94,7 +94,7 @@ interface Props {
   game: string | null;
   /** To that game's rules page. See `ModeRules`. */
   onModeRules: () => void;
-  /** Which board is on screen, for the switch. See `Boards`. */
+  /** See `Boards`. */
   at: Playing;
   onPlay: (wanted: Playing) => void;
   day: number;
@@ -130,7 +130,7 @@ interface Props {
    * a question about the screen rather than about the masthead. See `shareBoard` there.
    */
   onShare?: (() => void) | undefined;
-  /** The ways off this board, which are the same five wherever you are. See `Masthead`. */
+  /** See `Masthead`. */
   ways: Ways;
 }
 

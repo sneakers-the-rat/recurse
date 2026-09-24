@@ -1,11 +1,9 @@
 /**
  * The daily board: every move worth knowing about, drawn as one figure.
  *
- * What a word looks like and what a move looks like are `plate/PlateNode` and
- * `plate/PlateEdge` — that grammar belongs to the game rather than to one board of it. What is
- * here is the daily puzzle's own emphasis on top of it: the answer route in gilt, the two words
- * you were given, the fan of unexplored moves off a word you have reached, a shortcut you have
- * found an end of, and the signs for moves you have bought.
+ * Words and moves are drawn by `plate/PlateNode` and `plate/PlateEdge`. This adds the daily
+ * puzzle's emphasis: the answer route, the two given words, the fan of unexplored moves, a found
+ * shortcut, and the signs for moves bought as hints.
  *
  * Subword labels appear only on edges actually traversed, and the fan of moves leading off the
  * board only on words the player has named, so the figure fills in as a record of what they did
@@ -83,14 +81,13 @@ interface Props {
    * it costs no hint, is not part of the game state, and is not written down.
    */
   spelled?: ReadonlySet<string>;
-  /**
-   * The window onto the board, in graph units — a camera, not the figure's extent.
-   * See camera.ts: words are a fixed size and the surplus board runs off the edges.
-   */
+  /** The window onto the board now, mid-drag included, in graph units. For `usePointing`. */
   view: { x: number; y: number; width: number; height: number };
-  /** Drag, pinch and wheel, from usePanZoom. Spread onto the SVG. */
+  /** `frame`, `overhang`, `nudge`, `gestures` and `engaged` are passed to `Plate`. */
+  frame: { x: number; y: number; width: number; height: number };
+  overhang?: number | undefined;
+  nudge?: { x: number; y: number } | undefined;
   gestures?: Record<string, unknown>;
-  /** The wheel belongs to the board rather than to the page. See DWELL_MS in usePanZoom. */
   engaged?: boolean;
   onSelect: (word: string) => void;
   onHint: (word: string) => void;
@@ -114,6 +111,9 @@ export function GraphPlate({
   namesWords = false,
   spelled: spelledOut,
   view,
+  frame,
+  overhang,
+  nudge,
   gestures,
   engaged = false,
   onSelect,
@@ -124,7 +124,7 @@ export function GraphPlate({
   const { revealed, selected, puzzle } = state;
 
   const canInspect = namesWords && onSpell !== undefined;
-  const { overWord, overEdge, edgeHandlers, onHover, onUnhover, onActivate, onInspect } =
+  const { overWord, overEdge, edgeHandlers, onHover, onUnhover, onActivate, onInspect, surface } =
     usePointing({
       nodes,
       positions,
@@ -241,8 +241,11 @@ export function GraphPlate({
 
   return (
     <Plate
-      view={view}
+      frame={frame}
+      overhang={overhang}
+      nudge={nudge}
       gestures={gestures}
+      surface={surface}
       engaged={engaged}
       label={intl.formatMessage(says.plate, {
         source: puzzle.source,

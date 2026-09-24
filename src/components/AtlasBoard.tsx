@@ -1,17 +1,7 @@
 /**
- * One open map: the board, the guess bar, the missions and the powers.
- *
- * The daily board's shell is App.tsx and this is the atlas's, and they are separate on
- * purpose — almost everything App does is about a puzzle, a day and a round, and none of that
- * exists here. What the two share is what a board *is*, and every piece of that is imported:
- * the plate and its words and moves, the guess bar, the camera, the gestures, the masthead.
- *
- * What is here is the shape of this game and nothing else. Four things happen on this screen:
- *
- * * **A guess** is free and uncounted. It reveals what it lands on.
- * * **Typing somewhere you have been** goes there instead of being refused. Fast travel.
- * * **A mission** names a word some distance out and pays what it promised.
- * * **A power** spends what a mission paid.
+ * One open map: the board, the guess bar, the missions and the powers. The open game's
+ * counterpart to App.tsx, sharing its plate, guess bar, camera and masthead pieces.
+ * The rules of the game are in atlas.ts.
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,6 +25,7 @@ import {
   openAtlas,
   refresh,
   saveAtlas,
+  spread,
   take,
   travel,
   travelTo,
@@ -43,21 +34,23 @@ import {
   type Mission,
 } from '../lib/atlas';
 import { pack, writeAtlas, type AtlasRecord } from '../lib/atlasStore';
-import type { Remembered } from '../lib/atlasLayout';
+import type { Remembered, Territory } from '../lib/atlasLayout';
 import {
-  bringInto,
   clamp,
   fitCamera,
   GENEROUS_SCALE,
   MAX_SCALE,
   MIN_SCALE,
+  grown,
+  OVERDRAW,
+  showBox,
   viewOf,
   type Box,
   type Camera,
   type Plate,
 } from '../lib/camera';
-import { visible, type Patch } from '../lib/detail';
-import type { Sizes } from '../lib/atlasLayout';
+import { reachOf } from '../lib/forces';
+import { roomFor, type Sizes } from '../lib/atlasLayout';
 import { markRadius } from '../lib/sizes';
 import { DOT_R } from './plate/sizes';
 import { say } from '../i18n/format';
@@ -72,36 +65,22 @@ import { useDevMode } from '../lib/useDevMode';
 import { usePanZoom } from '../lib/usePanZoom';
 import { usePlateSize } from '../lib/usePlateSize';
 
-/** How long after a change the map is written down. Long enough that typing does not thrash. */
+/** Debounce before the map is saved, in ms. */
 const SAVE_AFTER = 900;
 
 /** How long a refusal or a receipt stays up. */
 const SAID_MS = 2600;
 
-/**
- * The least time between two steps of a walk, whatever the last one brought in.
- *
- * A walk is paced by the arrival it is watching — the next guess waits for the last one to
- * finish coming out — and a guess that reveals nothing new has nothing to wait for. See `onWalk`.
- */
+/** Least time between two steps of a walk, for steps that reveal nothing. See `onWalk`. */
 const LEAST_STEP = 220;
 
-/**
- * What a drop costs, said as a rate.
- *
- * `dropCost` is the one place the price is decided, so the button quotes it rather than
- * writing a number of its own: one point per letter is `dropCost` of a one-letter word.
- */
+/** Slack after an arrival's `span` before its animation markup is removed. See its use. */
+const GRACE = 300;
+
+/** The drop price as a per-letter rate, taken from `dropCost` so there is one price. */
 const perLetter = `${dropCost('a')}/·`;
 
-/**
- * The whole map in shot, but never drawn larger than the game draws a word.
- *
- * `fitCamera` alone would magnify a map of one word to four times life size, which is not a
- * view of anything — `GENEROUS_SCALE` is the ceiling the daily board already uses for exactly
- * this, and it means a new map opens at the size a board is read at and grows outward from
- * there.
- */
+/** Fit the whole map, but no larger than `GENEROUS_SCALE`, so a tiny map is not magnified. */
 function whole(bounds: Box, plate: Plate): Camera {
   const fitted = fitCamera(bounds, plate);
   return { ...fitted, scale: Math.min(fitted.scale, GENEROUS_SCALE) };
@@ -113,10 +92,8 @@ type Armed = 'name' | 'drop' | null;
 interface Props {
   record: AtlasRecord;
   /**
-   * What the map remembered of its own layout, already unpacked.
-   *
-   * Its *identity* is what says a different map is on screen, so the caller keeps one object
-   * per record rather than unpacking on every render — see `useAtlasLayout`.
+   * The saved layout, unpacked. Its identity is how `useAtlasLayout` tells a different map has
+   * opened, so the caller must keep one object per record.
    */
   settled: Remembered | null;
   atlas: Atlas;
@@ -124,12 +101,12 @@ interface Props {
   graph: Graph;
   lexicon: Lexicon;
   regions: Regions;
-  /** For the switch, which offers every board there is — see `Boards`. */
+  /** For the board switch. See `Boards`. */
   bands: readonly Band[];
   games: readonly { name: string }[];
   ways: Ways;
   onPlay: (wanted: Playing) => void;
-  /** To the list of maps, which is the one place the switch does not go. */
+  /** Go to the list of maps. */
   onMaps: () => void;
 }
 
@@ -154,14 +131,7 @@ export function AtlasBoard({
 
   const [plateRef, plateSize, plateEl] = usePlateSize();
 
-  /**
-   * What is on the board: everywhere the player has been, and one step of what is next.
-   *
-   * Memoised on the *count* of what has been found rather than on the map itself, because the
-   * revealed map is rebuilt by every step and a figure is a pass over the graph. Nothing can
-   * change the figure without changing how many words are on it — a guess that reveals nothing
-   * does not, and neither does a hint or a mission.
-   */
+  // What is drawn: every found word and its rim. See `atlasFigure` in plate.ts.
   const revealed = useMemo(() => new Set(atlas.revealed.keys()), [atlas.revealed]);
   const figure = useMemo(
     () =>
@@ -175,29 +145,18 @@ export function AtlasBoard({
   );
 
   /**
-   * What has just come onto the board, and when each of it gets to make its entrance.
-   *
-   * **Worked out by comparing the figure with the one drawn a moment ago**, rather than taken
-   * off whatever the player did. A guess reveals one word and brings a whole rim of unnamed dots
-   * behind it; the rim is a fact about the figure and not about the guess, and a set of revealed
-   * words — which is what this used to be handed — left every one of those dots popping into
-   * place unanimated. Reading it off the figure answers for a guess, a drop, a walk and a
-   * restored map by one rule, and cannot disagree with what is on screen.
-   *
-   * **A map opening is not an arrival.** Every word of a restored map is new to a board that has
-   * drawn nothing, and animating nine thousand of them in over a minute is not a welcome.
-   *
-   * **Idempotent by value, which is what makes writing to a ref from a memo safe here.** Asked
-   * twice over — which StrictMode does, and which a second render with a rebuilt figure does —
-   * the second pass finds every word already accounted for and hands back the schedule the first
-   * one made, rather than concluding that nothing arrived. Comparing the figure by *identity*
-   * would not survive either case.
+   * The arrival schedule (see sprout.ts) for words new to the figure since the last render.
+   * Opening a map is not an arrival. The ref is compared by value, so running the memo twice
+   * (StrictMode) returns the same schedule. It is cleared once `span` has passed, because the
+   * animation markup is costly to keep on a large map.
    */
   const seen = useRef<{ map: string; words: ReadonlySet<string>; timed: Entrances }>({
     map: '',
     words: new Set(),
     timed: NO_ENTRANCE,
   });
+  // Bumped when the schedule has finished, to re-render and drop its markup.
+  const [spent, setSpent] = useState(0);
 
   const arrivals = useMemo<Entrances>(() => {
     const last = seen.current;
@@ -206,21 +165,26 @@ export function AtlasBoard({
       return NO_ENTRANCE;
     }
     const coming = figure.nodes.filter((word) => !last.words.has(word));
-    // Nothing new — a refused guess, a travel, or this pass running a second time — so whatever
-    // is already playing goes on playing.
     if (coming.length === 0) return last.timed;
     const timed = entrances(new Set(coming), (word) => revealed.has(word), figure.edges);
     seen.current = { map: record.id, words: new Set(figure.nodes), timed };
     return timed;
-  }, [figure, record.id, revealed]);
+  }, [figure, record.id, revealed, spent]);
+
+  // `GRACE` past `span`: a CSS animation ends on a frame, not a timer, and a walk's next step
+  // (due at `span`) should replace the schedule before this fires.
+  useEffect(() => {
+    if (arrivals === NO_ENTRANCE) return;
+    const timer = setTimeout(() => {
+      seen.current = { ...seen.current, timed: NO_ENTRANCE };
+      setSpent((n) => n + 1);
+    }, arrivals.span + GRACE);
+    return () => clearTimeout(timer);
+  }, [arrivals]);
 
   /**
-   * How big every word on this board is drawn, which the layout has to agree with.
-   *
-   * A found word is sized by its *whole* degree — every move it has, which on this board is
-   * every move drawn, since revealing a word draws its rim. An unfound one is a dot whatever
-   * its degree: sizing the rim would say where the hubs are before anyone had been to them,
-   * and it would make the lightest things on the board heavy. See `markRadius` and `mobility`.
+   * A found word is sized by its common-graph degree; an unfound one is a dot, so the rim does
+   * not give away where the hubs are. See `markRadius` in sizes.ts.
    */
   const sizes = useMemo<Sizes>(
     () => ({
@@ -233,26 +197,27 @@ export function AtlasBoard({
 
   const laid = useAtlasLayout(figure, regions, sizes, settled, arrivals);
 
-  /** Territories, as rectangles a whole crowd of words can be culled against at once. */
-  const patches = useMemo<Patch[]>(
-    () =>
-      (laid?.territories ?? []).map((one) => ({
-        words: one.words,
-        at: one.at,
-        radius: one.radius,
-      })),
-    [laid?.territories],
+  // A stable-identity view onto the latest layout, so the plate's memos can hold. What tells
+  // them something moved is a territory's `shape`.
+  const live = useRef(laid);
+  live.current = laid;
+  const reading = useMemo(
+    () => ({
+      get: (word: string) => live.current?.place(word),
+      place: (word: string) => live.current?.place(word),
+      offset: (word: string) => live.current?.offset(word),
+      homeOf: (word: string) => live.current?.homeOf(word) ?? -1,
+      territories: () => live.current?.territories() ?? NO_GROUND,
+      // Safe to forward: `onTick` keeps its painters in a ref for the life of the hook.
+      onTick: (paint: () => void) => live.current?.onTick(paint) ?? noop,
+    }),
+    [],
   );
 
-  /**
-   * Where the map is looked at from.
-   *
-   * There is no spine to frame, so the opening view is the one the player left — a map is a
-   * place you come back to, and dropping them somewhere else throws away the only thing a
-   * large board gives you, which is knowing where you are. A map with no remembered view is
-   * framed whole, held to the size the daily board draws a word at so that a map of one word
-   * does not arrive magnified.
-   */
+  // A fresh list per call, so asked once per render.
+  const territories = laid?.territories() ?? NO_GROUND;
+
+  // The opening view is the saved camera, or else the whole map.
   const bounds = laid?.figure ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 };
   const framing = useCallback(
     (): Camera =>
@@ -266,52 +231,75 @@ export function AtlasBoard({
     [record.camera, bounds, plateSize],
   );
 
-  const { camera, jumpTo, glideTo, handlers, engaged } = usePanZoom(
+  const { camera, drawnFrom, nudge, dragging, jumpTo, glideTo, handlers, engaged } = usePanZoom(
     framing(),
     plateSize,
     bounds,
     plateEl,
   );
 
-  /*
-    And framed *once the plate has been measured*, which is not the same moment.
-
-    `usePanZoom` takes its opening camera at mount and owns it from then on, and at mount the
-    plate is zero pixels wide because the board has not been laid out yet — so `fitCamera`
-    divides by nothing, clamps to the smallest scale there is, and the map opens drawn at a
-    fifth of the size with every word three pixels across. The daily board has the same problem
-    and answers it with the title card; this has nothing to hide behind, so it simply jumps as
-    soon as there is something to jump to.
-  */
+  // `usePanZoom` takes its camera at mount, when the plate has no size yet, so frame again once
+  // it has been measured.
   const framed = useRef<string | null>(null);
   useEffect(() => {
     if (!laid || plateSize.width <= 0 || framed.current === record.id) return;
     framed.current = record.id;
     jumpTo(framing());
-    // `framing` closes over the bounds, which move as the map grows; this only ever runs on
-    // the first frame a map is measurable, so re-running it on every change would undo the
-    // player's own panning.
+    // Once per map: re-running as the bounds grow would undo the player's panning.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [laid, plateSize.width, record.id, jumpTo]);
+  // `view` is the current window; `frame` is what the surface was last drawn for, which lags a
+  // drag and overhangs by `OVERDRAW`. See `nudgeOf` in camera.ts.
   const view = useMemo(() => viewOf(camera, plateSize), [camera, plateSize]);
-
-  /** Only what is in shot. See detail.ts, which is where the rest of this eventually goes. */
-  const drawn = useMemo(
-    () => (laid ? visible(figure, laid.positions, patches, view) : figure),
-    [figure, laid, patches, view],
+  const overhang = dragging ? OVERDRAW : 0;
+  const frame = useMemo(
+    () => viewOf(drawnFrom, grown(plateSize, overhang)),
+    [drawnFrom, plateSize, overhang],
   );
 
-  // Bring a word that has just been landed on into shot, once it has a place to be brought to.
+  /** How far each word's drawing extends from its centre (`reachOf`), cached per `sizes`. */
+  const reach = useMemo(() => {
+    const room = roomFor(sizes);
+    const held = new Map<string, number>();
+    return (word: string) => {
+      let far = held.get(word);
+      if (far === undefined) {
+        far = reachOf(room(word));
+        held.set(word, far);
+      }
+      return far;
+    };
+  }, [sizes]);
+
+  /**
+   * After a guess, bring the word and everything that arrived with it into view (`showBox` in
+   * camera.ts). Waits until the layout has stopped moving, since until then nobody knows where
+   * the arrival will end up.
+   */
   useEffect(() => {
-    if (!follow || !laid) return;
-    const at = laid.positions.get(follow);
+    if (!follow || !laid || laid.moving) return;
+    const at = laid.place(follow);
     if (!at) return;
     setFollow(null);
-    glideTo(bringInto(camera, at, plateSize), 380);
-    // Reading the camera here rather than depending on it: this answers a landing, and a
-    // dependency on the camera would make it answer every pan.
+    const box: Box = {
+      minX: at.x - reach(follow),
+      maxX: at.x + reach(follow),
+      minY: at.y - reach(follow),
+      maxY: at.y + reach(follow),
+    };
+    for (const word of arrivals.nodes.keys()) {
+      const spot = laid.place(word);
+      if (!spot) continue;
+      const far = reach(word);
+      box.minX = Math.min(box.minX, spot.x - far);
+      box.maxX = Math.max(box.maxX, spot.x + far);
+      box.minY = Math.min(box.minY, spot.y - far);
+      box.maxY = Math.max(box.maxY, spot.y + far);
+    }
+    glideTo(showBox(camera, box, plateSize), 380);
+    // Not keyed on the camera, or every pan would re-run it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [follow, laid, plateSize, glideTo]);
+  }, [follow, laid, plateSize, glideTo, arrivals, reach]);
 
   useEffect(() => {
     if (said === null) return;
@@ -319,29 +307,18 @@ export function AtlasBoard({
     return () => clearTimeout(timer);
   }, [said]);
 
-  /**
-   * How far out everything unfound is, which is what an offer is priced at.
-   *
-   * One walk per change to what has been found, and the offers read their payouts straight off
-   * it — so a guess toward a word on the table makes it visibly worth less, and the number on
-   * an offer is never one that was true a hundred moves ago. Memoised on `revealed`, which is
-   * the only thing it depends on.
-   */
+  /** Distance of every unfound word from the found ones, which prices offers. See `hopsFrom`. */
   const hops = useMemo(() => hopsFrom(graph, regions, revealed), [graph, regions, revealed]);
 
-  /** Offers are topped back up whenever one is taken, reached or stranded. */
+  // Top up the offers whenever one is taken, reached or stranded.
   useEffect(() => {
     const next = refresh(atlas, hops);
     if (next !== atlas) setAtlas(next);
   }, [atlas, hops, setAtlas]);
 
-  /**
-   * Write the map down, on a pause rather than on every keystroke.
-   *
-   * The layout goes with it, which is what makes opening a map of three thousand words instant
-   * — see `useAtlasLayout`. So does the camera, because coming back to a map you know and
-   * being put somewhere else in it is the same as being given a different map.
-   */
+  // Save the map, its layout and the camera after a pause. The layout is read through the ref
+  // rather than depended on: it changes every frame of an arrival, which would keep resetting
+  // the timer.
   const latest = useRef({ atlas, laid, camera, record });
   latest.current = { atlas, laid, camera, record };
   useEffect(() => {
@@ -352,12 +329,12 @@ export function AtlasBoard({
         ...held,
         touched: new Date().toISOString().slice(0, 10),
         save: saveAtlas(now),
-        layout: pack(here.settled.offsets, here.settled.centres, here.settled.radii ?? new Map()),
+        layout: pack(here.settled()),
         camera: { cx: at.cx, cy: at.cy, scale: at.scale },
       });
     }, SAVE_AFTER);
     return () => clearTimeout(timer);
-  }, [atlas, camera, laid]);
+  }, [atlas, camera]);
 
   // --- what the player can do ------------------------------------------------
 
@@ -370,14 +347,7 @@ export function AtlasBoard({
     [intl, setAtlas],
   );
 
-  /**
-   * A typed word.
-   *
-   * **Fast travel is a stand you can type**, and this is the whole of it: the guess is tried
-   * first, and only when nothing plays is the word looked for on the map. A word that is both
-   * a move from here and somewhere already found is a move — playing it also takes you there,
-   * so there is nothing to choose between.
-   */
+  /** A typed word: tried as a guess first, and only if refused, as travel to a found word. */
   const onGuess = useCallback(
     (raw: string) => {
       if (armed === 'drop') {
@@ -393,13 +363,13 @@ export function AtlasBoard({
     [armed, atlas, graph, regions, lexicon, answer],
   );
 
-  /** Asked by the guess bar of whatever is in the field, before Guess is pressed. */
+  /** Where the guess bar's current text would travel to, if anywhere. */
   const going = useCallback(
     (typed: string) => travelTo(atlas, typed, lexicon),
     [atlas, lexicon],
   );
 
-  /** Tapping a word: stand on it if you have been there, otherwise ask what it is. */
+  // Tapping a found word stands on it; tapping a rim word with a power armed names it.
   const onSelect = useCallback((word: string) => answer(travel(atlas, word)), [atlas, answer]);
   const onAsk = useCallback(
     (word: string) => {
@@ -410,7 +380,7 @@ export function AtlasBoard({
     [armed, atlas, lexicon, answer],
   );
 
-  /** Accepting an offer, which is what fixes what it pays. See `take`. */
+  /** Taking an offer fixes what it pays. See `take`. */
   const onTake = useCallback(
     (word: string) => setAtlas(take(atlas, { word, hops: hops.get(word) ?? 0 })),
     [atlas, hops, setAtlas],
@@ -443,50 +413,60 @@ export function AtlasBoard({
   const [devMode, toggleDev] = useDevMode();
 
   /**
-   * A run of guesses, played rather than faked, and **one at a time**.
-   *
-   * Everything a walk does goes through `guess`, so the map it leaves behind is one the layout,
-   * the territories and the plates have no way of telling from a played one — which is the whole
-   * reason it exists. Played *sequentially* it is also a picture of the thing the instrument is
-   * mostly for judging: what a guess looks like arriving. Made all at once, a thousand words are
-   * one arrangement and one ooze, and every question about how a hub unfolds is unanswerable
-   * from it.
-   *
-   * **Paced by the arrival it is watching**, not by a fixed beat: the next guess waits out
-   * whatever the last one brought in, so a guess onto a leaf is over in a moment and a guess onto
-   * a hub is given its several seconds. The step is counted down whether or not it revealed
-   * anything, and a walk that runs out of anywhere to go stops.
-   *
-   * `fill` is the same run with none of that — see `onFill`.
+   * Steps left in a dev-bar walk: guesses played one at a time, each waiting for the previous
+   * arrival to finish (`arrivals.span`). A walk stops when there is nowhere left to go.
    */
   const [walking, setWalking] = useState(0);
+  /** The found word a walk spreads out from, or null for a random walk. Fixed at the start. */
+  const [walkFrom, setWalkFrom] = useState<string | null>(null);
+
+  /** The found token a typed spelling names, or null. */
+  const originOf = useCallback(
+    (typed: string): string | null =>
+      lexicon.parse(typed.trim().toLowerCase()).find((one) => revealed.has(one)) ?? null,
+    [lexicon, revealed],
+  );
+
   const onWalk = useCallback(
-    (steps: number) => setWalking((now) => (now > 0 ? 0 : steps)),
-    [],
+    (steps: number, from: string) => {
+      const origin = from === '' ? null : originOf(from);
+      if (from !== '' && origin === null) return;
+      setWalkFrom(origin);
+      setWalking((now) => (now > 0 ? 0 : steps));
+    },
+    [originOf],
   );
 
   useEffect(() => {
     if (walking <= 0) return;
     const timer = setTimeout(() => {
-      const next = wander(atlas, graph, lexicon, 1);
+      const next =
+        walkFrom === null
+          ? wander(atlas, graph, lexicon, 1)
+          : spread(atlas, graph, lexicon, 1, walkFrom);
       setWalking((now) => (next === atlas ? 0 : now - 1));
       if (next === atlas) return;
       setAtlas(next);
       setFollow(next.selected);
     }, Math.max(arrivals.span, LEAST_STEP));
     return () => clearTimeout(timer);
-  }, [walking, arrivals.span, atlas, graph, lexicon, setAtlas]);
+  }, [walking, walkFrom, arrivals.span, atlas, graph, lexicon, setAtlas]);
 
-  /** The whole run at once, for getting a large map in hand rather than watching one grow. */
+  /** The same run in one step, with no animation. */
   const onFill = useCallback(
-    (steps: number) => {
+    (steps: number, from: string) => {
       setWalking(0);
-      const next = wander(atlas, graph, lexicon, steps);
+      const origin = from === '' ? null : originOf(from);
+      if (from !== '' && origin === null) return;
+      const next =
+        origin === null
+          ? wander(atlas, graph, lexicon, steps)
+          : spread(atlas, graph, lexicon, steps, origin);
       if (next === atlas) return;
       setAtlas(next);
       setFollow(next.selected);
     },
-    [atlas, graph, lexicon, setAtlas],
+    [atlas, graph, lexicon, originOf, setAtlas],
   );
 
   return (
@@ -495,12 +475,12 @@ export function AtlasBoard({
         <AtlasDevBar
           found={revealed.size}
           figure={figure.nodes.length}
-          shown={drawn.nodes.length}
-          regions={laid?.territories.length ?? 0}
+          regions={territories.length}
           points={atlas.points}
           at={atlas.selected}
           lexicon={lexicon}
           walking={walking}
+          knows={(typed) => originOf(typed) !== null}
           onWalk={onWalk}
           onFill={onFill}
           onPay={(points) => setAtlas({ ...atlas, points })}
@@ -516,12 +496,9 @@ export function AtlasBoard({
         />
         <div className="border-rule mx-auto flex max-w-2xl items-baseline gap-x-6 border-t px-4 py-2">
           <Figure label={says.found} value={revealed.size} />
-          <Figure label={says.regions} value={laid?.territories.length ?? 0} />
+          <Figure label={says.regions} value={territories.length} />
           <Figure label={says.mana} value={atlas.points} tone="text-gilt" />
-          {/*
-            The list, which is the one screen the switch cannot reach: it offers *boards*, and
-            a list of maps is not one. So it hangs off the map it would take you away from.
-          */}
+          {/* The list of maps, which the board switch does not offer. */}
           <button
             type="button"
             onClick={onMaps}
@@ -550,10 +527,10 @@ export function AtlasBoard({
       >
         {laid && (
           <AtlasPlate
-            figure={drawn}
+            figure={figure}
             sizes={sizes}
-            positions={laid.positions}
-            territories={laid.territories}
+            layout={reading}
+            territories={territories}
             revealed={revealed}
             selected={atlas.selected}
             hints={atlas.hints}
@@ -561,18 +538,17 @@ export function AtlasBoard({
             lexicon={lexicon}
             arrivals={arrivals}
             view={view}
+            frame={frame}
+            overhang={overhang}
+            nudge={nudge}
+            zoom={camera.scale}
             gestures={handlers}
             engaged={engaged}
             onSelect={onSelect}
             onAsk={onAsk}
           />
         )}
-        {/*
-          At the top, which is the one corner nothing else on this board wants: the powers have
-          the bottom line of the plate and what an armed one says can run to two lines above
-          them. The daily board keeps it at the bottom because its top is where the source stands
-          and where the title card lands, and a map has neither.
-        */}
+        {/* Top right, because the powers take the bottom of the plate. */}
         <ResetView at="right-2 top-2" onReset={resetView} />
         <Powers armed={armed} onArm={setArmed} said={said} />
       </main>
@@ -593,7 +569,9 @@ export function AtlasBoard({
 
 function noop() {}
 
-/** One figure on the line under the masthead: a label and a number. */
+const NO_GROUND: readonly Territory[] = [];
+
+/** A label and a number, on the line under the masthead. */
 const Figure = memo(function Figure({
   label,
   value,
@@ -613,14 +591,8 @@ const Figure = memo(function Figure({
   );
 });
 
-/*
-  The leader between a word and its figures.
-
-  A bottom border on a flexible cell rather than a run of dots in the text, so it stretches to
-  whatever is left between a short word and the columns and cannot wrap, and so a screen reader
-  is not read a line of punctuation. One element, rendered in every row: a React element is
-  immutable, so there is no reason to build a fresh one per line.
-*/
+// The dotted leader between a word and its figures: a border, so it stretches and is not read
+// aloud.
 const LEADER = (
   <span
     aria-hidden
@@ -629,36 +601,9 @@ const LEADER = (
 );
 
 /**
- * What there is to go and find, and what is already in hand.
- *
- * **A list and not a row of buttons**, set like a table of contents: the word on the left in
- * the ink of a word, then a leader of dots, then how far out it is and what it pays, both
- * right-aligned in their own columns. Three offers in a row of boxes read as three controls of
- * unrelated width with their numbers buried in the middle of them, and the one question a
- * player is actually asking — *which of these is worth it* — is a comparison down a column.
- * Aligning the figures is the whole of the answer.
- *
- * **A drawer, shut to begin with.** Two slots and three offers is five lines of table plus a
- * rule, and standing open that is a third of the height of a phone spent on a side errand while
- * the board — which is the whole game — gets what is left. So it folds, and the line it folds
- * into carries the two things worth knowing without opening it: how many slots are full, and how
- * many words are on the table. Shut rather than open by default because a map is opened to look
- * at the map.
- *
- * **Two lists and no headings.** The slots are on top, always all of them, an empty one drawn
- * as an empty line of the same table; below a rule are the offers, each with the button that
- * takes it. A heading over each would be two more lines of chrome over a board that wants the
- * height, and there is nothing for them to say that *Give up* and *Take* do not.
- *
- * **The two number columns are the same columns in both lists, and that is what shows the
- * lock.** An offer's distance and its payout are one figure said twice, because an offer pays
- * what it is worth now. A mission in hand shows how far there is still to go beside what it
- * agreed to pay, and the two coming apart as the player closes on it is the whole of what a
- * slot buys.
- *
- * **The distance is all it says.** Never which found word the distance is from, because working
- * that out is the game: a player told "five hops from `sparring`" has been given the route, and
- * one told "five away" has been given a question about their own map.
+ * The missions drawer, shut by default: every slot (filled or empty), then the offers, each row
+ * a word, a leader, its distance and its pay in aligned columns. An offer's pay is its current
+ * distance; a taken mission's pay is fixed. The distance never says which found word it is from.
  */
 const Missions = memo(function Missions({
   offers,
@@ -672,13 +617,12 @@ const Missions = memo(function Missions({
   offers: readonly string[];
   taken: readonly Mission[];
   slots: number;
-  /** How far out each unfound word is now, which is what an offer is worth. See `hopsFrom`. */
+  /** Current distance of each unfound word. See `hopsFrom`. */
   hops: ReadonlyMap<string, number>;
   lexicon: Lexicon;
   onTake: (word: string) => void;
   onAbandon: (word: string) => void;
 }) {
-  /** The two figure columns, which every row of either list has in the same places. */
   const figures = (away: number, pays: number) => (
     <>
       <span className="label text-ash-lit shrink-0 tabular-nums">
@@ -696,11 +640,7 @@ const Missions = memo(function Missions({
 
   return (
     <div className="border-rule mx-auto w-full max-w-2xl border-b px-4 py-2">
-      {/*
-        The line the drawer folds into, which is the same table row the lists below it are: a
-        name on the left, a leader, and what is in it on the right. So opening it adds lines to
-        something rather than replacing one thing with another.
-      */}
+      {/* The drawer's summary line, laid out like the rows under it. */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -708,7 +648,6 @@ const Missions = memo(function Missions({
         aria-label={intl.formatMessage(open ? says.shutMissions : says.openMissions)}
         className="label text-ash-lit hover:text-gilt flex w-full items-baseline gap-2 transition-colors"
       >
-        {/* Down when it is open, and pointing at the line when it is not. */}
         <Caret className={`text-gilt-dim text-[0.5rem] ${open ? '' : '-rotate-90'}`} />
         <FormattedMessage {...says.missions} />
         {LEADER}
@@ -764,11 +703,7 @@ const Missions = memo(function Missions({
                     <span className="word text-ash-lit shrink-0">{lexicon.label(word)}</span>
                     {LEADER}
                     {figures(hops.get(word) ?? 0, hops.get(word) ?? 0)}
-                    {/*
-                      Disabled rather than gone while every slot is full: a button that vanished
-                      would leave the offers looking like a list of facts, and the reason it
-                      cannot be pressed is sitting two lines above it.
-                    */}
+                    {/* Disabled, not hidden, while every slot is full. */}
                     <button
                       type="button"
                       disabled={full}
@@ -789,25 +724,10 @@ const Missions = memo(function Missions({
 });
 
 /**
- * What mana buys, as two marks over the board.
- *
- * A power is *armed* rather than applied: clicking it says what to do next, and the next tap
- * or the next word typed spends the points. Which is the only shape that works for both of
- * them — one wants a word on the board and the other wants a word typed — and it means the
- * price is read before anything is spent.
- *
- * **Two icon buttons and no drawer.** They were a labelled row of their own between the plate
- * and the guess bar, which cost the board a whole line of height to say two words it says again
- * in each button's accessible name. A mark and a price is as much as either needs: `?` for a
- * letter count and `+` for a word put on the map, both of which the game punctuates with
- * elsewhere. The price stays visible, because the price being readable before anything is spent
- * is the point of arming rather than applying.
- *
- * **Over the plate, right-aligned with the guess field.** The row itself has no ground under it,
- * so what lies over the board is two small boxes rather than a band across it; they are in the
- * same gutter as the field below them, so the powers, what is typed and what comes back read as
- * one column down the right of the screen. `pointer-events` are off for everything but the
- * buttons, so the board can still be dragged through the row.
+ * The two powers, `?` (count letters) and `+` (drop a word), as buttons over the bottom right of
+ * the plate, aligned with the guess field. A power is armed first and spent by the next tap or
+ * typed word, so its price is shown before anything is spent. Only the buttons take pointer
+ * events, so the board can be dragged through the row.
  */
 const Powers = memo(function Powers({
   armed,
@@ -856,19 +776,10 @@ const Powers = memo(function Powers({
         : null);
 
   return (
-    // The guess bar's own gutter, exactly: padding outside and the cap inside, so the buttons
-    // end where the field below them ends however wide the window is.
+    // The guess bar's padding and max width, so the buttons end where the field does.
     <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 px-4">
       <div className="mx-auto flex max-w-2xl flex-col items-end">
-        {/*
-          What an armed power wants next, and what the last one came to.
-
-          **On its own line above the buttons**, because it is a sentence: beside them it had a
-          phone's width less two buttons to be a sentence in, and what a player read was `Type any
-          word. It costs one m`. It carries its own ground, a sentence over a map of words being
-          unreadable without one — and nothing at all is drawn while there is nothing to say, so
-          the board is clear in the state it is in most of the time.
-        */}
+        {/* What an armed power wants, or the last result, on its own line for width. */}
         <span role="status" aria-live="polite" className="max-w-full">
           {note !== null && (
             <span className="label text-ash-lit bg-noir/85 border-rule mb-2 inline-block border px-2 py-1.5 text-right leading-snug backdrop-blur">
@@ -878,10 +789,6 @@ const Powers = memo(function Powers({
         </span>
         <div className="flex items-center gap-2">
           {button('name', says.nameIt, <Query />, String(NAME_COST))}
-          {/*
-            A drop is priced per letter, so there is no one number to put on the button — what
-            goes there is the rate, and `dropHow` beside it says what it is the rate of.
-          */}
           {button('drop', says.drop, <Plus />, perLetter)}
         </div>
       </div>

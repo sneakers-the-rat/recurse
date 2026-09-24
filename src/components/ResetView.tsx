@@ -23,14 +23,7 @@ import { board as says } from '../i18n/messages/board';
 
 export const ResetView = memo(function ResetView({
   onReset,
-  /**
-   * Which corner of the plate it sits in, as positioning utilities and nothing else.
-   *
-   * **Only the board it is on knows what else is over the plate.** The daily figure has this
-   * corner to itself; an open map keeps the bottom line of the plate for its powers, so the way
-   * home goes above them. Everything about how it *looks* stays here — a caller may move it and
-   * may not restyle it.
-   */
+  /** Positioning classes only; the open map moves it clear of its powers. */
   at = 'right-2 bottom-2',
 }: {
   onReset: () => void;

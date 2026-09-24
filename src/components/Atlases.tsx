@@ -1,13 +1,4 @@
-/**
- * The maps this browser holds, and how to start another.
- *
- * Deliberately not an archive. `/puzzles` lists boards the *game* has made and offers dates to
- * open; this lists boards the *player* has made and has no dates in it at all — a map is a
- * thing you come back to rather than a thing that came round.
- *
- * A new map is a word and a game, in that order, because the word is the decision: the game
- * only says which alphabet the word will be read in.
- */
+/** `/explore`: the maps this browser holds, and a form to start another from a word. */
 
 import { useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
@@ -15,23 +6,21 @@ import { gameName } from '../i18n/bands';
 import { explore as says } from '../i18n/messages/explore';
 import { Masthead, type Ways } from './Masthead';
 import type { AtlasCard } from '../lib/atlasStore';
-import type { RawManifest } from '../lib/data';
+import { dailyGames, type RawManifest } from '../lib/data';
 
 interface Props {
   manifest: RawManifest;
   cards: readonly AtlasCard[];
-  /**
-   * Which game to be ready to make one of, when the path asked for a game with no map yet.
-   * Null when the list was simply opened.
-   */
+  /** The game to preselect in the form, when the path named one with no map yet. */
   game: string | null;
-  /** A refusal from the last attempt to start one, already said. */
+  /** Why the last attempt to start a map was refused, as text. */
   refusal: string | null;
   ways: Ways;
   onOpen: (id: string) => void;
   onRemove: (id: string) => void;
   onRename: (id: string, name: string) => void;
-  onStart: (mode: number, word: string) => void;
+  /** Start a map of `game` (a game's name, not its map's graph; see `mapMode` in data.ts). */
+  onStart: (game: string, word: string) => void;
 }
 
 export function Atlases({
@@ -46,10 +35,10 @@ export function Atlases({
   onStart,
 }: Props) {
   const intl = useIntl();
-  // Whichever game was asked for, when one was: arriving from the switch with no letters map
-  // means the next thing you do is make one, so the form is already set to make it.
-  const [mode, setMode] = useState(() =>
-    Math.max(0, manifest.modes.findIndex((one) => one.name === game)),
+  // Games only: the explore graphs are modes too, but not games of their own.
+  const games = dailyGames(manifest);
+  const [mode, setMode] = useState(
+    () => games.find((one) => one.name === game)?.name ?? games[0]?.name ?? '',
   );
   const [word, setWord] = useState('');
 
@@ -80,19 +69,13 @@ export function Atlases({
             <span className="label text-ash-lit">
               <FormattedMessage {...says.which} />
             </span>
-            {/*
-              A native select, which the length switch on the masthead deliberately is not —
-              the argument there is that a menu arriving in the platform's own type sits badly
-              in the middle of a Deco masthead. This is a form on a page of forms, and the
-              platform's control is the right one here.
-            */}
             <select
               value={mode}
-              onChange={(event) => setMode(Number(event.target.value))}
+              onChange={(event) => setMode(event.target.value)}
               className="border-rule bg-noir-2 text-bone border px-2 py-1"
             >
-              {manifest.modes.map((one, index) => (
-                <option key={one.name} value={index}>
+              {games.map((one) => (
+                <option key={one.name} value={one.name}>
                   {gameName(intl, one.name)}
                 </option>
               ))}
@@ -156,7 +139,6 @@ export function Atlases({
                   values={{ found: card.found, regions: card.regions }}
                 />
               </span>
-              {/* ISO, like every other date here: it is an address as much as a caption. */}
               <span className="label text-ash-lit">
                 <FormattedMessage {...says.touched} values={{ date: card.touched }} />
               </span>

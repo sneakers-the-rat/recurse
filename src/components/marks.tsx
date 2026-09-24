@@ -179,17 +179,10 @@ export const Wordmark = () => (
  * icons. The letters mark carries far more detail in the same box and so reads heavier at the
  * same weight; that is the cost of the two being legibly one system.
  *
- * **The open game's mark is three words and two moves**, which is the smallest thing this game
- * draws that is recognisably a board — and the same unit the calendar schedules by. The other
- * two marks say what a *word* is here, by spelling or by sound; the open game does not change
- * what a word is, it changes what you are looking at, so its mark is the graph rather than the
- * alphabet. Circles and lines at the same weight, which is also what the plate is drawn in.
+ * The open game's mark is three words joined by two moves: a graph rather than an alphabet.
  *
  * **A game with no icon draws nothing**, and the caller falls back to its name. Same rule as
- * `bandName`: adding a mode must not be able to break a screen that has never heard of it. It
- * is not a comfortable fallback, though — on the masthead the name is a second whole word on a
- * row that is three things wide, and it is what made the switch wrap on a map before this one
- * existed.
+ * `bandName`: adding a mode must not be able to break a screen that has never heard of it.
  */
 const GAME_ICONS: Record<string, string> = {
   letters: 'icons/letters.svg',
@@ -233,14 +226,7 @@ export function hasGameIcon(game: string): boolean {
  */
 export const Query = () => <>?</>;
 
-/**
- * The plus on the power that puts a word straight onto an open map.
- *
- * The same argument as `Query`, and the same glyph as the sign on a move that adds letters —
- * which is not a coincidence worth avoiding: both mean something arriving on the board, and a
- * player who has learnt one reads the other. Bare rather than `MoveSign`, because this is not a
- * move and has no direction to colour itself by; the button it sits on carries the words.
- */
+/** The plus on the open map's power that drops a word onto it. Uncoloured: it is not a move. */
 export const Plus = () => <>+</>;
 
 /**

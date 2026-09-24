@@ -110,11 +110,8 @@ pub struct Mode {
 
     pub min_word: usize,
     pub min_sub: usize,
-    /// Smallest common-graph component that is part of the explore mode's map.
-    ///
-    /// Not a rule about words: a word below this is still legal, still in the shipped
-    /// dictionary and still a fine guess on a daily board. It decides only which words the
-    /// atlas draws, and so moves no vocabulary digest and renames no puzzle. See regions.rs.
+    /// Smallest common-graph component on the open map. Words in smaller ones stay legal; this
+    /// moves no vocabulary digest. See regions.rs.
     pub min_component: usize,
     pub legal_scowl: u32,
     pub common_scowl: u32,
@@ -168,6 +165,10 @@ pub struct Mode {
     /// against. The one mistake it can make is being the *current* vocabulary, which is a
     /// paste into the wrong line and which `build_mode` refuses.
     pub was_vocab: Vec<String>,
+    /// For an open-map graph, the daily game it maps and inherits unset keys from; `None` for a
+    /// daily game. Such a mode has no bands or bank and is built only to `Want::Graphs`. See
+    /// `parse_explore`.
+    pub of: Option<String>,
 }
 
 impl Mode {
@@ -223,7 +224,11 @@ impl Mode {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub shared: Shared,
+    /// The daily games the bank holds.
     pub modes: Vec<Mode>,
+    /// The open map's graphs. See `parse_explore`. The manifest lists them after `modes`, so a
+    /// band's `mode` index is unaffected by them.
+    pub explore: Vec<Mode>,
     pub audit: Audit,
 }
 
@@ -269,10 +274,12 @@ impl Audit {
 /// `minSub` becomes `RECURSE_MIN_SUB`, and `RECURSE_PHONEMES_MIN_SUB` for one mode. The
 /// taste loop runs on these — `RECURSE_MAX_SWAPS=1 npm run data` — so they had to survive
 /// the move out of a file that was nothing but environment variables.
+///
+/// A hyphen in a mode's name becomes an underscore: `RECURSE_EXPLORE_LETTERS_MIN_WORD`.
 fn env_name(mode: Option<&str>, key: &str) -> String {
     let mut out = String::from("RECURSE_");
     if let Some(mode) = mode {
-        out.push_str(&mode.to_ascii_uppercase());
+        out.push_str(&mode.to_ascii_uppercase().replace('-', "_"));
         out.push('_');
     }
     for (i, ch) in key.chars().enumerate() {
@@ -289,12 +296,11 @@ fn env_name(mode: Option<&str>, key: &str) -> String {
 /// A mode's own entry beats `defaults`, and an environment variable beats both — the
 /// mode-scoped one first, so `RECURSE_PHONEMES_MIN_SUB=1` moves one game and
 /// `RECURSE_MIN_SUB=1` moves all of them.
+/// An open-map graph's chain also includes its parent game's block; see `parse_explore`.
 struct Lookup<'a> {
     mode: Option<&'a str>,
-    /// The mode's own block, when there is one.
-    own: &'a Yaml,
-    /// The `defaults` block, or the `shared` block for shared keys.
-    fallback: &'a Yaml,
+    /// Blocks to ask, most specific first.
+    chain: Vec<&'a Yaml>,
 }
 
 impl Lookup<'_> {
@@ -308,7 +314,7 @@ impl Lookup<'_> {
         if let Ok(value) = std::env::var(env_name(None, key)) {
             return Some(value);
         }
-        for source in [self.own, self.fallback] {
+        for source in &self.chain {
             match &source[key] {
                 Yaml::BadValue | Yaml::Null => continue,
                 found => return scalar(found),
@@ -333,7 +339,7 @@ impl Lookup<'_> {
     /// Not overridable by an environment variable: these are the ban lists, and a comma
     /// separated word list in a shell is a worse way to edit them than the file is.
     fn words(&self, key: &str) -> Result<Vec<String>, String> {
-        for source in [self.own, self.fallback] {
+        for source in &self.chain {
             match &source[key] {
                 Yaml::BadValue | Yaml::Null => continue,
                 Yaml::Array(items) => {
@@ -352,7 +358,7 @@ impl Lookup<'_> {
 
     /// A list of lists of strings, from the file only. See `words`.
     fn word_sets(&self, key: &str) -> Result<Vec<Vec<String>>, String> {
-        for source in [self.own, self.fallback] {
+        for source in &self.chain {
             match &source[key] {
                 Yaml::BadValue | Yaml::Null => continue,
                 Yaml::Array(items) => {
@@ -389,7 +395,7 @@ impl Lookup<'_> {
         if let Ok(value) = std::env::var(env_name(None, key)) {
             return split_numbers(&value).ok_or_else(bad);
         }
-        for source in [self.own, self.fallback] {
+        for source in &self.chain {
             match &source[key] {
                 Yaml::BadValue | Yaml::Null => continue,
                 Yaml::Array(items) => {
@@ -447,9 +453,8 @@ impl Config {
             .first()
             .ok_or_else(|| format!("{FILE} is empty"))?;
 
-        let none = Yaml::BadValue;
         let shared_block = &doc["shared"];
-        let shared_at = Lookup { mode: None, own: shared_block, fallback: &none };
+        let shared_at = Lookup { mode: None, chain: vec![shared_block] };
         let shared = Shared {
             epoch: crate::date::Date::parse(&shared_at.want("epoch")?)?,
             seed: shared_at.num("seed")? as u64,
@@ -483,45 +488,17 @@ impl Config {
         for entry in listed {
             let name = scalar(&entry["name"])
                 .ok_or_else(|| "every mode needs a `name`".to_string())?;
-            let at = Lookup { mode: Some(&name), own: entry, fallback: defaults };
-            let bands: Vec<String> = at.words("bands")?;
-            let mode = Mode {
-                alphabet: Alphabet::parse(&at.want("alphabet")?)
-                    .map_err(|e| format!("mode {name}: {e}"))?,
-                band_cuts: at.numbers("bandCuts")?,
-                band_base,
-                id_chars: shared.id_chars,
-                min_word: at.num("minWord")?,
-                min_sub: at.num("minSub")?,
-                min_component: at.num("minComponent")?,
-                legal_scowl: at.num("legalScowl")? as u32,
-                common_scowl: at.num("commonScowl")? as u32,
-                slack: at.num("slack")?,
-                min_par: at.num("minPar")?,
-                max_par: at.num("maxPar")?,
-                min_source_moves: at.num("minSourceMoves")?,
-                max_alt_ways: at.num("altWays")?,
-                alt_slack: at.num("altSlack")?,
-                min_divergence: at.num("minDivergence")?,
-                around_percent: at.num("aroundPercent")?,
-                link_reach: at.num("linkReach")?,
-                min_internal: at.num("minInternal")?,
-                max_swaps: at.num("maxSwaps")?,
-                min_alt_nodes: at.num("minAltNodes")?,
-                too_frequent: at.words("tooFrequent")?,
-                too_frequent_clusters: at.word_sets("tooFrequentClusters")?,
-                vocab: at.raw("vocab"),
-                was_vocab: at.words("wasVocab")?,
-                bands,
-                name: name.clone(),
-            };
+            let at = Lookup { mode: Some(&name), chain: vec![entry, defaults] };
+            let mode = parse_mode(&name, &at, None, band_base, &shared)?;
             check(&mode).map_err(|e| format!("mode {name}: {e}"))?;
             band_base += mode.bands.len();
             modes.push(mode);
         }
 
+        let explore = parse_explore(&doc["explore"], listed, defaults, &shared, &modes)?;
+
         let mut seen: Vec<&str> = Vec::new();
-        for mode in &modes {
+        for mode in modes.iter().chain(&explore) {
             if seen.contains(&mode.name.as_str()) {
                 return Err(format!(
                     "two modes are called {:?} — a mode's name is part of its cache key and \
@@ -534,6 +511,7 @@ impl Config {
 
         Ok(Config {
             shared,
+            explore,
             modes,
             // Not in the file: a way of looking at the bank, not a property of it.
             audit: Audit::parse(std::env::var("RECURSE_AUDIT").ok().as_deref()),
@@ -595,12 +573,139 @@ fn parse_sources(block: &Yaml) -> Result<BTreeMap<String, String>, String> {
     Ok(out)
 }
 
+/// One mode, for either list.
+fn parse_mode(
+    name: &str,
+    at: &Lookup,
+    of: Option<String>,
+    band_base: usize,
+    shared: &Shared,
+) -> Result<Mode, String> {
+    Ok(Mode {
+        alphabet: Alphabet::parse(&at.want("alphabet")?)
+            .map_err(|e| format!("mode {name}: {e}"))?,
+        bands: at.words("bands")?,
+        band_cuts: at.numbers("bandCuts")?,
+        band_base,
+        id_chars: shared.id_chars,
+        min_word: at.num("minWord")?,
+        min_sub: at.num("minSub")?,
+        min_component: at.num("minComponent")?,
+        legal_scowl: at.num("legalScowl")? as u32,
+        common_scowl: at.num("commonScowl")? as u32,
+        slack: at.num("slack")?,
+        min_par: at.num("minPar")?,
+        max_par: at.num("maxPar")?,
+        min_source_moves: at.num("minSourceMoves")?,
+        max_alt_ways: at.num("altWays")?,
+        alt_slack: at.num("altSlack")?,
+        min_divergence: at.num("minDivergence")?,
+        around_percent: at.num("aroundPercent")?,
+        link_reach: at.num("linkReach")?,
+        min_internal: at.num("minInternal")?,
+        max_swaps: at.num("maxSwaps")?,
+        min_alt_nodes: at.num("minAltNodes")?,
+        too_frequent: at.words("tooFrequent")?,
+        too_frequent_clusters: at.word_sets("tooFrequentClusters")?,
+        vocab: at.raw("vocab"),
+        was_vocab: at.words("wasVocab")?,
+        name: name.to_string(),
+        of,
+    })
+}
+
+/// Keys an open-map graph does not inherit from its parent, being about a bank. An inherited
+/// `vocab:` would declare the parent's digest and stop the build. `bands`, `bandCuts` and
+/// `wasVocab` are refused if written in the entry; `vocab` is read from the entry alone.
+const NOT_INHERITED: [&str; 4] = ["vocab", "wasVocab", "bands", "bandCuts"];
+
+/// The `explore:` list: one graph per game the open map is played on.
+///
+/// Each entry names its game with `of:` and takes any key it does not set from that game's
+/// block, then from `defaults`, except `NOT_INHERITED`. It is a separate list from `modes:`
+/// so that nothing reading `modes` (calendar, rules, shards, band indices) has to skip it.
+fn parse_explore(
+    block: &Yaml,
+    listed: &[Yaml],
+    defaults: &Yaml,
+    shared: &Shared,
+    modes: &[Mode],
+) -> Result<Vec<Mode>, String> {
+    let entries = match block {
+        Yaml::BadValue | Yaml::Null => return Ok(Vec::new()),
+        Yaml::Array(entries) => entries,
+        _ => {
+            return Err(format!(
+                "{FILE}'s `explore:` should be a list of the open game's graphs, each with a \
+                 `name` and the `of:` game it is a map of"
+            ))
+        }
+    };
+
+    let mut out: Vec<Mode> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let name = scalar(&entry["name"])
+            .ok_or_else(|| "every explore graph needs a `name`".to_string())?;
+        let of = scalar(&entry["of"]).ok_or_else(|| {
+            format!(
+                "explore {name}: needs `of:` — the game it is a map of, which is also where it \
+                 takes every knob it does not set for itself"
+            )
+        })?;
+        let parent = listed
+            .iter()
+            .find(|one| scalar(&one["name"]).as_deref() == Some(of.as_str()))
+            .ok_or_else(|| {
+                format!(
+                    "explore {name}: `of: {of}` names no mode. {FILE} has: {}",
+                    modes.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join(", "),
+                )
+            })?;
+        for key in NOT_INHERITED {
+            if matches!(&entry[key], Yaml::BadValue | Yaml::Null) {
+                continue;
+            }
+            if key == "bands" || key == "bandCuts" {
+                return Err(format!(
+                    "explore {name}: `{key}` is about a run of daily puzzles and an open game \
+                     has none — it has no par, no day and no calendar to be a position in"
+                ));
+            }
+        }
+        // Its own block only, for `NOT_INHERITED`.
+        let mine = Lookup { mode: Some(&name), chain: vec![entry] };
+        let at = Lookup { mode: Some(&name), chain: vec![entry, parent, defaults] };
+        let mut mode = parse_mode(&name, &at, Some(of.clone()), 0, shared)?;
+        mode.bands = Vec::new();
+        mode.band_cuts = Vec::new();
+        mode.vocab = mine.raw("vocab");
+        mode.was_vocab = mine.words("wasVocab")?;
+        check(&mode).map_err(|e| format!("explore {name}: {e}"))?;
+        if !mode.was_vocab.is_empty() {
+            return Err(format!(
+                "explore {name}: `wasVocab` forwards the addresses of boards built under an \
+                 older word list, and an open game has no boards and no addresses"
+            ));
+        }
+        out.push(mode);
+    }
+    Ok(out)
+}
+
 fn check(mode: &Mode) -> Result<(), String> {
-    // The mode name goes into every puzzle id in the mode (see id.rs) and into the manifest
-    // JSON unescaped, so it has to be a word rather than an arbitrary string: a name holding a
-    // quote or a comma could make one id's input read as another's.
-    if mode.name.is_empty() || !mode.name.chars().all(|c| c.is_ascii_lowercase()) {
-        return Err("a name is lowercase ascii letters — it goes into every id in the mode".into());
+    // The mode name goes into every puzzle id in the mode (see id.rs), into the manifest JSON
+    // unescaped, and names its data directory, so it is restricted to lowercase letters and
+    // inner hyphens: a quote or a comma could make one id's input read as another's.
+    if mode.name.is_empty()
+        || !mode.name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        || mode.name.starts_with('-')
+        || mode.name.ends_with('-')
+    {
+        return Err(
+            "a name is lowercase ascii letters, with hyphens inside it — it goes into every id \
+             in the mode and names the directory its files are fetched from"
+                .into(),
+        );
     }
     if let Some(declared) = mode.vocab.as_deref() {
         check_digest("vocab", declared)?;
@@ -618,8 +723,6 @@ fn check(mode: &Mode) -> Result<(), String> {
     if mode.min_sub < 1 {
         return Err("minSub must be at least 1".into());
     }
-    // One means every component counts, which is what "no filter" looks like; zero would ask
-    // for components of no words and reads as a typo for that.
     if mode.min_component < 1 {
         return Err("minComponent must be at least 1 — one keeps every component".into());
     }
@@ -629,6 +732,10 @@ fn check(mode: &Mode) -> Result<(), String> {
     //         mode.min_word, mode.min_sub
     //     ));
     // }
+    // The checks below are about a bank, which an open-map graph does not have.
+    if mode.of.is_some() {
+        return Ok(());
+    }
     if mode.min_par > mode.max_par {
         return Err("minPar must not exceed maxPar".into());
     }
@@ -698,6 +805,16 @@ mod tests {
 
     /// Enough of a file to load, so a test can say what it is about and nothing else.
     fn config(modes: &str) -> Result<Config, String> {
+        explored(modes, "")
+    }
+
+    /// The same, with an `explore:` list.
+    fn explored(modes: &str, explore: &str) -> Result<Config, String> {
+        let open = if explore.is_empty() {
+            String::new()
+        } else {
+            format!("explore:\n{explore}")
+        };
         Config::parse(&format!(
             "shared:\n  epoch: 2025-01-01\n  seed: 1\n  idChars: 12\n  minGap: 45\n\
              defaults:\n  alphabet: letters\n  minWord: 4\n  minSub: 2\n  legalScowl: 80\n  \
@@ -705,8 +822,82 @@ mod tests {
              altWays: 4\n  altSlack: 4\n  minDivergence: 2\n  aroundPercent: 45\n  \
              linkReach: 3\n  minInternal: 1\n  maxSwaps: 0\n  minAltNodes: 4\n  \
              minComponent: 3\n\
-             modes:\n{modes}"
+             modes:\n{modes}{open}"
         ))
+    }
+
+    /// Two modes to hang an `explore:` block off.
+    const GAMES: &str =
+        "  - name: letters\n    bands: [short, medium, long]\n    bandCuts: [4, 6]\n\
+         \x20 - name: phonemes\n    alphabet: phonemes\n    minWord: 3\n    minSub: 2\n\
+         \x20   bands: [short, medium, long]\n    bandCuts: [4, 6]\n";
+
+    #[test]
+    fn an_explore_graph_inherits_the_game_it_is_a_map_of() {
+        let loaded = explored(
+            GAMES,
+            "  - name: explore-letters\n    of: letters\n    minWord: 3\n\
+             \x20 - name: explore-phonemes\n    of: phonemes\n",
+        )
+        .expect("loads");
+        assert_eq!(loaded.modes.len(), 2);
+        assert_eq!(loaded.explore.len(), 2);
+
+        let letters = &loaded.explore[0];
+        assert_eq!(letters.of.as_deref(), Some("letters"));
+        assert_eq!(letters.min_word, 3);
+        // From `defaults`, by way of the letters mode, which restates neither.
+        assert_eq!(letters.alphabet, Alphabet::Letters);
+        assert_eq!(letters.min_sub, 2);
+        assert_eq!(letters.min_component, 3);
+
+        let phonemes = &loaded.explore[1];
+        assert_eq!(phonemes.alphabet, Alphabet::Phonemes);
+        assert_eq!(phonemes.min_word, 3);
+    }
+
+    #[test]
+    fn an_explore_graph_has_no_bands_and_does_not_move_the_ones_there_are() {
+        let loaded = explored(GAMES, "  - name: explore-letters\n    of: letters\n")
+            .expect("loads");
+        assert!(loaded.explore[0].bands.is_empty());
+        assert!(loaded.explore[0].band_cuts.is_empty());
+        assert_eq!(loaded.band_count(), 6);
+        assert_eq!(loaded.modes[1].global_band(0), 3);
+    }
+
+    #[test]
+    fn an_explore_graph_takes_no_vocabulary_or_bands_from_its_parent() {
+        let loaded = explored(
+            "  - name: letters\n    bands: [a]\n    vocab: e4c1f7b6\n\
+             \x20   wasVocab: [68336fe4]\n",
+            "  - name: explore-letters\n    of: letters\n    minWord: 3\n",
+        )
+        .expect("loads");
+        assert_eq!(loaded.explore[0].vocab, None);
+        assert!(loaded.explore[0].was_vocab.is_empty());
+        assert_eq!(loaded.modes[0].vocab.as_deref(), Some("e4c1f7b6"));
+    }
+
+    #[test]
+    fn refuses_an_explore_graph_that_is_a_map_of_nothing() {
+        let bad = explored(GAMES, "  - name: explore-runes\n    of: runes\n");
+        assert!(bad.unwrap_err().contains("names no mode"));
+    }
+
+    #[test]
+    fn refuses_an_explore_graph_that_asks_for_bands() {
+        let bad = explored(
+            GAMES,
+            "  - name: explore-letters\n    of: letters\n    bands: [short]\n",
+        );
+        assert!(bad.unwrap_err().contains("open game"));
+    }
+
+    #[test]
+    fn refuses_an_explore_graph_named_after_a_game() {
+        let bad = explored(GAMES, "  - name: letters\n    of: letters\n");
+        assert!(bad.unwrap_err().contains("two modes are called"));
     }
 
     #[test]

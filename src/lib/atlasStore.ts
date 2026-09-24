@@ -1,95 +1,59 @@
 /**
- * Where a map is kept.
+ * Where maps are kept: IndexedDB, not storage.ts's localStorage, because a full map with its
+ * layout is too big for localStorage's quota.
  *
- * **Its own store, and not storage.ts's.** The five keys there are synchronous, small, and
- * read before the first paint; a map is none of those things. A full letters map is nine
- * thousand words with a position apiece, and several of those would be most of a browser's
- * five-megabyte localStorage budget — so this is IndexedDB, which has no such ceiling and
- * takes a `Float32Array` whole rather than as a string of digits.
- *
- * Asynchronous, therefore, and that costs nothing: a map cannot be drawn until its mode's
- * graph has been fetched, which is already an await.
- *
- * The promise storage.ts makes is kept here too: **nothing throws**. A browser in private
- * mode, a quota refusal, a database somebody's extension has broken — every one of them comes
- * back as "no maps" or "not saved", never as a screen that will not load. A map is a thing
- * somebody has spent hours on, so a failure to *write* is worth saying out loud; a failure to
- * open the database at all is not worth crashing over.
+ * Nothing throws. A failed read is "no maps"; a failed write returns false.
  */
 
 import type { AtlasSave } from './atlas';
+import type { Remembered } from './atlasLayout';
 import type { Point } from './types';
 
 const DB = 'recurse.atlases';
 const STORE = 'atlases';
 /**
- * Bumped when the stored shape changes, which retires every map in the browser.
- *
- * Deliberately blunt: a map is not a score and cannot be migrated field by field, so a change
- * this cannot read is a change that starts people over. Anything short of that belongs in
- * `loadAtlas`, which is total and drops what it cannot make sense of.
+ * The database version. Bumping it discards every stored map; smaller changes belong in
+ * `loadAtlas`, which drops what it cannot read.
  */
 const VERSION = 1;
 
 /**
- * Where the words of a map sit, packed.
- *
- * Three parallel arrays rather than a map of objects: nine thousand `{x, y}` objects is nine
- * thousand allocations to write and as many to read, and structured clone stores a
- * `Float32Array` as bytes. Offsets rather than absolute positions, because an offset is what
- * survives its territory moving — see `remember` in atlasLayout.
+ * A map's layout as parallel typed arrays, which structured clone stores compactly. Words are
+ * stored as offsets within their region, so they keep their place when a region moves.
  */
 export interface PackedLayout {
   words: string[];
+  /** Offset of each word from its region's centre. */
   x: Float32Array;
   y: Float32Array;
-  /** Region index, then its centre: the same three arrays one scale up. */
+  /** Region indices in `Regions`, and each region's position. */
   regions: Int32Array;
   cx: Float32Array;
   cy: Float32Array;
-  radius: Float32Array;
 }
 
 export interface AtlasRecord {
   id: string;
-  /** Which game this is a map of, by the manifest's own name for it. */
+  /** The game this maps, by its manifest name. */
   mode: string;
-  /**
-   * The vocabulary this map's words were found in.
-   *
-   * Not a tripwire the way `vocab:` in recurse.yaml is — a map holds words rather than indices,
-   * so a corpus that has moved costs it whatever words left and nothing else. It is here to say
-   * *why*, when somebody's map has quietly lost a word.
-   */
+  /** The vocabulary digest the words were found in, for explaining a word that has gone. */
   vocab: string;
   name: string;
-  /** `YYYY-MM-DD`, the way every other date in this game is written. */
+  /** `YYYY-MM-DD`. */
   made: string;
   touched: string;
   /**
-   * When this map was last opened, to the millisecond.
-   *
-   * **A map is remembered rather than addressed** — `explore/letters` names the *game*, and which
-   * of your letters maps is in front of you is whichever you played last — so something has to
-   * say which one that is. `touched` was it, and a day is not fine enough to try: two maps
-   * opened on the same day tie on a `YYYY-MM-DD`, the sort below is stable, and what then broke
-   * the tie was IndexedDB's own key order over random ids. Making a second map today opened the
-   * first one instead, at random.
-   *
-   * A finer date and not a pointer, for two reasons: a pointer at a map that has been deleted
-   * dangles, and the date the card *shows* is a different question with a different answer —
-   * see `explore.touched`, where the day is the whole of what is worth saying.
-   *
-   * Optional, because a map written before this existed has no answer and falls back to its day.
+   * When the map was last opened, in milliseconds. A game shows its most recently opened map,
+   * and `touched` is only a day, so it cannot order two maps opened on the same day. Absent on
+   * older records, which fall back to `touched`.
    */
   opened?: number;
   save: AtlasSave;
   layout: PackedLayout | null;
-  /** Where the player was looking, so the map opens where they left it. */
   camera: { cx: number; cy: number; scale: number } | null;
 }
 
-/** What a list of maps shows, without reading the maps themselves. */
+/** What the list of maps shows. */
 export interface AtlasCard {
   id: string;
   mode: string;
@@ -106,8 +70,7 @@ function db(): Promise<IDBDatabase | null> {
       const wanted = indexedDB.open(DB, VERSION);
       wanted.onupgradeneeded = () => {
         const open = wanted.result;
-        // One store, keyed by the map's own id. No indices: a browser holds a handful of maps
-        // and the list is read whole.
+        // No indices: the list is always read whole.
         if (!open.objectStoreNames.contains(STORE)) open.createObjectStore(STORE, { keyPath: 'id' });
       };
       wanted.onsuccess = () => resolve(wanted.result);
@@ -140,11 +103,8 @@ function run<T>(
 }
 
 /**
- * Every map this browser holds, **most recently opened first**.
- *
- * That order is not decoration: the first card of a game is the map that game comes back to —
- * see `open` in Explore.tsx — so it has to be a total order and not one with ties in it. Sorted
- * before the cards are built, because what it sorts on is not on a card. See `opened`.
+ * Every stored map, most recently opened first. Explore.tsx opens a game's first card, so the
+ * order matters; see `opened`.
  */
 export async function listAtlases(): Promise<AtlasCard[]> {
   const all = await run<AtlasRecord[]>('readonly', (store) => store.getAll(), []);
@@ -157,14 +117,12 @@ export async function listAtlases(): Promise<AtlasCard[]> {
       name: one.name,
       made: one.made,
       touched: one.touched,
-      // Counted off the save rather than stored, so a figure cannot drift from the map it is
-      // about. The start, everything walked to, and everything dropped.
       found: countFound(one.save),
-      regions: new Set(one.layout?.regions ?? []).size,
+      regions: one.layout?.regions?.length ?? 0,
     }));
 }
 
-/** When a map was last opened, falling back to its day for one written before that was kept. */
+/** `opened`, or `touched` for a record without one. */
 function lastOpened(one: AtlasRecord): number {
   if (typeof one.opened === 'number' && Number.isFinite(one.opened)) return one.opened;
   return Date.parse(one.touched ?? '') || 0;
@@ -187,7 +145,7 @@ export async function readAtlas(id: string): Promise<AtlasRecord | null> {
   return found ?? null;
 }
 
-/** Write one. Answers whether it went in, because losing a map is worth saying. */
+/** Whether the write succeeded. */
 export async function writeAtlas(record: AtlasRecord): Promise<boolean> {
   const done = await run<IDBValidKey | null>('readwrite', (store) => store.put(record), null);
   return done !== null;
@@ -197,56 +155,45 @@ export async function removeAtlas(id: string): Promise<void> {
   await run<undefined>('readwrite', (store) => store.delete(id), undefined);
 }
 
-/**
- * A name for a new map, unique enough to tell two apart in a list.
- *
- * Not a digest of anything: a map is local, nobody else will ever open it, and an address
- * nobody shares has nothing to be collision-proof about. Random, short, and in the same
- * alphabet a path segment wants — see `pageArg` in route.ts.
- */
+/** A random id for a new map. Maps are local, so it only needs to be unique in one browser. */
 export function newAtlasId(): string {
   const bytes = new Uint8Array(6);
   crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => byte.toString(36).padStart(2, '0')).join('');
 }
 
-/** Pack an arrangement for storage. */
-export function pack(
-  offsets: ReadonlyMap<string, Point>,
-  centres: ReadonlyMap<number, Point>,
-  radii: ReadonlyMap<number, number>,
-): PackedLayout {
-  const words = [...offsets.keys()];
+export function pack(settled: Remembered): PackedLayout {
+  const words = [...settled.offsets.keys()];
   const x = new Float32Array(words.length);
   const y = new Float32Array(words.length);
   words.forEach((word, at) => {
-    const point = offsets.get(word)!;
+    const point = settled.offsets.get(word)!;
     x[at] = point.x;
     y[at] = point.y;
   });
 
-  const regions = [...centres.keys()];
-  const packed = new Int32Array(regions.length);
-  const cx = new Float32Array(regions.length);
-  const cy = new Float32Array(regions.length);
-  const radius = new Float32Array(regions.length);
-  regions.forEach((region, at) => {
-    packed[at] = region;
-    cx[at] = centres.get(region)!.x;
-    cy[at] = centres.get(region)!.y;
-    radius[at] = radii.get(region) ?? 0;
+  const seats = [...settled.places.keys()];
+  const regions = new Int32Array(seats.length);
+  const cx = new Float32Array(seats.length);
+  const cy = new Float32Array(seats.length);
+  seats.forEach((region, at) => {
+    const point = settled.places.get(region)!;
+    regions[at] = region;
+    cx[at] = point.x;
+    cy[at] = point.y;
   });
 
-  return { words, x, y, regions: packed, cx, cy, radius };
+  return { words, x, y, regions, cx, cy };
 }
 
-/** And read one back. Anything malformed comes back as nothing remembered, not as a throw. */
-export function unpack(layout: PackedLayout | null | undefined): {
-  offsets: Map<string, Point>;
-  centres: Map<number, Point>;
-  radii: Map<number, number>;
-} | null {
+/**
+ * Read a layout back, or null if malformed. A layout with no regions holds absolute positions,
+ * not offsets, and is discarded; the map itself is unaffected.
+ */
+export function unpack(layout: PackedLayout | null | undefined): Remembered | null {
   if (!layout || !Array.isArray(layout.words)) return null;
+  if (!layout.regions || layout.regions.length === 0) return null;
+
   const offsets = new Map<string, Point>();
   for (const [at, word] of layout.words.entries()) {
     const x = layout.x?.[at];
@@ -254,14 +201,15 @@ export function unpack(layout: PackedLayout | null | undefined): {
     if (typeof word !== 'string' || x === undefined || y === undefined) continue;
     offsets.set(word, { x, y });
   }
-  const centres = new Map<number, Point>();
-  const radii = new Map<number, number>();
-  for (const [at, region] of (layout.regions ?? []).entries()) {
+
+  const places = new Map<number, Point>();
+  for (let at = 0; at < layout.regions.length; at++) {
+    const region = layout.regions[at];
     const x = layout.cx?.[at];
     const y = layout.cy?.[at];
-    if (x === undefined || y === undefined) continue;
-    centres.set(region, { x, y });
-    radii.set(region, layout.radius?.[at] ?? 0);
+    if (region === undefined || x === undefined || y === undefined) continue;
+    places.set(region, { x, y });
   }
-  return { offsets, centres, radii };
+
+  return { offsets, places };
 }

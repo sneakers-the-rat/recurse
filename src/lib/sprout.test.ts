@@ -1,14 +1,5 @@
-/**
- * What an arrival's timing has to be true of.
- *
- * How it *looks* is taste and the contact sheet's business. What can be asserted is the four
- * promises the schedule is for: the word the player reached is first, a big arrival takes longer
- * than a small one, a move waits for the word at the end of it, and the same guess is timed the
- * same way twice.
- */
-
 import { describe, expect, it } from 'vitest';
-import { dice, entrances, NO_ENTRANCE } from './sprout';
+import { dice, entrances, NO_ENTRANCE, REACH_SPREAD } from './sprout';
 
 const edgesOf = (...pairs: [string, string][]) => pairs.map(([a, b]) => ({ a, b }));
 
@@ -26,14 +17,11 @@ describe('entrances', () => {
     }
   });
 
-  /** The whole point: what a big guess opened up is what it is paid in. */
   it('takes longer the more of the map a guess opened', () => {
     const rim = (count: number) =>
       new Set(['hub', ...Array.from({ length: count }, (_unused, i) => `word${i}`)]);
     const reached = (word: string) => word === 'hub';
-    // The *last* word out, rather than the span: a two-word arrival's span is mostly the time
-    // one word takes to grow, and what scales with the size of the guess is the queue in front
-    // of it.
+    // The last delay rather than the span, which for a small arrival is mostly one word's growth.
     const last = (count: number) =>
       Math.max(...[...entrances(rim(count), reached, []).nodes.values()].map((one) => one.delay));
     expect(last(20)).toBeGreaterThan(last(2) * 3);
@@ -52,10 +40,6 @@ describe('entrances', () => {
     expect(entrances(arriving, () => false, []).nodes).toEqual(timed.nodes);
   });
 
-  /**
-   * A move drawn to a word still on its way looks like the line came first and the word slid
-   * down it.
-   */
   it('holds a move back until the word at the far end is mostly out', () => {
     const timed = entrances(new Set(['cage', 'cages']), (word) => word === 'cage', [
       { a: 'cage', b: 'cages' },
@@ -63,19 +47,26 @@ describe('entrances', () => {
     const far = timed.nodes.get('cages')!;
     const edge = timed.edges.get('cage cages')!;
     expect(edge.delay).toBeGreaterThan(far.delay);
-    expect(edge.delay).toBeLessThan(far.delay + far.duration);
+    expect(edge.delay).toBeLessThan(far.delay + far.duration + REACH_SPREAD);
   });
 
-  /**
-   * And a move to somewhere the player already knew waits only on the word that arrived — which
-   * is what makes a big guess look like it joined up rather than merely appeared.
-   */
-  it('draws a move to a word already on the board as soon as the newcomer is out', () => {
+  it('draws a move to a word already on the board off the newcomer alone', () => {
     const timed = entrances(new Set(['cage']), () => true, [{ a: 'cage', b: 'page' }]);
     const arrival = timed.nodes.get('cage')!;
+    const edge = timed.edges.get('cage page')!;
     expect(arrival.delay).toBe(0);
-    expect(timed.edges.get('cage page')!.delay).toBeGreaterThan(0);
-    expect(timed.edges.get('cage page')!.delay).toBeLessThan(arrival.duration);
+    expect(edge.delay).toBeGreaterThan(0);
+    expect(edge.delay).toBeLessThan(arrival.duration + REACH_SPREAD);
+  });
+
+  it('spreads the moves out of one word over time', () => {
+    const timed = entrances(new Set(['cage']), () => true, [
+      { a: 'cage', b: 'page' },
+      { a: 'cage', b: 'rage' },
+      { a: 'cage', b: 'sage' },
+      { a: 'cage', b: 'wage' },
+    ]);
+    expect(new Set([...timed.edges.values()].map((one) => one.delay)).size).toBeGreaterThan(1);
   });
 
   it('has nothing to say about a move between two words that were both here already', () => {

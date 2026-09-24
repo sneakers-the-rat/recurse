@@ -95,15 +95,9 @@ function segments(path: string, from: string): string[] {
 }
 
 /**
- * What a page's second segment says, or null when it has none.
+ * A page's second segment, lowercased, or null when it has none or the path is another page.
  *
- * Two pages take one and they mean different things by it: `rules/{mode}` names the game
- * whose rules are being stated, and `explore/{atlas}` names which of somebody's saved maps is
- * open. Neither is checked here — which modes and which atlases are real is the manifest's
- * business and the browser's respectively. A name this does not know is a page with nothing
- * to say, the same way an unknown id is a board that is not there.
- *
- * A bare `rules` or `explore` answers null rather than guessing, and so does any other path.
+ * `rules/{game}` and `explore/{game}` both name a game. Whether it exists is not checked here.
  */
 export function pageArg(page: Page, path: string, from: string = base()): string | null {
   const parts = segments(path, from);

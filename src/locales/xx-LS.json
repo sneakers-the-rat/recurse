@@ -1049,12 +1049,6 @@
       "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
-  "dev.shown": [
-    {
-      "type": 0,
-      "value": "shownSSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
   "dev.solve": [
     {
       "type": 0,
@@ -1083,6 +1077,18 @@
     {
       "type": 0,
       "value": "walkSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.walkFrom": [
+    {
+      "type": 0,
+      "value": "fromSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
+  "dev.walkFromLabel": [
+    {
+      "type": 0,
+      "value": "Which word to walk out from, or blank to wanderSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "dev.walkHow": [
@@ -1137,22 +1143,6 @@
     {
       "type": 0,
       "value": "An open map of the whole word graph. No par, no clock, no day: pick a word, and see how much of the language you can reach from it. A map is yours and keeps until you delete it.SSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
-  "explore.cancel": [
-    {
-      "type": 0,
-      "value": "CancelSSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
-  "explore.costs": [
-    {
-      "type": 1,
-      "value": "points"
-    },
-    {
-      "type": 0,
-      "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "explore.drop": [
@@ -1343,12 +1333,6 @@
     {
       "type": 0,
       "value": "Tap a word you have not found.SSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
-  "explore.newAtlas": [
-    {
-      "type": 0,
-      "value": "New mapSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "explore.noMaps": [

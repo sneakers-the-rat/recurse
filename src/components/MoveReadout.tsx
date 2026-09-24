@@ -38,16 +38,8 @@ interface Props {
   /** Dim the whole readout once the guess has been rejected. */
   muted?: boolean;
   /**
-   * Somewhere this word would take you, when it is not a move from here.
-   *
-   * The explore mode's fast travel, said *before* Guess is pressed — which is the whole point
-   * of it: a word already on the map is somewhere to stand, and typing its name jumps there
-   * rather than being refused for not being a move. Absent in the daily game, where a word
-   * that is not a move is simply not a move.
-   *
-   * It only ever shows when nothing plays. A word that is both a move from here and somewhere
-   * already found is a *move*, and describing it as travel would tell the player their guess
-   * did nothing.
+   * The open map's fast travel: the found word the typed text would jump to. Shown only when
+   * the text is not a move, since a move takes precedence. Absent in the daily game.
    */
   travel?: string | null;
 }

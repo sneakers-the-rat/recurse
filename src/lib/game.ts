@@ -1,10 +1,8 @@
 /**
  * The daily game's state, as pure functions over an immutable snapshot.
  *
- * What a guess *does* to a board — which words it reveals, where it leaves the cursor, what a
- * repeated move costs — is found.ts, because the explore mode asks the same question of the
- * same graphs. What is here is everything that only makes sense with a puzzle in hand: two
- * ends, a par to beat, hints to buy and a round that finishes.
+ * What a guess does to the board is found.ts's; this adds the puzzle: two ends, par, hints,
+ * and a round that finishes.
  *
  * The rules, as they stand:
  *  - You start with the source word revealed and selected.
@@ -52,12 +50,7 @@ import { judgeGuess } from "./moves";
 import type { Graph, Judgement, Move, Puzzle } from "./types";
 
 
-/**
- * A round of the daily game: what has been found, plus everything a puzzle adds.
- *
- * Extends `Found` structurally rather than nesting it, so every consumer still reads
- * `state.revealed` and `state.log` and a step is `{ ...state, ...step.found }`.
- */
+/** A round of the daily game. Extends `Found`, so a step is `{ ...state, ...step.found }`. */
 export interface GameState extends Found {
   puzzle: Puzzle;
   /** The word new guesses are made from — a revealed one or the goal. See `isFront`. */
@@ -153,15 +146,7 @@ export function isFront(state: GameState, word: string): boolean {
   return state.revealed.has(word) || word === state.puzzle.target;
 }
 
-/**
- * What the board is showing, for deciding where a guess lands.
- *
- * A typed word can name several nodes and the cursor can only be on one — see `advance` in
- * found.ts. Which of them the player has already seen is a question about the *figure* rather
- * than about the graph, so it comes from `plate.ts` through the caller rather than being
- * worked out here: the board grows as words are found, and only the thing drawing it knows
- * what is on it now.
- */
+/** What the board is showing, from plate.ts via the caller, for ranking where a guess lands. */
 export interface Drawn {
   /** Words on a shortest route — the answer, and the line the board is laid out along. */
   spine: ReadonlySet<string>;
@@ -170,24 +155,9 @@ export interface Drawn {
 }
 
 /**
- * Where a guess that named several words leaves the cursor.
- *
- * **The one already most a part of the board wins**, in four tiers:
- *
- *   an endpoint  — the goal or the word they started from. It finishes the round, and
- *                  standing anywhere else after playing it reads as being ignored.
- *   on the spine — a word on a shortest route: the answer, which is what the board is
- *                  laid out along and what the player is looking for.
- *   drawn        — already on the board somewhere, so they have seen it and it has a place.
- *   new          — a node this guess has just brought into existence.
- *
- * Because a guess that names several tokens usually names one the player meant and one they
- * have never heard of, and landing on the new one leaves them somewhere off to the side
- * wondering what happened.
- *
- * `drawn` is the caller's, because which words are on the board is `plate.ts`'s question and
- * the answer changes as the board grows. Without it only the endpoint tier can be told apart,
- * which is the letters game and every test written before any of this.
+ * Where a guess that named several words lands: an endpoint, then a word on a shortest route,
+ * then any drawn word, then a new one. The player usually meant the familiar one. Without
+ * `drawn` only endpoints are preferred.
  */
 function ranking(puzzle: Puzzle, drawn: Drawn | null): (word: string) => number {
   return (word) =>
@@ -351,10 +321,8 @@ export function moveHint(
  *
  * Only what cannot be derived. `revealed` is the source plus whatever the logged moves
  * landed on, `guesses` is how many *orders* the log holds — one guess can be several moves,
- * see `advance` — and `solved` is whether those moves join the source to the goal, so
- * storing those too would be storing the same facts twice and inviting them to disagree. What
- * is left is the log, where the cursor is (moving it costs nothing, so it leaves no trace in
- * the log), and the two tallies that are not about words at all.
+ * see `newGuess` — and `solved` is whether those moves join the source to the goal. What is
+ * stored is the log, the cursor, and the tallies that are not about words.
  */
 export interface GameSnapshot {
   log: LogEntry[];
@@ -385,13 +353,8 @@ export function snapshot(state: GameState): GameSnapshot {
 /**
  * Rebuild a game from a snapshot, or start a fresh one.
  *
- * Total by construction: what `replay` cannot make sense of is dropped rather than trusted,
- * and so is everything below. A snapshot is a string that was in a browser for a month, and a
- * half-restored map that crashes the board is a far worse outcome than a game that quietly
- * starts again.
- *
- * `spell` is how a token is written, for clamping the hint levels — see `Spell` in hints.ts.
- * Left out, a word is its own spelling, which is the letters game.
+ * Total: anything malformed is dropped, here and in `replay`. `spell` clamps hint levels to
+ * the written form; see `Spell` in hints.ts.
  */
 export function restore(
   puzzle: Puzzle,
@@ -401,7 +364,7 @@ export function restore(
   const fresh = newGame(puzzle);
   if (!saved) return fresh;
 
-  // The goal is the one place a move may start from without having been reached.
+  // A move may also start from the goal.
   const found = replay(saved.log, puzzle.source, new Set([puzzle.target]));
 
   // Levels are clamped to what the word can actually give: a stored 40 on a

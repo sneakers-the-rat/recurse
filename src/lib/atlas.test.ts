@@ -1,11 +1,4 @@
-/**
- * What a map has to be true of.
- *
- * Two halves. The first is the economy — what a mission promises, what a power costs, what
- * spending does — and it is the part with rules in it. The second is that a map survives being
- * written down, which is the same promise `restore` makes about a round and matters more here:
- * a daily board is lost for a day and a map is lost for good.
- */
+/** The open map's guesses, economy and save format, over the shipped letters data. */
 
 import { describe, expect, it } from 'vitest';
 import {
@@ -26,6 +19,7 @@ import {
   SLOTS,
   take,
   travel,
+  spread,
   travelTo,
   wander,
   type Atlas,
@@ -35,18 +29,17 @@ import { buildRegions, type Regions } from './regions';
 import { shippedData, shippedRegions } from '../test/shipped';
 import type { Graph } from './types';
 
-/** The real letters graph and the real map, because both are what a map is played on. */
 const data = shippedData();
 const regions = shippedRegions();
 const graph: Graph = data.graph;
 
-/** Somewhere with room to move: the first word of the biggest territory. */
+/** The first word of the biggest region, so there is room to move. */
 const biggest = [...Array(regions.count).keys()].sort(
   (one, two) => regions.words(two).length - regions.words(one).length,
 )[0]!;
 const START = regions.words(biggest)[0]!;
 
-/** Walk `steps` moves out from a fresh map, so a test has a map with something on it. */
+/** A fresh map after `steps` guesses. */
 function grown(steps: number): Atlas {
   let atlas = openAtlas(START);
   for (let step = 0; step < steps; step++) {
@@ -71,7 +64,6 @@ describe('a guess', () => {
     expect(out.atlas.revealed.has(next)).toBe(true);
     expect(out.atlas.selected).toBe(next);
     expect(out.landed).toBe(next);
-    // A map has no score to keep, so there is nothing for a guess to have cost.
     expect(out.atlas.points).toBe(0);
   });
 
@@ -89,9 +81,7 @@ describe('fast travel', () => {
     const been = [...atlas.revealed.keys()].find((word) => word !== atlas.selected)!;
 
     expect(travelTo(atlas, been)).toBe(been);
-    // Where you already are is not travel.
     expect(travelTo(atlas, atlas.selected)).toBeNull();
-    // Nor is a word that is on the graph but not on this map.
     const unfound = graph.words.find((word) => regions.has(word) && !atlas.revealed.has(word))!;
     expect(travelTo(atlas, unfound)).toBeNull();
   });
@@ -107,12 +97,11 @@ describe('fast travel', () => {
   });
 });
 
-/** How far out everything is from where a map has got to, which is what an offer is priced at. */
 function reach(atlas: Atlas) {
   return hopsFrom(graph, regions, new Set(atlas.revealed.keys()));
 }
 
-/** Put a word on the map without walking to it, for a test that only cares that it is there. */
+/** Put a word on the map without a move. */
 function found(atlas: Atlas, word: string): Atlas {
   return {
     ...atlas,
@@ -133,7 +122,7 @@ describe('missions', () => {
       expect(regions.has(word)).toBe(true);
       expect(hopsTo(word, revealed)).toBe(hops.get(word));
     }
-    // Each a different length of journey, so the choice is a choice.
+    // Each at a different distance.
     expect(new Set(offered.map((word) => hops.get(word))).size).toBe(offered.length);
   });
 
@@ -143,13 +132,12 @@ describe('missions', () => {
     const before = reach(atlas).get(far)!;
     expect(before).toBeGreaterThan(1);
 
-    // A step toward it: stand on whatever is next to it and reveal that. The offer is worth
-    // less than it was, because the offer is only ever worth what it is worth now.
+    // Revealing a neighbour of it makes it nearer.
     const closer = graph.commonNeighbors(far).find((near) => !atlas.revealed.has(near))!;
     const nearer = found(atlas, closer);
     expect(reach(nearer).get(far)).toBeLessThan(before);
 
-    // Taken, it stops moving: that is the whole of what a slot buys.
+    // Once taken, its price is fixed.
     const held = take(atlas, { word: far, hops: before });
     expect(held.taken).toEqual([{ word: far, hops: before }]);
     expect(take(found(held, closer), { word: 'other', hops: 1 }).taken[0]!.hops).toBe(before);
@@ -161,11 +149,9 @@ describe('missions', () => {
     for (let n = 0; n < SLOTS; n++) atlas = take(atlas, { word: `far-${n}`, hops: n + 2 });
     expect(atlas.taken.length).toBe(SLOTS);
 
-    // Every slot full: the next is refused outright rather than pushing one out.
     const crowded = take(atlas, { word: 'one-too-many', hops: 9 });
     expect(crowded).toBe(atlas);
 
-    // And given up one at a time, each freeing its own slot.
     const freed = abandon(atlas, 'far-0');
     expect(freed.taken.map((one) => one.word)).toEqual(['far-1']);
     expect(abandon(freed, 'never-taken')).toBe(freed);
@@ -173,8 +159,6 @@ describe('missions', () => {
 
   it('pays what it promised, however the word was reached', () => {
     const atlas = take(grown(4), { word: 'somewhere', hops: 7 });
-    // Reached by some other road entirely, which is exactly the case re-measuring would
-    // underpay: the player found more of the map on the way and the mission is still done.
     const { atlas: paid, paid: mission } = collect(found(atlas, 'somewhere'));
 
     expect(mission?.hops).toBe(7);
@@ -205,15 +189,12 @@ describe('missions', () => {
     const atlas = refresh(grown(4), reach(grown(4)));
     expect(atlas.offers.length).toBeGreaterThan(0);
 
-    // Untouched while every offer is still out there, which is what lets a price fall without
-    // the table reshuffling under it.
     expect(refresh(atlas, reach(atlas))).toBe(atlas);
 
     const gone = found(atlas, atlas.offers[0]!);
     const again = refresh(gone, reach(gone));
     expect(again.offers).not.toContain(atlas.offers[0]);
 
-    // One taken into a slot is no longer something to choose, and its place is filled.
     const held = take(atlas, { word: atlas.offers[0]!, hops: 5 });
     const after = refresh(held, reach(held));
     expect(after.offers).not.toContain(atlas.offers[0]);
@@ -221,7 +202,7 @@ describe('missions', () => {
   });
 });
 
-/** The distance this test measures for itself, so the assertion is not the code again. */
+/** An independent distance, so the assertion does not reuse `hopsFrom`. */
 function hopsTo(word: string, revealed: ReadonlySet<string>): number {
   const seen = new Set(revealed);
   let frontier = [...revealed];
@@ -240,12 +221,7 @@ function hopsTo(word: string, revealed: ReadonlySet<string>): number {
   return Infinity;
 }
 
-/**
- * The instrument, held to the one promise that makes it useful: what it leaves behind is a map
- * somebody could have played. A walk that put words on the board without moves under them would
- * be a picture of a map, and every layout decision taken by looking at one would be taken
- * against a board the game cannot produce.
- */
+/** The dev instruments must produce maps a player could have made. */
 describe('walking a map', () => {
   it('makes real moves, and stops when it runs out of them', () => {
     // Seeded, so a failure is a board somebody can get back to.
@@ -256,11 +232,9 @@ describe('walking a map', () => {
     expect(walked.revealed.size).toBeGreaterThan(10);
     expect(walked.log.length).toBeGreaterThan(0);
 
-    // Every word on it was either the start or the far end of a move that was made.
     const reached = new Set([START, ...walked.log.map((one) => one.to)]);
     for (const word of walked.revealed.keys()) expect(reached.has(word)).toBe(true);
 
-    // And every move joins two words the graph really joins.
     for (const { from, to } of walked.log) {
       expect(graph.commonNeighbors(from)).toContain(to);
     }
@@ -269,6 +243,39 @@ describe('walking a map', () => {
   it('asks for nothing it cannot have', () => {
     const tiny = wander(openAtlas(START), graph, PLAIN, 0);
     expect(tiny.revealed.size).toBe(1);
+  });
+
+  it('spreads outward from a word, its whole neighbourhood before anything further', () => {
+    const near = graph.commonNeighbors(START);
+    expect(near.length).toBeGreaterThan(1);
+
+    // As many steps as START has neighbours: every one of them, all guessed from START.
+    const rim = spread(openAtlas(START), graph, PLAIN, near.length, START);
+    for (const word of near) expect(rim.revealed.has(word), word).toBe(true);
+    for (const { from } of rim.log) expect(from).toBe(START);
+
+    // Depth is the depth of the word a move was made from, plus one. Breadth first means the
+    // depth moved from never decreases along the log.
+    const further = spread(openAtlas(START), graph, PLAIN, near.length + 12, START);
+    expect(further.revealed.size).toBeGreaterThan(rim.revealed.size);
+    expect(further.log.some((one) => one.from !== START)).toBe(true);
+
+    const depth = new Map([[START, 0]]);
+    let out = 0;
+    for (const { from, to } of further.log) {
+      const here = depth.get(from);
+      expect(here, `${from} was walked from before it was found`).toBeDefined();
+      expect(here!, `${from} after depth ${out}`).toBeGreaterThanOrEqual(out);
+      out = here!;
+      if (!depth.has(to)) depth.set(to, here! + 1);
+    }
+    expect(out).toBeGreaterThan(0);
+  });
+
+  it('will not walk out of somewhere nobody has been', () => {
+    const map = openAtlas(START);
+    const away = graph.commonNeighbors(START)[0]!;
+    expect(spread(map, graph, PLAIN, 20, away)).toBe(map);
   });
 });
 
@@ -283,7 +290,6 @@ describe('powers', () => {
     expect(bought.atlas.hints.get(unfound)).toBe(NAMED);
     expect(bought.atlas.points).toBe(4 - NAME_COST);
 
-    // Nothing more to sell about it.
     const again = name(bought.atlas, unfound);
     expect(again.refusal).toBeDefined();
     expect(again.atlas.points).toBe(bought.atlas.points);
@@ -297,11 +303,7 @@ describe('powers', () => {
     expect(out.atlas).toBe(atlas);
   });
 
-  /**
-   * The price is the letter count and not the distance, and this is the reason: the button
-   * says the price before anything is spent, so a price that was the distance would answer
-   * the question a mission exists to ask.
-   */
+  // See `dropCost`.
   it('price a drop by its letters', () => {
     expect(dropCost('carts')).toBe(5);
     expect(dropCost('a')).toBe(1);
@@ -317,7 +319,6 @@ describe('powers', () => {
     expect(out.refusal).toBeUndefined();
     expect(out.atlas.revealed.has(far)).toBe(true);
     expect(out.atlas.points).toBe(40 - far.length);
-    // Nothing was walked to get here, so there is no move to remember.
     expect(out.atlas.revealed.get(far)?.via).toBeNull();
     expect(out.atlas.log.length).toBe(rich.log.length);
   });
@@ -358,7 +359,6 @@ describe('writing a map down', () => {
     const onward = guess(dropped, graph, graph.commonNeighbors(far)[0]!).atlas;
     expect(onward.log.length).toBe(1);
 
-    // The move starts at a word no move explains, so the drop has to go on first.
     const back = loadAtlas(saveAtlas(onward))!;
     expect(back.log.length).toBe(1);
     expect(back.revealed.has(far)).toBe(true);
@@ -386,16 +386,11 @@ describe('writing a map down', () => {
     expect(patched.points).toBe(0);
     expect(patched.offers).toEqual([]);
     expect(patched.taken).toEqual([]);
-    // A map that says nothing sensible about slots still has the ones every map has.
     expect(patched.slots).toBe(SLOTS);
   });
 });
 
 describe('the map’s vocabulary', () => {
-  /**
-   * The component filter, from the client's side. A word with no moves is still a perfectly
-   * good guess and still in the dictionary — it is simply not somewhere to explore.
-   */
   it('leaves out words with nowhere to go, without leaving them out of the dictionary', () => {
     const lonely = graph.words.find(
       (word) => graph.isCommon(word) && graph.commonNeighbors(word).length === 0,

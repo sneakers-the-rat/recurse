@@ -1,69 +1,36 @@
-//! Carving a mode's common graph into regions: the map's territories.
+//! Partitions a mode's common graph into regions, the open map's territories.
 //!
-//! The explore mode draws the whole common graph rather than one puzzle's neighbourhood, and a
-//! few thousand words with no spine to hang them on is a hairball. So the graph is partitioned
-//! once, here, into communities — clumps of words that are more joined to each other than to
-//! everything else — and the client lays words out *inside* a region and regions out against
-//! each other. A region is therefore both a layout unit and a landmark: it has a name, it keeps
-//! its shape, and a player learns where things are by remembering which territory they are in.
+//! The client lays words out inside a region and regions against each other, and names each
+//! region on the map. It is computed here so every map of a mode has the same regions and they
+//! do not move as words are revealed.
 //!
-//! **It has to be decided here rather than in the browser.** A landmark that moved every time
-//! you revealed a word would be no landmark at all, and every atlas of a mode has to agree
-//! about where the territories are or two players could not talk about the same map. So this is
-//! a property of the mode's graph, worked out once per build, like everything else the client
-//! draws.
-//!
-//! Two steps, and the first is a filter rather than a partition:
-//!
-//! * **Components smaller than `min_component` are not part of the atlas.** A word with no moves
-//!   at all, or a pair that only join each other, is not somewhere to explore — you could never
-//!   arrive there and there would be nothing to do on arrival. Those words are still perfectly
-//!   legal guesses and still in the shipped dictionary; this decides the *map*, not the word
-//!   list, and moves no vocabulary digest.
-//! * **Louvain over what is left.** Modularity maximisation, which is the standard answer to
-//!   "what are the clumps" and needs no target count — the graph says how many there are. It is
-//!   run deterministically (see `shuffle`) so a rebuild gives the same territories.
+//! Components smaller than `min_component` are left off the map (the words stay legal guesses);
+//! Louvain partitions the rest, deterministically for a given seed.
 
 use crate::graph::Graph;
 
 /// One territory: the words in it, and the word it is named after.
 pub struct Region {
-    /// The best-known member, by frequency. Its *spelling* is what the map prints, which is the
-    /// caller's business — a region of a phonemes mode is named after a sound, and the player
-    /// reads a word.
+    /// The most frequent member.
     pub name: u32,
     /// Member ids, in the graph this was built over. Ascending.
     pub words: Vec<u32>,
 }
 
-/// A mode's common graph, partitioned.
-///
-/// The partition is written down one way round only — a region and its members. Which region a
-/// given word is in is the *client's* question and it builds that map when it reads the file;
-/// keeping a second copy here would be a second thing to keep true.
 pub struct Regions {
     pub regions: Vec<Region>,
-    /// Words left out for sitting in a component below `min_component` — including every word
-    /// with no moves at all, which is most of the list.
+    /// Words in components below `min_component`, including every word with no moves.
     pub dropped: usize,
-    /// Components of the graph that survived the filter. Always at least as many as there are
-    /// regions is *false*: Louvain splits a large component into several, so there are usually
-    /// more regions than components.
+    /// Components that survived the filter. Louvain may split one into several regions.
     pub components: usize,
 }
 
-/// How the territories came out, for the build's report.
-///
-/// **A median would lie here, which is why this is a shape rather than a number.** The
-/// distribution is two things at once: the handful of dozens of real territories that the giant
-/// component gets cut into, and a long tail of three- and four-word components that are each a
-/// region because there is nothing to join them to. The median lands in the tail and says 3,
-/// about a map whose territories are mostly a couple of hundred words.
+/// How the regions came out, for the build's report. Not a median: the many three- and
+/// four-word components would put it at 3.
 pub struct Sizes {
     pub count: usize,
     pub largest: usize,
-    /// Regions of ten words or more, and the share of the map's words they hold. This is the
-    /// number to read: it says how much of the map is territory rather than island.
+    /// Regions of at least `REAL` words, and how many words they hold.
     pub real: usize,
     pub in_real: usize,
     pub words: usize,
@@ -83,21 +50,18 @@ impl Regions {
     }
 }
 
-/// Words below which a region is an island rather than a territory. A reporting threshold and
-/// nothing else — no rule reads it.
+/// Size from which `Sizes` counts a region. Reporting only.
 const REAL: usize = 10;
 
 /// Partition `graph`, keeping only components of at least `min_component` words.
 ///
-/// `rank` is the frequency position of each word, lower being better known, and is only used to
-/// choose what a region is called. `seed` fixes the node order Louvain visits in; see `shuffle`.
+/// `rank` is each word's frequency position (lower is more frequent), used only to name regions.
+/// `seed` fixes Louvain's visiting order; see `shuffle`.
 pub fn build(graph: &Graph, min_component: usize, rank: &[usize], seed: u64) -> Regions {
     let n = graph.words.len();
     let (keep, components) = large_components(graph, min_component);
 
-    // Louvain runs over the surviving words only, renumbered densely, because a graph that is
-    // 60% isolated words would otherwise spend all its work confirming that each of them is its
-    // own community.
+    // Louvain runs over the surviving words only, renumbered densely.
     let mut local = vec![u32::MAX; n];
     let mut back: Vec<u32> = Vec::new();
     for (id, &kept) in keep.iter().enumerate() {
@@ -110,8 +74,7 @@ pub fn build(graph: &Graph, min_component: usize, rank: &[usize], seed: u64) -> 
     let mut level = Weighted::of(graph, &local, back.len());
     let communities = louvain(&mut level, seed);
 
-    // Gather members, then order the regions by their first member so the file is stable and
-    // diffable rather than being in whatever order the aggregation happened to produce.
+    // Ordered by first member so the output is stable.
     let mut members: Vec<Vec<u32>> = vec![Vec::new(); communities.iter().copied().max().map_or(0, |m| m as usize + 1)];
     for (dense, &community) in communities.iter().enumerate() {
         members[community as usize].push(back[dense]);
@@ -121,8 +84,7 @@ pub fn build(graph: &Graph, min_component: usize, rank: &[usize], seed: u64) -> 
 
     let mut regions = Vec::with_capacity(members.len());
     for words in members {
-        // Best known member, and the lowest id among equals so an unranked region — every word
-        // of it missing from the frequency list — still gets the same name every build.
+        // Ties, including a wholly unranked region, go to the lowest id.
         let name = *words
             .iter()
             .min_by_key(|&&w| (rank.get(w as usize).copied().unwrap_or(usize::MAX), w))
@@ -172,11 +134,8 @@ fn large_components(graph: &Graph, least: usize) -> (Vec<bool>, usize) {
 
 // --- Louvain ----------------------------------------------------------------
 
-/// A weighted undirected graph, which is what one level of Louvain works over.
-///
-/// The original graph is unweighted; every level after the first is an aggregation where an
-/// edge's weight is how many edges ran between the two communities, and a self-loop is how many
-/// ran inside one. Modularity needs both.
+/// One level of Louvain. After the first, a node is a community of the level below, an edge's
+/// weight is the edges between two communities, and a self-loop the edges inside one.
 struct Weighted {
     /// `(neighbour, weight)` per node, excluding self-loops.
     adj: Vec<Vec<(u32, f64)>>,
@@ -189,7 +148,7 @@ struct Weighted {
 }
 
 impl Weighted {
-    /// The first level: the real graph, restricted to the words `local` gives a dense id to.
+    /// The first level: `graph` restricted to the words `local` gives a dense id to.
     fn of(graph: &Graph, local: &[u32], size: usize) -> Weighted {
         let mut adj = vec![Vec::new(); size];
         for id in 0..graph.words.len() {
@@ -218,9 +177,8 @@ impl Weighted {
     }
 }
 
-/// One pass of Louvain to convergence, then aggregate and repeat.
-///
-/// Returns the community of every node of the first level, numbered arbitrarily but densely.
+/// Louvain: move nodes to convergence, aggregate, repeat until nothing merges. Returns each
+/// first-level node's community, numbered densely.
 fn louvain(level: &mut Weighted, seed: u64) -> Vec<u32> {
     let mut mapping: Vec<u32> = (0..level.adj.len() as u32).collect();
     loop {
@@ -239,22 +197,19 @@ fn louvain(level: &mut Weighted, seed: u64) -> Vec<u32> {
 
 /// Move nodes between communities until no single move improves modularity.
 ///
-/// The gain from putting node `i` into community `c`, once `i` has been taken out of its own, is
-/// `w(i,c) - k_i * Σtot(c) / 2m` up to a constant factor that is the same for every candidate —
-/// so the comparison below is the whole of the algorithm's decision.
+/// The gain from moving node `i` into community `c` is `w(i,c) - k_i * Σtot(c) / 2m`, up to a
+/// factor common to every candidate.
 fn one_level(level: &Weighted, seed: u64) -> Vec<u32> {
     let size = level.adj.len();
     let mut community: Vec<u32> = (0..size as u32).collect();
     let mut inside: Vec<f64> = level.degree.clone();
 
-    // Visiting in id order biases the result: the word list is alphabetical and this graph is
-    // about substrings, so neighbouring ids are unusually likely to be neighbours in the graph
-    // and the first communities formed would follow the alphabet. A fixed shuffle costs nothing
-    // and is just as reproducible.
+    // Ids are alphabetical, and alphabetical neighbours are often graph neighbours, so visiting
+    // in id order would bias communities toward the alphabet.
     let order = shuffle(size, seed);
 
-    // `links` is reused across nodes; `seen` stamps which communities it currently holds so it
-    // can be cleared in the time it takes to list them rather than the size of the graph.
+    // `links` is reused across nodes; `touched` lists which entries are set so clearing it is
+    // proportional to the node's degree.
     let mut links: Vec<f64> = vec![0.0; size];
     let mut touched: Vec<u32> = Vec::new();
 
@@ -276,12 +231,10 @@ fn one_level(level: &Weighted, seed: u64) -> Vec<u32> {
                 links[c as usize] += weight;
             }
 
-            // Staying put is a candidate like any other, and it is the one to beat — so it goes
-            // first and every tie leaves the node where it is.
+            // Staying put goes first, so a tie leaves the node where it is.
             let mut best = was;
             let mut gain = links[was as usize] - inside[was as usize] * level.degree[node as usize] / level.total;
-            // Sorted, so which of two equally good communities wins does not depend on the
-            // order the neighbour list happened to be built in.
+            // Sorted, so ties do not depend on neighbour order.
             touched.sort_unstable();
             for &c in &touched {
                 let candidate = links[c as usize] - inside[c as usize] * level.degree[node as usize] / level.total;
@@ -316,21 +269,17 @@ fn one_level(level: &Weighted, seed: u64) -> Vec<u32> {
     community
 }
 
-/// How many times the whole node set may be swept before a level gives up. Convergence is
-/// usually five or six sweeps; the cap is only there so a pathological graph cannot spin.
+/// Cap on sweeps per level.
 const MAX_PASSES: usize = 32;
 
 /// Collapse each community to a node, summing the edges between them and inside them.
 fn aggregate(level: &Weighted, assignment: &[u32], count: usize) -> Weighted {
     let mut adj: Vec<Vec<(u32, f64)>> = vec![Vec::new(); count];
     let mut loops = vec![0.0; count];
-    // One accumulator row, reused, so this is linear in the edges rather than quadratic in the
-    // communities.
+    // One accumulator row, reused, so this is linear in the edges.
     let mut weights: Vec<f64> = vec![0.0; count];
     let mut touched: Vec<u32> = Vec::new();
 
-    // Members per community, gathered once. Walking every node per community instead would be
-    // quadratic, and at this scale that is the difference between milliseconds and minutes.
     let mut members: Vec<Vec<u32>> = vec![Vec::new(); count];
     for (node, &owner) in assignment.iter().enumerate() {
         members[owner as usize].push(node as u32);
@@ -362,10 +311,7 @@ fn aggregate(level: &Weighted, assignment: &[u32], count: usize) -> Weighted {
     Weighted::from(adj, loops)
 }
 
-/// A fixed permutation of `0..size`, from `seed`.
-///
-/// Fisher–Yates over xorshift64*, which is a dozen lines and reproducible anywhere — the point
-/// is only that the order is unrelated to the alphabet, not that it is random.
+/// A fixed permutation of `0..size` from `seed`: Fisher–Yates over xorshift64*.
 fn shuffle(size: usize, seed: u64) -> Vec<u32> {
     let mut order: Vec<u32> = (0..size as u32).collect();
     let mut state = seed | 1;
@@ -384,8 +330,7 @@ mod tests {
     use super::*;
     use crate::graph::{FxMap, Graph};
 
-    /// The partition read the other way round: which region each word landed in. What the
-    /// client builds when it reads the file, and what a test wants to assert against.
+    /// Which region each word is in.
     fn placement(found: &Regions, size: usize) -> Vec<Option<u32>> {
         let mut of = vec![None; size];
         for (index, region) in found.regions.iter().enumerate() {
@@ -396,7 +341,7 @@ mod tests {
         of
     }
 
-    /// A graph from `(big, small)` word-name pairs, so a test reads as the shape it means.
+    /// A graph from pairs of word names, plus unconnected `extra` words.
     fn graph_of(edges: &[(&str, &str)], extra: &[&str]) -> Graph {
         let mut words: Vec<String> = Vec::new();
         for (a, b) in edges {
@@ -452,8 +397,7 @@ mod tests {
 
     #[test]
     fn separates_clumps() {
-        // Two dense clumps of four, joined by a single edge. Any partition worth the name puts
-        // them in different regions.
+        // Two cliques of four, joined by one edge.
         let graph = graph_of(
             &[
                 ("aa", "ab"), ("aa", "ac"), ("aa", "ad"), ("ab", "ac"), ("ab", "ad"), ("ac", "ad"),

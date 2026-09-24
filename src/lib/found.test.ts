@@ -1,15 +1,6 @@
 /**
- * What a guess does to a board, on its own.
- *
- * This is the module both games run on, and it was carved out of `game.ts` rather than written
- * — so what is asserted here is chosen to be the behaviour that would be *silently* wrong if
- * the carving had slipped: which reading the cursor lands on, what a repeated move costs, how
- * the guesses are numbered, and what `replay` refuses to believe.
- *
- * `game.test.ts` still exercises all of this through the daily game and is the stronger check
- * that nothing moved. What it cannot reach is the two questions this module is *told* rather
- * than knows — how to rank a landing, and where the player could have been standing — because
- * the daily game only ever gives one answer to each.
+ * found.ts on its own. game.test.ts covers it through the daily game; this covers the `rank`
+ * and `elsewhere` arguments the daily game only ever passes one way.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -30,17 +21,15 @@ import type { Judgement, Move } from './types';
 
 const graph = testGraph();
 
-/** The verdict on a real move, which is what `advance` takes. */
 function judged(from: string, word: string): Extract<Judgement, { ok: true }> {
   const verdict = judgeGuess(graph, from, word, graph.isWord);
   if (!verdict.ok) throw new Error(`${from} -> ${word} is not a move: ${verdict.code}`);
   return verdict;
 }
 
-/** A move made up out of nothing, for the cases no real graph offers. */
+/** A fake move, for cases the test graph does not have. */
 const madeUp = (to: string): Move => ({ to, sub: 'xx', pos: 0, kind: 'add' });
 
-/** A word with at least two moves out of it, so a test has somewhere to go. */
 const start = graph.words.find((word) => graph.neighbors(word).length >= 2)!;
 const [first, second] = graph.neighbors(start) as [string, string];
 
@@ -65,10 +54,6 @@ describe('advance', () => {
     expect(step.found.log).toHaveLength(1);
   });
 
-  /**
-   * A move you have already made costs nothing and tells you nothing. Walking back along your
-   * own map is navigation, and charging for it would punish reading it.
-   */
   it('charges nothing for a move already made, and still moves the cursor', () => {
     const there = advance(open(start), start, judged(start, first));
     const back = advance(there.found, first, judged(first, start));
@@ -78,12 +63,6 @@ describe('advance', () => {
     expect(back.found.guesses).toBe(1);
   });
 
-  /**
-   * **The rank is asked, not assumed**, and it is the one thing the two games answer
-   * differently: the daily board prefers an endpoint and then the answer route, an open map
-   * prefers anywhere it has already been. A guess that names several words has to land on the
-   * one the player meant, and only the game knows which that is.
-   */
   it('lands on whichever reading the caller ranks best', () => {
     const both: Extract<Judgement, { ok: true }> = {
       ok: true,
@@ -95,11 +74,10 @@ describe('advance', () => {
 
     expect(advance(open(start), start, both, wants('bbbb')).landed).toBe('bbbb');
     expect(advance(open(start), start, both, wants('aaaa')).landed).toBe('aaaa');
-    // No opinion: the first reading, which is the most familiar one.
+    // No rank: the first reading.
     expect(advance(open(start), start, both).landed).toBe('aaaa');
   });
 
-  /** Every reading it named is played, as one guess, and the landing goes first on the log. */
   it('plays every reading the guess named, as one guess', () => {
     const both: Extract<Judgement, { ok: true }> = {
       ok: true,
@@ -131,7 +109,6 @@ describe('advance', () => {
     found = advance(found, start, judged(start, second)).found;
     const arrival = found.revealed.get(first);
 
-    // Reached again from somewhere else: a move, not another arrival.
     const again = advance(found, second, {
       ok: true,
       word: first,
@@ -157,11 +134,6 @@ describe('replay', () => {
     expect(back.log).toEqual(played.log);
   });
 
-  /**
-   * **A move has to start somewhere the player could have been standing**, and where that is
-   * is the caller's to say. The daily game allows its goal, which nobody has reached; an open
-   * map allows a word a point was spent to drop there; neither allows anywhere else.
-   */
   it('refuses a move from nowhere, and accepts one from `elsewhere`', () => {
     const log = [{ from: 'nowhere', to: first, move: madeUp(first), order: 1 }];
 
@@ -192,8 +164,7 @@ describe('replay', () => {
       { from: start, to: first, move: madeUp(first), order: 'x' },
     ];
     const back = replay(rubbish, start);
-    // Only the last survives — a real move whose order did not, which `newGuess` counts as one
-    // of its own because NaN is never equal to itself.
+    // Only the last survives, as a guess of its own: its order reads as NaN.
     expect(back.log).toHaveLength(1);
     expect(back.guesses).toBe(1);
     expect(replay('not an array', start).log).toEqual([]);
@@ -225,8 +196,6 @@ describe('the keys and the grouping', () => {
     expect(newGuess({ order: 1, from: 'a' }, undefined)).toBe(true);
     expect(newGuess({ order: 1, from: 'a' }, { order: 1, from: 'a' })).toBe(false);
     expect(newGuess({ order: 2, from: 'a' }, { order: 1, from: 'a' })).toBe(true);
-    // The `from` matters: two genuinely separate guesses claiming one order are still two,
-    // and merging them would invent a better score than was played.
     expect(newGuess({ order: 1, from: 'b' }, { order: 1, from: 'a' })).toBe(true);
     expect(newGuess({ order: NaN, from: 'a' }, { order: NaN, from: 'a' })).toBe(true);
   });

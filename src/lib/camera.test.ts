@@ -9,6 +9,8 @@ import {
   MAX_SCALE,
   MIN_SCALE,
   between,
+  bringBoxInto,
+  showBox,
   bringInto,
   clampCamera,
   fitCamera,
@@ -94,10 +96,6 @@ describe('fitCamera', () => {
     expect(fitCamera({ minX: 0, maxX: 1, minY: 0, maxY: 1 }, phone).scale).toBe(MAX_SCALE);
   });
 
-  /**
-   * The floor is for gestures. Holding "show me all of it" to it is how an open map came to be
-   * framed on its middle third with the rest off every edge — see the note on `fitCamera`.
-   */
   it('goes below the gesture floor rather than cut a huge thing off', () => {
     const huge = { minX: -1e5, maxX: 1e5, minY: 0, maxY: 1e5 };
     const camera = fitCamera(huge, phone);
@@ -107,7 +105,6 @@ describe('fitCamera', () => {
     expect(view.x + view.width).toBeGreaterThanOrEqual(huge.maxX);
   });
 
-  /** A plate nobody has measured yet is zero pixels wide, and a scale of nothing is a crash. */
   it('still says something about a plate with no size', () => {
     const camera = fitCamera({ minX: 0, maxX: 100, minY: 0, maxY: 100 }, { width: 0, height: 0 });
     expect(camera.scale).toBeGreaterThan(0);
@@ -164,15 +161,13 @@ describe('zoomAround', () => {
     const at = { x: 0, y: 0 };
     expect(zoomAround({ cx: 0, cy: 0, scale: MAX_SCALE }, desktop, 4, at).scale).toBe(MAX_SCALE);
     expect(zoomAround({ cx: 0, cy: 0, scale: MIN_SCALE }, desktop, 0.1, at).scale).toBe(MIN_SCALE);
-    // A board too big for the floor sets its own, and a wheel turned outward keeps going
-    // rather than snapping inward. See `leastScale`.
+    // A board too big for the floor sets its own. See `leastScale`.
     const huge = { minX: -1e5, maxX: 1e5, minY: 0, maxY: 1e5 };
     const least = leastScale(huge, desktop);
     expect(least).toBeLessThan(MIN_SCALE);
     const far = { cx: 0, cy: 0, scale: MIN_SCALE };
     expect(zoomAround(far, desktop, 0.8, at, least).scale).toBeLessThan(MIN_SCALE);
     expect(zoomAround({ ...far, scale: least }, desktop, 0.1, at, least).scale).toBe(least);
-    // And a board that fits inside the floor keeps it.
     expect(leastScale({ minX: 0, maxX: 10, minY: 0, maxY: 10 }, desktop)).toBe(MIN_SCALE);
   });
 });
@@ -201,6 +196,77 @@ describe('clampCamera', () => {
     // Something is still in shot: the view's near edge has not passed the figure.
     expect(view.x).toBeLessThan(box.maxX);
     expect(view.y).toBeLessThan(box.maxY);
+  });
+});
+
+describe('bringBoxInto', () => {
+  const camera = { cx: 0, cy: 200, scale: 1 };
+  const around = (x: number, y: number, r: number) => ({
+    minX: x - r,
+    maxX: x + r,
+    minY: y - r,
+    maxY: y + r,
+  });
+
+  it('does nothing for a place already in shot', () => {
+    expect(bringBoxInto(camera, around(0, 200, 40), desktop)).toEqual(camera);
+  });
+
+  it('brings the far edge in, not the middle', () => {
+    // The view is 1280 wide, so its right edge is at 640; the box reaches 800.
+    const moved = bringBoxInto(camera, around(700, 200, 100), desktop);
+    const view = viewOf(moved, desktop);
+    expect(view.x + view.width).toBeGreaterThanOrEqual(800);
+    // Just far enough to leave `WORD_MARGIN` (52).
+    expect(view.x + view.width).toBeCloseTo(800 + 52, 5);
+  });
+
+  it('centres a place too big for the view rather than refusing to move', () => {
+    const huge = around(5000, 200, 4000);
+    const moved = bringBoxInto(camera, huge, desktop);
+    expect(moved.cx).toBe(5000);
+    expect(moved.cy).toBe(200);
+  });
+
+  it('is `bringInto` when the place is a point', () => {
+    const point = { x: 700, y: 900 };
+    expect(bringBoxInto(camera, around(point.x, point.y, 0), desktop)).toEqual(
+      bringInto(camera, point, desktop),
+    );
+  });
+});
+
+describe('showBox', () => {
+  const camera = { cx: 0, cy: 200, scale: 1 };
+  const around = (x: number, y: number, r: number) => ({
+    minX: x - r,
+    maxX: x + r,
+    minY: y - r,
+    maxY: y + r,
+  });
+
+  it('pans without touching the scale while the place still fits', () => {
+    const moved = showBox(camera, around(700, 200, 100), desktop);
+    expect(moved.scale).toBe(camera.scale);
+    expect(moved).toEqual(bringBoxInto(camera, around(700, 200, 100), desktop));
+  });
+
+  it('pulls back when it will not, and shows the whole of it', () => {
+    // The view is 1280 x 700 at scale 1; this place is three thousand across.
+    const huge = around(5000, 200, 1500);
+    const moved = showBox(camera, huge, desktop);
+    expect(moved.scale).toBeLessThan(camera.scale);
+    const view = viewOf(moved, desktop);
+    expect(view.x).toBeLessThanOrEqual(huge.minX);
+    expect(view.x + view.width).toBeGreaterThanOrEqual(huge.maxX);
+    expect(view.y).toBeLessThanOrEqual(huge.minY);
+    expect(view.y + view.height).toBeGreaterThanOrEqual(huge.maxY);
+  });
+
+  it('never magnifies a board to fetch something small', () => {
+    const wide = { cx: 0, cy: 0, scale: 0.05 };
+    expect(showBox(wide, around(0, 0, 20), desktop).scale).toBe(0.05);
+    expect(showBox(wide, around(4000, 0, 20), desktop).scale).toBe(0.05);
   });
 });
 

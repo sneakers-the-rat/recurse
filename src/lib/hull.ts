@@ -1,96 +1,49 @@
 /**
- * The ground a crowd of words stands on: a plate that holds all of them, with room to spare.
+ * The shape a map territory is drawn as (its "plate"): the convex hull of its words, each edge
+ * pushed out to clear every word's room, with chamfered corners.
  *
- * **A territory is a plate, not a skin.** It was a contour of a metaball field — a union of soft
- * discs and capsules along the moves — and what that draws is the *words*, one more time, in a
- * second medium: a thin membrane shrink-wrapped round the graph, necking between neighbours and
- * budding a lobe per outlier. The words were already on the board. What the ground has to say is
- * the thing they cannot, which is that this patch of the map is one *place* with an extent and an
- * edge, that its neighbours are other such places, and that it is being shoved about by them as
- * it grows. Tectonic plates, in other words, and a plate is a polygon with an interior.
- *
- * So: **the convex hull of the region's words, pushed outward.** Its vertices are the outermost
- * words themselves, which is what makes the shape the region's own rather than a circle's — a
- * region laid out in an L comes out as an L-ish wedge, one laid out in a chain as a long sliver
- * — and its interior is ground the region holds whether or not a word happens to sit on that
- * spot. Ground with no words on it yet is the point: it is where the next word goes.
- *
- * **Convex, deliberately.** A concave outline would trace the crowd more closely and cost the
- * plate the one property that makes a map of sixty of them legible: two convex plates whose
- * words are held apart by `atlasLayout`'s region collider cannot interpenetrate, so the map
- * reads as a tiling rather than as sixty overlapping washes. It also means the shape a player
- * learns changes only at its rim as words arrive, instead of growing a new bay every guess.
- *
- * Pure, and tested in node. Cheap — a sort and two passes over the words, against a grid per
- * region before — so nothing here needs memoising for cost.
+ * Convex so that `plateGap` can give the exact separation between two territories, which
+ * `forcePlates` in forces.ts uses to keep them from overlapping.
  */
 
 import type { Point } from './types';
 
-/** A word, where it is and how much room it takes. */
+/** A word's position and the radius of its room. */
 export interface Blob {
   x: number;
   y: number;
   r: number;
 }
 
-/**
- * How far the plate's rim stands off the outermost word's ink.
- *
- * The one number that decides whether the map reads as plates in contact or as islands in a sea.
- * Joined territories rest `REGION_GAP` apart (70) beyond their own radii, so a margin much past
- * half of that has neighbours overlapping, and much below a quarter of it leaves channels of
- * bare ground wider than the words.
- */
+/** How far the rim stands off the outermost word's room. */
 const PLATE_MARGIN = 28;
 
-/**
- * How far a plate reaches, given how far the furthest *ink* in the crowd reaches.
- *
- * **The layout has to leave room for the ground, the same way it leaves room for a label.** A
- * territory's radius is what holds two of them apart, and measured from the words alone it is
- * short of the plate drawn over them — so two regions settled a comfortable gap apart had their
- * plates overlapping, which says they are one place. The two ends of that arithmetic are here
- * and in `arrange`, and this is the seam between them.
- *
- * The argument is `max(|word − middle| + its mark)` and not the furthest word plus the biggest
- * mark: those are usually two different words, and multiplying them together is what made a
- * plate four times the ground its words stood on. See `outline`.
- */
-export function plateReach(ink: number): number {
-  return ink + PLATE_MARGIN;
-}
-
-/**
- * How far a corner is cut.
- *
- * A plate is a polygon and should read as one, so this is a chamfer and not the wholesale
- * rounding a contour wants: enough that the rim is not a set of spikes where three words nearly
- * line up, not so much that a five-sided plate comes out as a blob. Capped at half of each
- * incident edge, so a short edge between two corners is not asked to give up more than it has.
- */
+/** How far back along each edge a corner is chamfered; at most half the edge. */
 const CORNER = 26;
 
-/** How far a sharp corner may be mitred out before it is cut off square instead. */
+/**
+ * How far a corner may be mitred out, as a multiple of its clearance, before it is bevelled
+ * instead.
+ */
 const MITER = 2.6;
 
-/** Directions the degenerate case is measured in. See `supportRing`. */
+/** Directions sampled for a crowd too flat to have a hull. See `supportRing`. */
 const FACETS = 8;
+
+/** Overlap below this counts as none, so an exact separation reads as clear. */
+const TOUCHING = 1e-6;
 
 function hypot(x: number, y: number): number {
   return Math.sqrt(x * x + y * y);
 }
 
 /**
- * The convex hull of a set of points, as a ring wound so the shoelace area is positive.
- *
- * Andrew's monotone chain: sort, then sweep the lower and upper boundaries. Collinear points are
- * dropped, so three words in a row give a two-point "hull" — which is what `supportRing` is for.
+ * The convex hull of a set of points, by Andrew's monotone chain. Collinear points are dropped,
+ * so points in a line give a two-point "hull"; see `supportRing`.
  */
 export function hullOf(points: readonly Point[]): Point[] {
   const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
-  // Duplicates are common — two words can settle on the same spot — and a repeated point makes
-  // the cross product zero and the sweep ambiguous.
+  // Two words can sit on the same spot, and a repeated point makes the sweep ambiguous.
   const distinct = sorted.filter(
     (at, i) => i === 0 || at.x !== sorted[i - 1]!.x || at.y !== sorted[i - 1]!.y,
   );
@@ -112,13 +65,11 @@ export function hullOf(points: readonly Point[]): Point[] {
 
   const lower = half(distinct);
   const upper = half([...distinct].reverse());
-  // Each half ends where the other begins, so both ends are dropped once. A row of words in a
-  // line leaves the two extremes and nothing else, which the caller reads as "too flat to be a
-  // polygon" — see `supportRing`.
+  // Each half ends where the other begins, so both ends are dropped once.
   return [...lower.slice(0, -1), ...upper.slice(0, -1)];
 }
 
-/** Twice the signed area, which is what says which way a ring is wound. */
+/** Twice the signed area: positive or negative by winding. */
 function winding(ring: readonly Point[]): number {
   let sum = 0;
   for (let i = 0; i < ring.length; i++) {
@@ -130,12 +81,8 @@ function winding(ring: readonly Point[]): number {
 }
 
 /**
- * A ring round a crowd too flat to have a hull: a point, a pair, or a row of words in a line.
- *
- * The plate is the crowd's own shape grown by `away` in every direction, which for a flat crowd
- * is a stadium rather than a polygon. Sampled as the furthest word in each of `FACETS`
- * directions, pushed out along that direction — the Minkowski sum of the crowd with a disc, at
- * eight facets — which comes out convex and in angle order by construction.
+ * A ring round a crowd too flat to have a hull (a point, a pair, or a line): the furthest word in
+ * each of `FACETS` directions, pushed `away` along it. Convex and in angle order.
  */
 function supportRing(points: readonly Point[], away: number): Point[] {
   const ring: Point[] = [];
@@ -160,11 +107,8 @@ function supportRing(points: readonly Point[], away: number): Point[] {
 }
 
 /**
- * How far out a line has to be pushed, facing this way, to clear every mark in the crowd.
- *
- * `c` in `{ p : p · normal = c }`. Exactly the furthest any word's *ink* reaches in this
- * direction, plus the margin — which is the whole of what makes a plate the size of its own
- * ground and no larger.
+ * The line `{ p : p · normal = c }` facing `normal` that clears every word's room by
+ * `PLATE_MARGIN`.
  */
 function faceOf(normal: Point, blobs: readonly Blob[]): { n: Point; c: number } {
   let reach = -Infinity;
@@ -193,27 +137,11 @@ function meet(a: { n: Point; c: number }, b: { n: Point; c: number }): Point | n
 }
 
 /**
- * The plate a crowd of words sits on, as one closed ring of points in drawing order.
+ * A territory's plate, as one closed ring, even when its words are in separate pieces.
  *
- * **One ring, always.** A region can be in pieces — a word joined to its territory only through
- * another territory sits apart from it — and one plate over both is the right answer here: the
- * region holds that ground, there is simply nothing on it yet, and two shapes for one place
- * would be two landmarks where the player has learnt one.
- *
- * **Every edge is pushed out by what is actually behind it**, which is the whole of this
- * function and was got wrong once in a way worth writing down. The offset was *uniform*, at the
- * biggest mark anywhere in the crowd plus the margin, because that made containment free: every
- * word is inside the hull of the words, so a hull pushed out past the largest mark holds every
- * mark. What it also does is make the plate a function of the biggest hub rather than of the
- * ground the words stand on — reveal `over` in a region and a hundred-unit mark pushes *all six*
- * of its edges out by a hundred units, so a crowd three hundred across got a plate six hundred
- * across and four times the area, and the plate grew with the number of words in the region
- * instead of with where they reached.
- *
- * So each hull edge carries its own offset: the furthest any word's ink reaches *in that edge's
- * direction*, and the corners are where consecutive offset lines cross. That is exact — the
- * plate is the intersection of half-planes each of which every disc is strictly inside — and it
- * is tight, since each half-plane is touched by whichever word is furthest out that way.
+ * Each hull edge is offset by the furthest any word's room reaches in that edge's direction, not
+ * by one uniform amount, so a single large word only pushes out the edges it is behind. Corners
+ * are where consecutive offset lines cross.
  */
 export function outline(blobs: readonly Blob[]): Point[] {
   if (blobs.length === 0) return [];
@@ -230,14 +158,8 @@ export function outline(blobs: readonly Blob[]): Point[] {
   const ring = winding(hull) > 0 ? hull : [...hull].reverse();
   const faces = ring.map((at, i) => faceOf(normalOf(at, ring[(i + 1) % ring.length]!), blobs));
 
-  /*
-    A corner is where its two edges' offset lines cross — a mitre, and on a convex ring always a
-    finite one. A *sharp* corner, which a sliver of a region has, sends that crossing a long way
-    out; there the corner is bevelled instead, by cutting it with a third line facing along the
-    bisector and offset by the same rule as the edges. A bevel is another half-plane, so the
-    plate stays convex and still holds every mark — which a mitre clamped to a nearer point
-    would not.
-  */
+  // A sharp corner's mitre reaches far out, so past `MITER` it is bevelled with a third line
+  // along the bisector, offset by the same rule. That keeps the plate convex and containing.
   const out: Point[] = [];
   for (let i = 0; i < ring.length; i++) {
     const at = ring[i]!;
@@ -275,12 +197,8 @@ function cutBack(at: Point, to: Point): Point {
 }
 
 /**
- * A ring as an SVG path, with its corners chamfered.
- *
- * Each corner is cut back along both of its edges and the cut bridged by a quadratic through the
- * corner itself, which needs no control points of its own. **The straights stay straight** — the
- * whole reason this is not the midpoint-to-midpoint rounding a contour wants, which turns every
- * polygon into a blob and would undo the thing the plate is for.
+ * A ring as an SVG path. Each corner is cut back `CORNER` along both edges and bridged by a
+ * quadratic with the corner as its control point; the edges stay straight.
  */
 export function ringPath(ring: readonly Point[]): string {
   if (ring.length < 3) return '';
@@ -300,7 +218,66 @@ export function ringPath(ring: readonly Point[]): string {
   return `${path}Z`;
 }
 
-/** A crowd's plate, as one path. */
-export function outlinePath(blobs: readonly Blob[]): string {
-  return ringPath(outline(blobs));
+/**
+ * Which way, and how far, `two` must move to be `gap` clear of `one`, or null if it already is.
+ *
+ * Separating axis test over two convex rings: they overlap unless some edge normal separates
+ * their projections, and the smallest overlap among the normals is the shortest way out. Each
+ * ring is relative to its own `at`, which is added to the projection rather than to every
+ * corner. A ring of fewer than three points never overlaps.
+ */
+export function plateGap(
+  one: readonly Point[],
+  atOne: Point,
+  two: readonly Point[],
+  atTwo: Point,
+  gap = 0,
+): { x: number; y: number; over: number } | null {
+  if (one.length < 3 || two.length < 3) return null;
+  let least = Infinity;
+  let awayX = 0;
+  let awayY = 0;
+  for (const ring of [one, two]) {
+    for (let i = 0; i < ring.length; i++) {
+      const from = ring[i]!;
+      const to = ring[(i + 1) % ring.length]!;
+      const nx = -(to.y - from.y);
+      const ny = to.x - from.x;
+      const len = hypot(nx, ny);
+      if (len < 1e-9) continue;
+      const ux = nx / len;
+      const uy = ny / len;
+      let loOne = Infinity;
+      let hiOne = -Infinity;
+      for (const at of one) {
+        const along = at.x * ux + at.y * uy;
+        if (along < loOne) loOne = along;
+        if (along > hiOne) hiOne = along;
+      }
+      let loTwo = Infinity;
+      let hiTwo = -Infinity;
+      for (const at of two) {
+        const along = at.x * ux + at.y * uy;
+        if (along < loTwo) loTwo = along;
+        if (along > hiTwo) hiTwo = along;
+      }
+      const shiftOne = atOne.x * ux + atOne.y * uy;
+      const shiftTwo = atTwo.x * ux + atTwo.y * uy;
+      loOne += shiftOne;
+      hiOne += shiftOne;
+      loTwo += shiftTwo;
+      hiTwo += shiftTwo;
+
+      // One separating axis means the plates are clear.
+      const over = Math.min(hiOne, hiTwo) - Math.max(loOne, loTwo) + gap;
+      if (over <= TOUCHING) return null;
+      if (over >= least) continue;
+      least = over;
+      // Point away from `one`.
+      const facing = (loTwo + hiTwo) / 2 >= (loOne + hiOne) / 2 ? 1 : -1;
+      awayX = ux * facing;
+      awayY = uy * facing;
+    }
+  }
+  return least === Infinity ? null : { x: awayX, y: awayY, over: least };
 }

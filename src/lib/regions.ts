@@ -1,17 +1,9 @@
 /**
- * The map's territories, as the client asks about them.
+ * The map's territories: reading the builder's `regions-{d}.json` (see regions.rs), and grouping
+ * the words on the board by territory (`clusterGraph`).
  *
- * The builder carves each mode's common graph into regions once — see regions.rs — and this
- * is the other end of that file. It answers three questions and nothing else: which territory
- * a word is in, what that territory is called, and whether a word is on the map at all.
- *
- * **Being on the map is the vocabulary of the explore mode.** A word in a component too small
- * to explore is absent from the file, so `has` is false for it: it is still a perfectly legal
- * guess and still in the dictionary, but no rim draws it and no mission will ever name it.
- *
- * The regions are a *partition of the graph*, not of what has been drawn. Which of them are on
- * screen at any moment is `clusterGraph`'s question, and it is a different one — a region with
- * one word revealed is on the board, and the other three hundred words of it are not.
+ * A word in a component smaller than `minComponent` is absent from the file, so `has` is false
+ * for it. It is still a legal guess, but no rim draws it and no mission names it.
  */
 
 import type { Figure, PlateEdge } from './plate';
@@ -23,21 +15,19 @@ export interface RawRegions {
 }
 
 export interface Regions {
-  /** How many territories the map has. */
   count: number;
-  /** How many words are on it, all told: what "reveal everything" would mean. */
+  /** How many words are on the map in total. */
   size: number;
-  /** Which region this word is in, or -1 for a word the map leaves out. */
+  /** -1 for a word not on the map. */
   of(word: string): number;
-  /** Is this word part of the map? */
   has(word: string): boolean;
-  /** What a region is called: its best-known member, already spelled. */
+  /** Its most frequent member, already spelled. */
   name(region: number): string;
   /** Every word of a region, on the board or not. */
   words(region: number): readonly string[];
 }
 
-/** No map at all, for a mode whose regions have not been fetched. Nothing is on it. */
+/** For a mode whose regions have not been fetched. */
 export const NOWHERE: Regions = {
   count: 0,
   size: 0,
@@ -56,7 +46,7 @@ export function buildRegions(raw: RawRegions, dictionary: readonly string[]): Re
     const index = names.length;
     names.push(region.name);
     const words: string[] = [];
-    // Delta-encoded, ascending, the same as `common.json` — see `push_deltas` in the builder.
+    // Delta-encoded dictionary indices, as `common.json` is. See `push_deltas` in main.rs.
     let at = 0;
     for (const step of region.words) {
       at += step;
@@ -80,47 +70,28 @@ export function buildRegions(raw: RawRegions, dictionary: readonly string[]): Re
 
 /** One territory, as much of it as is on the board. */
 export interface Cluster {
-  /** Its index in `Regions`, or a negative number for a huddle with no region of its own. */
+  /** Its index in `Regions`, or negative for an island (see `clusterGraph`). */
   region: number;
   name: string;
   words: string[];
-  /** Moves with both ends in this territory: what its own layout arranges. */
+  /** Moves with both ends in this territory. */
   inside: PlateEdge[];
 }
 
 export interface ClusterGraph {
   clusters: Cluster[];
-  /** Where each region sits in `clusters`. */
-  at: ReadonlyMap<number, number>;
-  /** Which cluster each drawn word belongs to, by position in `clusters`. */
+  /** Drawn word to position in `clusters`. */
   home: ReadonlyMap<string, number>;
-  /** Moves between two territories, and how many of them there are. */
+  /** Moves between two clusters, counted. */
   links: { a: number; b: number; weight: number }[];
-  /**
-   * Those moves themselves, still as words.
-   *
-   * The aggregate above is what the global layout needs — how firmly two territories are tied
-   * — and this is what a local one needs: *which* of its words is the one facing out. See the
-   * outward pull in atlasLayout.
-   */
-  across: PlateEdge[];
 }
 
 /**
- * The board, seen as territories rather than as words.
+ * Group the drawn words by territory, for `atlasLayout`.
  *
- * This is the whole of what makes the atlas's layout affordable: the global arrangement works
- * over tens of clusters and never sees a word, and each local arrangement works over one
- * territory's words and never sees another territory. Neither ever holds the whole board.
- *
- * **A word with no region of its own joins its neighbours'.** Two kinds of word have none: one
- * the player guessed that is legal but not common, and one in a component too small to be on
- * the map, which a spent point can drop them into. Left to themselves they would each be a
- * cluster of one and the global layout would spend its effort keeping a hundred motes apart.
- * So they are handed to whichever territory most of their drawn neighbours are in, twice over
- * so that a chain of them settles; a word with no regioned neighbour at all is a genuine
- * island and does get a cluster to itself, keyed negatively so it cannot collide with a real
- * region.
+ * A word with no region (a legal but uncommon guess, or a dropped word from a tiny component)
+ * joins the territory most of its drawn neighbours are in. A word with no regioned neighbour gets
+ * a cluster of its own, an island, keyed negatively so it cannot collide with a real region.
  */
 export function clusterGraph(figure: Figure, regions: Regions): ClusterGraph {
   const near = new Map<string, string[]>();
@@ -149,8 +120,7 @@ export function clusterGraph(figure: Figure, regions: Regions): ClusterGraph {
       }
       let best = -1;
       let most = 0;
-      // Ties go to the lower region, so which one adopts a word does not depend on the order
-      // its edges happened to be built in.
+      // Ties go to the lower region, so the result does not depend on edge order.
       for (const [region, count] of [...votes].sort((one, two) => one[0] - two[0])) {
         if (count > most) {
           most = count;
@@ -161,7 +131,6 @@ export function clusterGraph(figure: Figure, regions: Regions): ClusterGraph {
     }
   }
 
-  // Anything still homeless is an island of its own, negatively keyed.
   let island = -1;
   for (const word of stray) {
     if (!owner.has(word)) owner.set(word, island--);
@@ -191,7 +160,6 @@ export function clusterGraph(figure: Figure, regions: Regions): ClusterGraph {
   }
 
   const crossings = new Map<string, { a: number; b: number; weight: number }>();
-  const across: PlateEdge[] = [];
   for (const edge of figure.edges) {
     const one = home.get(edge.a);
     const two = home.get(edge.b);
@@ -200,7 +168,6 @@ export function clusterGraph(figure: Figure, regions: Regions): ClusterGraph {
       clusters[one]!.inside.push(edge);
       continue;
     }
-    across.push(edge);
     const [a, b] = one < two ? [one, two] : [two, one];
     const key = `${a} ${b}`;
     const found = crossings.get(key);
@@ -208,5 +175,5 @@ export function clusterGraph(figure: Figure, regions: Regions): ClusterGraph {
     else crossings.set(key, { a, b, weight: 1 });
   }
 
-  return { clusters, at, home, links: [...crossings.values()], across };
+  return { clusters, home, links: [...crossings.values()] };
 }

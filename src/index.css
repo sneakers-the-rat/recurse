@@ -213,23 +213,9 @@ svg :focus:not(:focus-visible) {
 }
 
 /*
- * A word arriving on an open map.
- *
- * It grows out of nothing rather than appearing at its own size — which is most of what makes a
- * guess read as the map growing rather than as the board being redrawn.
- *
- * **Both the delay and the duration come in per element**, as `--delay` and `--grow`, because
- * the whole arrival is on a schedule rather than a stagger: a guess onto a hub brings a hundred
- * and eighty words in at once, and the reward for it is watching them come. Where those numbers
- * come from is `sprout.ts`, and the same ones drive the word's *journey* outward in
- * `useAtlasLayout` — the mark's fade and its travel have to be the one gesture.
- *
- * `backwards` is what holds a word invisible through its own delay, and is therefore not
- * optional here: without it a dot with a four-second delay is drawn at full size for four
- * seconds and then animates.
- *
- * `transform-box: fill-box` so the scale is about the mark's own middle and not the SVG's
- * origin — the same reason `.surface` needs it.
+ * A word arriving on an open map, growing in. `--delay` and `--grow` are per element, from
+ * `sprout.ts`. `backwards` keeps it hidden through its delay; `fill-box` scales it about its
+ * own centre.
  */
 @keyframes sprout {
   from {
@@ -250,15 +236,8 @@ svg :focus:not(:focus-visible) {
 }
 
 /*
- * A move reaching out from a word that has just arrived.
- *
- * The line draws itself from one end to the other rather than appearing, and it does not begin
- * until the word at its far end is most of the way to where it is going — a line drawn to a word
- * still on its way looks like the line was there first and the word slid down it. `--delay` and
- * `--draw` are per edge, from the same schedule the marks are on.
- *
- * `pathLength="1"` is what makes one rule cover lines of every length: it renumbers the line's
- * own arithmetic so a dash of 1 is the whole of it, whatever it measures in graph units.
+ * A move drawing itself in from one end. `--delay` and `--draw` are per edge, from `sprout.ts`.
+ * The line has `pathLength="1"`, so a dash of 1 is its whole length.
  */
 @keyframes reach {
   from {

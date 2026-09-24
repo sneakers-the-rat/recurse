@@ -192,12 +192,7 @@ export function shippedData(band: number = DEFAULT_BAND): GameData {
   return built;
 }
 
-/**
- * One mode's map: the territories the builder carved its common graph into.
- *
- * Read the same way the app reads it, off the same file, so a test cannot be about a
- * partition the browser never sees. Per band for the same reason `shippedData` is.
- */
+/** The shipped regions of the daily mode `band` belongs to, over that mode's graph. */
 export function shippedRegions(band: number = DEFAULT_BAND): Regions {
   const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
   const mode = manifest.bands[band]?.mode ?? 0;

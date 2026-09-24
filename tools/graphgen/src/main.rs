@@ -216,8 +216,7 @@ struct Built<'a> {
     vocab: String,
     legal: graph::Graph,
     common: graph::Graph,
-    /// The common graph carved into territories, for the explore mode's map. Indexed by
-    /// *common-graph* word id, like the graph it is about. See regions.rs.
+    /// The open map's regions, by common-graph word id. See regions.rs.
     regions: regions::Regions,
     /// Before `schedule`, which runs once over the merged bank.
     ///
@@ -519,17 +518,13 @@ fn build_mode<'a>(
     let legal = tier("legal ", &lex.legal, &legal_subs);
     let common = tier("common", &lex.common, &common_subs);
 
-    // The explore mode's map: the common graph, minus the components too small to be anywhere,
-    // carved into territories. Cheap next to either graph, and every command gets one because
-    // `pair` and `routes` are worth being able to ask which region a word is in.
+    // Regions for the open map. Cheap next to building either graph.
     let phase = Instant::now();
     let ranks: Vec<usize> = common
         .words
         .iter()
         .map(|token| {
-            // A phonemes token is ranked by its most familiar spelling; a letters token is its
-            // own spelling. Unranked words sort last and so never name a region over a word the
-            // frequency list has heard of.
+            // A phonemes token is ranked by its first spelling. Unranked words sort last.
             let spelling = lex.labels(token).first().map(String::as_str).unwrap_or(token);
             corpora.rank.get(spelling).copied().unwrap_or(usize::MAX)
         })
@@ -692,7 +687,13 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
         }
     };
 
-    let corpora = Corpora::load(&cache, &root, &asked)?;
+    // The open map's graphs are built only by `build`: every inspection is about a bank.
+    let maps: Vec<&Mode> = match command {
+        Command::Build => config.explore.iter().collect(),
+        _ => Vec::new(),
+    };
+
+    let corpora = Corpora::load(&cache, &root, &[asked.clone(), maps.clone()].concat())?;
     corpora.seen.check(&config.shared.sources)?;
 
     // Every mode asked about, searched. They are independent — one alphabet, one pair of
@@ -737,6 +738,12 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
             return Ok(());
         }
         Command::Build => {}
+    }
+
+    // The open map's graphs: lexicon, both tiers and regions, with no search or bank.
+    let mut drawn: Vec<Built> = Vec::with_capacity(maps.len());
+    for mode in maps {
+        drawn.push(build_mode(mode, &corpora, &config, &cache, nonwords, threads, Want::Graphs)?);
     }
 
     // --------------------------------------------------------------- the bank
@@ -808,7 +815,7 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
 
     // ----------------------------------------------------------------- output
     check_ids(&selection.puzzles, &config)?;
-    write_outputs(&data, &config, &built, &selection, &dealt)?;
+    write_outputs(&data, &config, &built, &drawn, &selection, &dealt)?;
     progress::published_done();
     eprintln!("done in {:.1}s", started.elapsed().as_secs_f64());
     Ok(())
@@ -2509,8 +2516,11 @@ fn redirect_bodies(
 fn write_puzzle_shards(
     data: &Path,
     config: &Config,
+    // The daily games.
     built: &[Built],
-    // The digest naming each mode's four data files, in `built` order. See `named`.
+    // Every graph shipped, in manifest order. See `write_outputs`.
+    graphs: &[&Built],
+    // The digest naming each mode's data files, in `graphs` order. See `named`.
     digests: &[String],
     puzzles: &[select::Puzzle],
     dealt: &calendar::Calendar,
@@ -2630,18 +2640,25 @@ fn write_puzzle_shards(
         Conflating them was the first attempt and was wrong: three of the four files depend on
         the common tier as well, which the vocabulary deliberately does not cover. See `named`.
 
-        From `built` rather than from the config, because the config holds only what was
-        *declared* and a mode may decline to declare a vocabulary. Order is `built`'s, which is
-        `config.modes`' — a build refuses `--mode`, so the two cannot come apart, and the band
-        entries below index the same order.
+        From `graphs` rather than from the config, because the config holds only what was
+        *declared* and a mode may decline to declare a vocabulary. Order is `graphs`', which is
+        every daily game in `config.modes` and then every open one in `config.explore` — a build
+        refuses `--mode`, so the two cannot come apart, and the band entries below index the
+        same order.
+
+        `of` is written only for an open-map graph. See `Mode::of`.
     */
-    let modes = built
+    let modes = graphs
         .iter()
         .zip(digests)
         .map(|(one, data)| {
+            let of = match &one.mode.of {
+                Some(game) => format!(",\"of\":\"{game}\""),
+                None => String::new(),
+            };
             format!(
                 "{{\"name\":\"{}\",\"alphabet\":\"{}\",\"data\":\"{}\",\
-                 \"vocab\":\"{}\",\"slack\":{},\"minPar\":{},\"maxPar\":{}}}",
+                 \"vocab\":\"{}\",\"slack\":{},\"minPar\":{},\"maxPar\":{}{of}}}",
                 one.mode.name,
                 one.mode.alphabet.name(),
                 data,
@@ -2971,20 +2988,24 @@ fn write_outputs(
     data: &Path,
     config: &Config,
     built: &[Built],
+    // The open map's graphs. They ship the same files as a daily game.
+    maps: &[Built],
     selection: &select::Selection,
     dealt: &calendar::Calendar,
 ) -> Result<(), String> {
+    // Daily games first: a band's `mode` indexes this list, so the open map's go after.
+    let graphs: Vec<&Built> = built.iter().chain(maps).collect();
     // Each mode's four files, and the digest of them that names them. Collected here because
     // the manifest has to say what to fetch, and the manifest is written by the shards.
     let mut digests: Vec<String> = Vec::new();
-    for one in built {
+    for one in &graphs {
         digests.push(write_mode(&data.join(&one.mode.name), one)?);
     }
-    write_puzzle_shards(data, config, built, &digests, &selection.puzzles, dealt)?;
+    write_puzzle_shards(data, config, built, &graphs, &digests, &selection.puzzles, dealt)?;
     // Only once everything is written, because until then the manifest on disk is the old one
     // and still names the old files. Sweeping first left a window where a build that died
     // halfway had deleted the files its own manifest pointed at.
-    for (one, digest) in built.iter().zip(&digests) {
+    for (one, digest) in graphs.iter().zip(&digests) {
         sweep_mode(&data.join(&one.mode.name), one, digest);
     }
     Ok(())
@@ -3168,16 +3189,8 @@ fn write_mode(dir: &Path, one: &Built) -> Result<String, String> {
     Ok(digest)
 }
 
-/// The explore mode's map: which territory each word is in, and what each is called.
-///
-/// Indexed against the **dictionary**, like `common.json` and the graph rows, so the client
-/// needs nothing but the word list to read it. A word in no region is simply absent — that is
-/// how a component too small to explore, and every word with no moves at all, says so, and it
-/// is the majority of the list, so listing the exclusions instead would be the larger file.
-///
-/// Ids ascend within a region and delta-encode, which is the same trade `common.json` makes.
-/// The regions themselves are ordered by their first member, so the file is diffable: a region
-/// that gained a word stays where it was rather than the whole list shifting.
+/// `regions.json`: each region's name and members, as delta-encoded dictionary ids. A word off
+/// the map is in no region.
 fn regions_body(one: &Built, index: &FxMap<&str, u32>) -> String {
     let mut rows: Vec<String> = Vec::with_capacity(one.regions.regions.len());
     for region in &one.regions.regions {

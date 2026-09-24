@@ -31,35 +31,18 @@ export interface PlateEdge {
   b: string;
 }
 
-/**
- * The part of a board that every game has: which words are drawn, and every move between two
- * of them.
- *
- * `Plate` is this plus everything the daily puzzle measures against its answer. An open board
- * has no answer to measure against, so it is this and nothing else.
- */
+/** Which words are drawn, and the edges between them. An open map draws just this. */
 export interface Figure {
   nodes: string[];
   edges: PlateEdge[];
 }
 
 /**
- * Every edge there is between two drawn words — with one line drawn between what "there is"
- * means for a word the player has been to and a word that is merely on the board.
+ * The edges between drawn words, sorted within each pair and deduplicated.
  *
- * A word the player **reached by a move** shows *all* of its legal moves to words on the
- * board. Anything less is a lie about where they are standing: a word arriving from off the
- * corpus was drawn joined only to the word it sprouted from, so a rare word sitting between
- * three drawn words looked like a spur off one of them. The edge list is shipped and indexed
- * by word, so this is a row lookup per drawn word — no search, nothing to wait for, nothing to
- * show progress of.
- *
- * A word **nobody has reached yet** shows its common moves only, and that is not conservatism
- * about drawing: on a daily board a legal edge between two ordinary words the player has not
- * found is a *shortcut*, and drawing it puts a line on the figure that is shorter than the par
- * in the header. Which end of that line is `openly`'s to say.
- *
- * Pairs come back sorted and deduplicated, which is how every consumer names an edge.
+ * A word `openly` accepts (one the player reached) shows all its legal moves to drawn words;
+ * any other word shows its common moves only, since on a daily board a legal edge between
+ * unfound words is a shortcut shorter than par.
  */
 export function edgesAmong(
   graph: Graph,
@@ -82,18 +65,8 @@ export function edgesAmong(
 }
 
 /**
- * What an open board draws: everywhere the player has been, and one step of what is next.
- *
- * **The rim is the whole of the difference from a daily board.** A puzzle declares the words
- * it draws and the player fills them in; an atlas declares nothing, so revealing a word puts
- * an unnamed dot on the board for each of its common neighbours. That is how an open map says
- * where there is more to find without saying what — and it is depth one and no further,
- * because two steps out is most of the graph.
- *
- * `inAtlas` keeps the rim to words that are part of the map: a common word in a component too
- * small to explore is not somewhere to go. See regions.rs. A word the player guessed that is
- * legal but not common has no common neighbours at all, so it contributes no rim and hangs off
- * the board as the leaf it is.
+ * What an open map draws: every revealed word, plus a rim of its common neighbours that are
+ * on the map (`inAtlas`), drawn unnamed. The rim is one step deep.
  */
 export function atlasFigure(
   graph: Graph,
@@ -111,9 +84,7 @@ export function atlasFigure(
   const nodes = [...live].sort();
   const edges = edgesAmong(graph, nodes, (word) => revealed.has(word));
 
-  // And every move the player actually made, which `edgesAmong` can miss: a move between two
-  // words it does not think are joined — because one of them is off the common graph — is
-  // still a move that was played, and a figure that left it out would show the word floating.
+  // Every logged move too, so no found word is drawn unattached.
   const seen = new Set(edges.map(({ a, b }) => `${a} ${b}`));
   for (const { from, to } of moves) {
     if (!live.has(from) || !live.has(to)) continue;
@@ -167,7 +138,7 @@ export interface PlateOptions {
    * therefore not every move: a move onto a word already named reveals nothing, so it leaves
    * no trace there. Those are exactly the moves that join a game played from both ends — the
    * winning move of such a round — and drawing the board from arrivals alone left it off the
-   * figure with the subword that names it. See `joins` in game.ts.
+   * figure with the subword that names it. See `joins` in found.ts.
    */
   moves?: readonly { from: string; to: string }[];
   /**
@@ -363,9 +334,7 @@ export function buildPlate(
 
   const nodes = [...live].sort();
 
-  // The whole point of a secret is that finding it is the reward, so a word on one the player
-  // has an end of counts as reached and draws its legal moves too. See `secret` on Puzzle, and
-  // App's secret trail.
+  // Shortcut words count as reached; see `PlateOptions.secret`.
   const reached = new Set(found.filter((entry) => entry.via !== null).map((entry) => entry.word));
   const edges = edgesAmong(
     graph,
