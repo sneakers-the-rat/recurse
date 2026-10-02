@@ -18,6 +18,8 @@ export interface Painting {
   territories(): readonly Territory[];
   /** Position within the word's territory group. */
   offset(word: string): Point | undefined;
+  /** How much of its full size a word is drawn at; below 1 while it grows. */
+  scale(word: string): number;
   /** Position on the board, for crossing moves and labels. */
   place(word: string): Point | undefined;
   homeOf(word: string): number;
@@ -49,12 +51,18 @@ interface Place {
   ring: readonly Point[] | null;
 }
 
-/** One word's group, and where it was last drawn. `NaN` is "never". */
+/** One word's group, and where and how big it was last drawn. `NaN` is "never". */
 interface Mark {
   word: string;
   el: SVGGElement;
   x: number;
   y: number;
+  k: number;
+}
+
+/** A word's transform: its position, and its scale while it grows. */
+export function markAt(at: Point, k: number): string {
+  return k < 1 ? `translate(${at.x} ${at.y}) scale(${k})` : `translate(${at.x} ${at.y})`;
 }
 
 /** A move's line elements (visible line and hit area), and where its ends were last drawn. */
@@ -105,7 +113,7 @@ function scan(root: SVGGElement, homeOf: (word: string) => number): Kit {
     if (group.dataset.layer === 'words') {
       for (const one of group.querySelectorAll<SVGGElement>('g[data-word]')) {
         const word = one.dataset.word;
-        if (word !== undefined) place.words.push({ word, el: one, x: NaN, y: NaN });
+        if (word !== undefined) place.words.push({ word, el: one, x: NaN, y: NaN, k: NaN });
       }
     }
     if (group.dataset.layer === 'moves') {
@@ -201,10 +209,13 @@ export function usePainting(
         }
         for (const mark of place.words) {
           const to = ask.offset(mark.word);
-          if (!to || (!far(mark.x, to.x) && !far(mark.y, to.y))) continue;
+          if (!to) continue;
+          const k = ask.scale(mark.word);
+          if (!far(mark.x, to.x) && !far(mark.y, to.y) && k === mark.k) continue;
           mark.x = to.x;
           mark.y = to.y;
-          mark.el.setAttribute('transform', `translate(${to.x} ${to.y})`);
+          mark.k = k;
+          mark.el.setAttribute('transform', markAt(to, k));
         }
         for (const move of place.moves) {
           const a = ask.offset(move.a);

@@ -62,6 +62,8 @@ import { entrances, NO_ENTRANCE, type Entrances } from '../lib/sprout';
 import type { Graph } from '../lib/types';
 import { useAtlasLayout } from '../lib/useAtlasLayout';
 import { useDevMode } from '../lib/useDevMode';
+import { walk, type Way } from '../lib/trail';
+import { useTrail } from '../lib/useTrail';
 import { usePanZoom } from '../lib/usePanZoom';
 import { usePlateSize } from '../lib/usePlateSize';
 
@@ -206,6 +208,7 @@ export function AtlasBoard({
       get: (word: string) => live.current?.place(word),
       place: (word: string) => live.current?.place(word),
       offset: (word: string) => live.current?.offset(word),
+      scale: (word: string) => live.current?.scale(word) ?? 1,
       homeOf: (word: string) => live.current?.homeOf(word) ?? -1,
       territories: () => live.current?.territories() ?? NO_GROUND,
       // Safe to forward: `onTick` keeps its painters in a ref for the life of the hook.
@@ -372,6 +375,14 @@ export function AtlasBoard({
 
   // Tapping a found word stands on it; tapping a rim word with a power armed names it.
   const onSelect = useCallback((word: string) => answer(travel(atlas, word)), [atlas, answer]);
+  const onStep = useCallback(
+    (way: Way) => {
+      const next = walk(atlas, way);
+      if (next !== atlas) answer({ atlas: next, landed: next.selected });
+    },
+    [atlas, answer],
+  );
+  const steps = useTrail(atlas.stood, onStep);
   const onAsk = useCallback(
     (word: string) => {
       if (armed !== 'name') return;
@@ -561,6 +572,7 @@ export function AtlasBoard({
         lexicon={lexicon}
         error={null}
         travel={going}
+        steps={steps}
         onSubmit={onGuess}
         onClearError={noop}
       />

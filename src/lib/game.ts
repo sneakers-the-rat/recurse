@@ -47,6 +47,7 @@ import {
 import { hintLevels, ITSELF, type Spell } from "./hints";
 import { PLAIN, type Lexicon } from "./lexicon";
 import { judgeGuess } from "./moves";
+import { readTrail, stand, startTrail, type Trail } from "./trail";
 import type { Graph, Judgement, Move, Puzzle } from "./types";
 
 
@@ -55,6 +56,8 @@ export interface GameState extends Found {
   puzzle: Puzzle;
   /** The word new guesses are made from — a revealed one or the goal. See `isFront`. */
   selected: string;
+  /** Every word stood on, for back and next. See trail.ts. */
+  stood: Trail;
   misses: number;
   /** Whether the moves made join the source to the goal. Derived; see `joins`. */
   solved: boolean;
@@ -109,6 +112,7 @@ export function newGame(puzzle: Puzzle): GameState {
     puzzle,
     ...open(puzzle.source),
     selected: puzzle.source,
+    stood: startTrail(puzzle.source),
     misses: 0,
     solved: false,
     hints: new Map(),
@@ -206,7 +210,7 @@ export function applyGuess(
   if (!step.moved) {
     return {
       kind: "already-known",
-      state: { ...state, selected: step.landed },
+      state: { ...state, selected: step.landed, stood: stand(state.stood, step.landed) },
       move: step.move,
       word: step.landed,
     };
@@ -218,14 +222,20 @@ export function applyGuess(
     move: step.move,
     word: step.landed,
     solved,
-    state: { ...state, ...step.found, selected: step.landed, solved },
+    state: {
+      ...state,
+      ...step.found,
+      selected: step.landed,
+      stood: stand(state.stood, step.landed),
+      solved,
+    },
   };
 }
 
 /** Move the cursor to another word a guess can be made from. */
 export function select(state: GameState, word: string): GameState {
   if (!isFront(state, word) || word === state.selected) return state;
-  return { ...state, selected: word };
+  return { ...state, selected: word, stood: stand(state.stood, word) };
 }
 
 /**
@@ -337,6 +347,8 @@ export interface GameSnapshot {
   spentHints?: number;
   /** Moves given away, as `"from to"`. Absent in games saved before they existed. */
   edgeHints?: string[];
+  /** Absent in games saved before it existed. */
+  stood?: Trail;
 }
 
 export function snapshot(state: GameState): GameSnapshot {
@@ -347,6 +359,7 @@ export function snapshot(state: GameState): GameSnapshot {
     hints: [...state.hints],
     ...(state.spentHints > 0 ? { spentHints: state.spentHints } : {}),
     edgeHints: [...state.edgeHints],
+    stood: state.stood,
   };
 }
 
@@ -390,13 +403,14 @@ export function restore(
     if (from && to && from !== to) edgeHints.add(moveKey(from, to));
   }
 
+  const canStand = (word: string) => found.revealed.has(word) || word === puzzle.target;
+  const selected = canStand(saved.selected) ? saved.selected : puzzle.source;
+
   return {
     puzzle,
     ...found,
-    selected:
-      found.revealed.has(saved.selected) || saved.selected === puzzle.target
-        ? saved.selected
-        : puzzle.source,
+    selected,
+    stood: readTrail(saved.stood, canStand, selected),
     misses: Number.isFinite(saved.misses)
       ? Math.max(0, Math.trunc(saved.misses))
       : 0,

@@ -142,42 +142,91 @@ export interface Boxes {
    * would make it a fixed obstacle that shoves everything born under it away.
    */
   asleep?: (id: string) => boolean;
+  /**
+   * How far past contact two rooms still repel, and how hard: linearly from nothing at `halo` to
+   * `soft` at contact, scaled by alpha. Spreads a crowd evenly rather than leaving it where shoved.
+   */
+  halo?: number;
+  soft?: number;
+  /**
+   * The most one pair is pushed apart per pass. Set to the speed limit (`forceSpeed`), or a word
+   * buried deep in a hub pushes it hard every tick it spends crawling out.
+   */
+  most?: () => number;
+  /**
+   * Words still coming out of the word they were born under, mapped to it. Such a pair pushes only
+   * the newcomer, so a parent is not shoved aside by its own children. An entry is removed once the
+   * pair no longer overlaps.
+   */
+  emerging?: Map<string, string>;
 }
 
 /**
  * A collider over each word's `Room` (from `boxOf`), so labels are kept apart as well as marks.
  * Each overlapping pair is pushed apart by the least displacement that separates it (`apart`),
  * found by sweep and prune on x. A pinned word takes none of the push. Not scaled by alpha,
- * like `forceCollide`: a constraint must hold as the run cools.
+ * like `forceCollide`: a constraint must hold as the run cools. `halo` is the exception.
  */
 export function forceBoxes(room: (id: string) => Room, opts: Boxes = {}) {
-  const { strength = 1, iterations = 1, give = () => 1, asleep } = opts;
+  const {
+    strength = 1,
+    iterations = 1,
+    give = () => 1,
+    asleep,
+    halo = 0,
+    soft = 0,
+    most = () => Infinity,
+    emerging,
+  } = opts;
   let nodes: SimNode[] = [];
-  let rooms: Room[] = [];
   let gives: number[] = [];
 
-  const force = () => {
+  const bearing = (child: SimNode, parent: SimNode) => emerging?.get(child.id) === parent.id;
+
+  /** Push a pair apart by `push`, split by how readily each gives way. */
+  const shove = (i: number, j: number, ux: number, uy: number, push: number) => {
+    const one = nodes[i]!;
+    const two = nodes[j]!;
+    // A pinned word gives nothing, nor does a parent to its emerging child.
+    const giveOne = one.fx !== undefined || bearing(two, one) ? 0 : gives[i]!;
+    const giveTwo = two.fx !== undefined || bearing(one, two) ? 0 : gives[j]!;
+    const between = giveOne + giveTwo;
+    if (between <= 0) return;
+    two.vx = (two.vx ?? 0) + ux * push * (giveTwo / between);
+    two.vy = (two.vy ?? 0) + uy * push * (giveTwo / between);
+    one.vx = (one.vx ?? 0) - ux * push * (giveOne / between);
+    one.vy = (one.vy ?? 0) - uy * push * (giveOne / between);
+  };
+
+  const force = (alpha: number) => {
+    // Every tick, since a growing word's room changes.
+    const rooms = nodes.map((node) => room(node.id));
+    const cap = most();
+    if (halo > 0 && soft > 0) {
+      for (const { i, j, ux, uy, over } of overlaps(nodes, rooms, CLEARANCE + halo, asleep)) {
+        shove(i, j, ux, uy, Math.min(over, halo) * (soft / halo) * alpha);
+      }
+    }
+    const inside = new Set<string>();
     for (let pass = 0; pass < iterations; pass++) {
+      const last = pass === iterations - 1;
       for (const { i, j, ux, uy, over } of overlaps(nodes, rooms, CLEARANCE, asleep)) {
-        const one = nodes[i]!;
-        const two = nodes[j]!;
-        // A pinned word gives nothing; if both are pinned the overlap is left.
-        const giveOne = one.fx !== undefined ? 0 : gives[i]!;
-        const giveTwo = two.fx !== undefined ? 0 : gives[j]!;
-        const between = giveOne + giveTwo;
-        if (between <= 0) continue;
-        const push = over * strength;
-        two.vx = (two.vx ?? 0) + ux * push * (giveTwo / between);
-        two.vy = (two.vy ?? 0) + uy * push * (giveTwo / between);
-        one.vx = (one.vx ?? 0) - ux * push * (giveOne / between);
-        one.vy = (one.vy ?? 0) - uy * push * (giveOne / between);
+        if (last && emerging) {
+          if (bearing(nodes[i]!, nodes[j]!)) inside.add(nodes[i]!.id);
+          if (bearing(nodes[j]!, nodes[i]!)) inside.add(nodes[j]!.id);
+        }
+        shove(i, j, ux, uy, Math.min(over * strength, cap));
+      }
+    }
+    if (emerging) {
+      for (const child of emerging.keys()) {
+        if (!inside.has(child) && !asleep?.(child)) emerging.delete(child);
       }
     }
   };
 
   force.initialize = (given: SimNode[]) => {
     nodes = given;
-    rooms = given.map((node) => room(node.id));
     gives = given.map((node) => Math.max(give(node.id), 0));
   };
   return force;
@@ -237,6 +286,28 @@ export function forcePlates(
     }
   };
 
+  force.initialize = (given: SimNode[]) => {
+    nodes = given;
+  };
+  return force;
+}
+
+/**
+ * The furthest each node may move in one tick, whatever the forces want. Added last, so it caps
+ * their sum. `decay` is the simulation's `velocityDecay`, which d3 applies before the step.
+ */
+export function forceSpeed(most: (node: SimNode) => number, decay: number) {
+  let nodes: SimNode[] = [];
+  const force = () => {
+    for (const node of nodes) {
+      const top = most(node) / (1 - decay);
+      if (top === Infinity) continue;
+      const speed = Math.hypot(node.vx ?? 0, node.vy ?? 0);
+      if (speed <= top) continue;
+      node.vx = ((node.vx ?? 0) * top) / speed;
+      node.vy = ((node.vy ?? 0) * top) / speed;
+    }
+  };
   force.initialize = (given: SimNode[]) => {
     nodes = given;
   };

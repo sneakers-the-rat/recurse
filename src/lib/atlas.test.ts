@@ -1,6 +1,7 @@
 /** The open map's guesses, economy and save format, over the shipped letters data. */
 
 import { describe, expect, it } from 'vitest';
+import { walk } from './trail';
 import {
   abandon,
   collect,
@@ -349,6 +350,16 @@ describe('writing a map down', () => {
     expect([...back.revealed.keys()].sort()).toEqual([...named.revealed.keys()].sort());
     expect(back.log).toEqual(named.log);
     expect([...back.hints]).toEqual([...named.hints]);
+  });
+
+  it('keeps where the player has stood, part way back along it', () => {
+    const atlas = grown(4);
+    const behind = walk(atlas, 'back');
+    expect(behind.selected).not.toBe(atlas.selected);
+    const back = loadAtlas(saveAtlas(behind))!;
+    expect(back.stood).toEqual(behind.stood);
+    expect(back.selected).toBe(behind.selected);
+    expect(walk(back, 'next').selected).toBe(atlas.selected);
   });
 
   it('replays a move made from a dropped word', () => {

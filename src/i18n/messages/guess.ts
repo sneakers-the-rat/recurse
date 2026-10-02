@@ -21,8 +21,9 @@ export const guess = defineMessages({
   },
   field: {
     id: 'guess.field',
-    defaultMessage: 'a word',
-    description: 'Placeholder in the guess field. The player types a whole word, not the piece.',
+    defaultMessage: 'add or remove a word',
+    description:
+      'Placeholder in the guess field: what a move is. The player types the whole resulting word, not the piece.',
   },
   fieldLabel: {
     id: 'guess.fieldLabel',
@@ -34,13 +35,20 @@ export const guess = defineMessages({
     defaultMessage: 'Guess',
     description: 'The button that submits a guess.',
   },
+  back: {
+    id: 'guess.back',
+    defaultMessage: 'back',
+    description:
+      'Button above the guess field that goes back to the word stood on before this one, like a browser’s back. Shown beside an up arrow, which is its keyboard shortcut.',
+  },
+  next: {
+    id: 'guess.next',
+    defaultMessage: 'next',
+    description:
+      'Button above the guess field that goes forward again after going back. Shown beside a down arrow, which is its keyboard shortcut.',
+  },
 
   /* The readout, which shows what the guess would do while it is still being typed. */
-  prompt: {
-    id: 'guess.prompt',
-    defaultMessage: 'add or remove a word',
-    description: 'Shown in the readout before anything has been typed: what a move is.',
-  },
   unchanged: {
     id: 'guess.unchanged',
     defaultMessage: 'unchanged',

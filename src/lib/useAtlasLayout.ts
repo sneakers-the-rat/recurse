@@ -38,6 +38,8 @@ export interface AtlasView {
   place(word: string): Point | undefined;
   /** A word's position within its region, which is where the plate draws it. */
   offset(word: string): Point | undefined;
+  /** How much of its full size a word is drawn at; below 1 while it grows. */
+  scale(word: string): number;
   /** The `Territory.slot` a word is drawn in. */
   homeOf(word: string): number;
   /** What the atlas saves. Too costly to compute per frame. */
@@ -144,6 +146,7 @@ export function useAtlasLayout(
       onTick,
       place: (word: string) => layout.place(word),
       offset: (word: string) => layout.offset(word),
+      scale: (word: string) => layout.scale(word),
       homeOf: (word: string) => layout.homeOf(word),
       settled: () => layout.remember(),
     };

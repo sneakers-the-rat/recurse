@@ -20,6 +20,7 @@ import {
   boxOf,
   forceBoxes,
   forcePlates,
+  forceSpeed,
   linkDistance,
   reachOf,
   type Room,
@@ -29,7 +30,7 @@ import { outline, type Blob } from './hull';
 import type { Cluster, ClusterGraph } from './regions';
 import { DOT_R } from '../components/plate/sizes';
 import { NODE_R } from './sizes';
-import { dice, GROW_MS, NO_ENTRANCE, type Entrances } from './sprout';
+import { dice, NO_ENTRANCE, type Entrances } from './sprout';
 import type { Point } from './types';
 
 // --- how big a word is, which the arrangement has to agree with ------------------
@@ -62,6 +63,12 @@ export function roomFor(sizes: Sizes): (word: string) => Room {
     sizes.revealed(word)
       ? boxOf(word, true, sizes.degree(word))
       : { w: DOT_R + RIM_AIR, h: DOT_R + RIM_AIR, cy: 0, round: true };
+}
+
+/** A room at `k` of its size, for a word part way through growing. */
+function scaled(room: Room, k: number): Room {
+  if (k >= 1) return room;
+  return { w: room.w * k, h: room.h * k, cy: room.cy * k, round: room.round };
 }
 
 // --- the numbers -----------------------------------------------------------------
@@ -112,6 +119,13 @@ function reshaped(was: readonly Point[], now: readonly Point[]): boolean {
 
 /** Gap left between two plates. */
 const REGION_GAP = 70;
+
+/**
+ * Border spring strength once the map is open, in place of alpha: about what it has cooled to when
+ * the map settles. Most springs can never reach rest, so a pull that rose with each reheat would
+ * draw the map in and let it expand again as it cooled.
+ */
+const BORDER_HEAT = 0.003;
 
 /** Border spring strength per crossing move, capped. */
 const BORDER_PER_MOVE = 0.06;
@@ -175,11 +189,20 @@ const SPIRAL_DENSITY = 0.7;
 /** How far a newcomer is seeded from the word it was reached from, to break symmetry. */
 const BIRTH_JITTER = 12;
 
-/**
- * Speed a word is released with, scaled by its scheduled growth (sprout.ts) so that the node and
- * its CSS animation move together.
- */
-const RELEASE = 7;
+/** The furthest a word may move in one tick (see `forceSpeed`), so nothing on the board jumps. */
+const CRAWL = 2.2;
+/** The same for a small region; a larger one is slower by `regionMobility`. */
+const REGION_CRAWL = 1.5;
+
+/** The fewest ticks a word takes to grow to its full mark. It grows no faster than `CRAWL`. */
+const GROW_TICKS = 54;
+
+/** How far past contact two words still repel, and how hard. See `halo` in forces.ts. */
+const HALO = 24;
+const SPREAD = 0.6;
+
+/** d3's default velocity decay, which the speed cap has to know. */
+const WORD_DRAG = 0.4;
 
 // --- what comes out ---------------------------------------------------------------
 
@@ -232,8 +255,8 @@ interface Place {
   /** Each word's moves within this region. */
   degree: Map<string, number>;
   moves: Move[];
-  /** Words not yet released: when each is due, and the word it comes out of. See `release`. */
-  holding: Map<string, { at: number; from: string }>;
+  /** Words not yet released: when each is due, and its offset from the word it comes out of. */
+  holding: Map<string, { due: number; from: string; dx: number; dy: number }>;
   /** Its plate relative to `node`, and how far that reaches. Recomputed by `reshape`. */
   ring: Point[];
   span: number;
@@ -269,6 +292,8 @@ export interface AtlasLayout {
   place(word: string): Point | undefined;
   /** A word's position within its region. */
   offset(word: string): Point | undefined;
+  /** How much of its full size a word is drawn at: below 1 while it grows. */
+  scale(word: string): number;
   /** The `Territory.slot` a word is drawn in, or -1. */
   homeOf(word: string): number;
   positions(): Map<string, Point>;
@@ -287,7 +312,15 @@ export function atlasLayout(
   settled: Remembered = NOTHING,
 ): AtlasLayout {
   let marks = sizes;
-  let room = roomFor(sizes);
+  let fullRoom = roomFor(sizes);
+  /** The radius each word is drawn at now, trailing `marks.radius` while it grows. */
+  const drawn = new Map<string, number>();
+  const growing = new Set<string>();
+  const sizeNow = (word: string) => {
+    const full = marks.radius(word);
+    return full > 0 ? (drawn.get(word) ?? full) / full : 1;
+  };
+  const room = (word: string) => scaled(fullRoom(word), sizeNow(word));
   const places: Place[] = [];
   const regionNodes: SimNode[] = [];
   /** Which place a word lives in. */
@@ -305,7 +338,12 @@ export function atlasLayout(
   let elapsed = Infinity;
   /** Words not yet released, in every place. The collider and springs skip them. */
   const resting = new Set<string>();
+  /** Words still coming out of the word they were born under. See `emerging` in forces.ts. */
+  const emerging = new Map<string, string>();
   let schedule: Entrances = NO_ENTRANCE;
+  /** False during `settle`: no speed limits, instant growth, and border springs fade with alpha. */
+  let watching = true;
+  const limit = (speed: number) => (watching ? speed : Infinity);
   /** Borders by slot, with how many moves cross each. */
   let borders: { a: number; b: number; crossings: number }[] = [];
 
@@ -336,10 +374,9 @@ export function atlasLayout(
   }
 
   /**
-   * Where a new word is seeded: on the first placed neighbour, `BIRTH_JITTER` out, and the
-   * collider pushes it out. Each of a parent's children is a golden angle round from the last, so
-   * a crowd starts evenly around its parent. With no placed neighbour, on a spiral about the
-   * region's centre.
+   * Where a new word is seeded: `BIRTH_JITTER` from the found neighbour that brought it onto the
+   * board (failing one, any placed neighbour), a golden angle round from its previous sibling. With
+   * no placed neighbour, on a spiral about the region's centre.
    */
   function birth(
     place: Place,
@@ -347,9 +384,10 @@ export function atlasLayout(
     near: ReadonlyMap<string, string[]>,
     rank: number,
   ): { at: Point; from: string | null } {
-    for (const other of near.get(word) ?? []) {
-      const at = place.at.get(other);
-      if (at === undefined) continue;
+    const placed = (near.get(word) ?? []).filter((other) => place.at.has(other));
+    const found = placed.filter((other) => marks.revealed(other));
+    for (const other of found.length > 0 ? found : placed) {
+      const at = place.at.get(other)!;
       const nth = children.get(other) ?? 0;
       children.set(other, nth + 1);
       const way = dice(other, 1) * Math.PI * 2 + nth * GOLDEN_ANGLE;
@@ -377,11 +415,20 @@ export function atlasLayout(
     const at = kept ?? born.at;
     one.x = at.x;
     one.y = at.y;
+    if (!kept && born.from !== null) emerging.set(word, born.from);
+    // A new word grows from a dot.
+    drawn.set(word, kept ? marks.radius(word) : Math.min(DOT_R, marks.radius(word)));
 
     // A scheduled word waits on the word it came from until its turn; others are placed at once.
     const coming = kept ? undefined : schedule.nodes.get(word);
     if (coming && born.from !== null) {
-      place.holding.set(word, { at: coming.delay, from: born.from });
+      const parent = place.at.get(born.from)!;
+      place.holding.set(word, {
+        due: coming.delay,
+        from: born.from,
+        dx: at.x - (parent.x ?? 0),
+        dy: at.y - (parent.y ?? 0),
+      });
       resting.add(word);
     }
   }
@@ -421,8 +468,14 @@ export function atlasLayout(
           iterations: ROOM_PASSES,
           give: (id) => mobility(marks.radius(id)),
           asleep: (id) => resting.has(id),
+          halo: HALO,
+          soft: SPREAD,
+          most: () => limit(CRAWL),
+          emerging,
         }),
-      );
+      )
+      // Last, so it caps the sum of everything above.
+      .force('speed', forceSpeed(() => limit(CRAWL), WORD_DRAG));
     // No centering or charge: a region's shape comes from its moves and the room its words take.
   }
 
@@ -502,7 +555,7 @@ export function atlasLayout(
       node: { id: String(slot), x: 0, y: 0 },
       nodes: [],
       at: new Map(),
-      sim: forceSimulation<SimNode>([]).stop(),
+      sim: forceSimulation<SimNode>([]).velocityDecay(WORD_DRAG).stop(),
       degree: new Map(),
       moves: [],
       holding: new Map(),
@@ -553,7 +606,8 @@ export function atlasLayout(
         if (away < 1e-9) continue;
         const rest = (places[border.a]?.span ?? 0) + (places[border.b]?.span ?? 0) + REGION_GAP;
         if (away <= rest) continue;
-        const pull = ((away - rest) / away) * regionPull(border.crossings) * alpha;
+        const heat = watching ? BORDER_HEAT : alpha;
+        const pull = ((away - rest) / away) * regionPull(border.crossings) * heat;
         // Shared as the plate collider shares it, so a small place moves toward a large one.
         const giveOne = regionMobility(places[border.a]?.span ?? 0);
         const giveTwo = regionMobility(places[border.b]?.span ?? 0);
@@ -587,6 +641,13 @@ export function atlasLayout(
           iterations: PLATE_PASSES,
           give: (slot) => regionMobility(places[slot]?.span ?? 0),
         },
+      ),
+    )
+    .force(
+      'speed',
+      forceSpeed(
+        (node) => limit(REGION_CRAWL * regionMobility(places[Number(node.id)]?.span ?? 0)),
+        REGION_DRAG,
       ),
     )
     .stop();
@@ -705,6 +766,7 @@ export function atlasLayout(
   }
   map.nodes(regionNodes);
   for (const one of places) for (const node of one.nodes) shown.set(node.id, sizes.revealed(node.id));
+  retarget();
   // Cold unless some place is hot.
   map.alpha(places.every((one) => one.sim.alpha() <= one.sim.alphaMin()) ? 0 : 1);
 
@@ -713,36 +775,62 @@ export function atlasLayout(
   const hot = (sim: Simulation<SimNode, undefined>) => sim.alpha() > sim.alphaMin();
 
   /**
-   * Release every held word whose turn has come, pushing it away from the word it came out of at
-   * `RELEASE`. Until then it is in `resting`, and nothing collides with it or pulls it.
+   * Wake every held word whose turn has come, under wherever its parent now is. Until then it is
+   * in `resting` (and hidden, see `.sprout`), so nothing collides with it or pulls it.
    */
   function release() {
     for (const one of places) {
       if (one.holding.size === 0) continue;
-      for (const [word, due] of [...one.holding]) {
-        if (elapsed < due.at) continue;
+      for (const [word, held] of [...one.holding]) {
+        if (elapsed < held.due) continue;
         one.holding.delete(word);
         resting.delete(word);
         const node = one.at.get(word);
-        const from = one.at.get(due.from);
-        if (!node) continue;
-        // Along its seeding jitter, slower for a word scheduled to grow in more slowly.
-        const dx = (node.x ?? 0) - (from?.x ?? node.x ?? 0);
-        const dy = (node.y ?? 0) - (from?.y ?? node.y ?? 0);
-        const away = Math.hypot(dx, dy) || 1;
-        const pace = GROW_MS / Math.max(schedule.nodes.get(word)?.duration ?? GROW_MS, 1);
-        node.vx = (dx / away) * RELEASE * pace;
-        node.vy = (dy / away) * RELEASE * pace;
+        const from = one.at.get(held.from);
+        if (node && from) {
+          node.x = (from.x ?? 0) + held.dx;
+          node.y = (from.y ?? 0) + held.dy;
+          node.vx = 0;
+          node.vy = 0;
+        }
         one.stale = true;
         heat(one, PLACE_NUDGE);
       }
     }
   }
 
+  /** Start growing every word whose drawn radius differs from its full one. */
+  function retarget() {
+    for (const [word, now] of drawn) {
+      if (now === marks.radius(word)) continue;
+      growing.add(word);
+      const home = where.get(word);
+      if (home) heat(home, PLACE_NUDGE);
+    }
+  }
+
+  /** Step each growing word's drawn radius toward its full one, keeping its place hot. */
+  function grow(): boolean {
+    if (growing.size === 0) return false;
+    for (const word of growing) {
+      const full = marks.radius(word);
+      const now = drawn.get(word) ?? full;
+      const step = limit(Math.min(CRAWL, Math.max(full, now) / GROW_TICKS));
+      const next = now < full ? Math.min(full, now + step) : Math.max(full, now - step);
+      drawn.set(word, next);
+      if (next === full) growing.delete(word);
+      const home = where.get(word);
+      if (!home) continue;
+      home.stale = true;
+      heat(home, PLACE_NUDGE);
+    }
+    return true;
+  }
+
   function tick(at: number = Infinity): boolean {
     elapsed = at;
     release();
-    let moved = false;
+    let moved = grow();
     for (const one of places) {
       if (!hot(one.sim)) continue;
       one.sim.tick();
@@ -766,6 +854,7 @@ export function atlasLayout(
   }
 
   function moving(): boolean {
+    if (growing.size > 0) return true;
     if (places.some((one) => one.holding.size > 0)) return true;
     return hot(map) || places.some((one) => hot(one.sim));
   }
@@ -774,8 +863,13 @@ export function atlasLayout(
     tick,
     moving,
 
-    settle(limit = SETTLE_STEPS) {
-      for (let step = 0; step < limit; step++) if (!tick()) return;
+    settle(steps = SETTLE_STEPS) {
+      watching = false;
+      try {
+        for (let step = 0; step < steps; step++) if (!tick()) return;
+      } finally {
+        watching = true;
+      }
     },
 
     place(word) {
@@ -789,6 +883,8 @@ export function atlasLayout(
       const at = where.get(word)?.at.get(word);
       return at ? { x: at.x ?? 0, y: at.y ?? 0 } : undefined;
     },
+
+    scale: sizeNow,
 
     homeOf(word) {
       return where.get(word)?.slot ?? -1;
@@ -856,7 +952,7 @@ export function atlasLayout(
 
     update(next, given, arrivals = NO_ENTRANCE) {
       marks = given;
-      room = roomFor(given);
+      fullRoom = roomFor(given);
       // A new arrival replaces the old; anything still held from it is released where it is.
       for (const one of places) one.holding.clear();
       resting.clear();
@@ -892,6 +988,7 @@ export function atlasLayout(
       }
 
       for (const one of places) for (const node of one.nodes) shown.set(node.id, given.revealed(node.id));
+      retarget();
       retie(next);
       // Seat new regions one at a time, most-connected first, so each sees those before it.
       fresh

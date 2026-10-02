@@ -125,6 +125,8 @@ import {
 } from './lib/camera';
 import { usePanZoom } from './lib/usePanZoom';
 import { useDevMode } from './lib/useDevMode';
+import { walk, type Way } from './lib/trail';
+import { useTrail } from './lib/useTrail';
 import type { Puzzle } from './lib/types';
 
 /** How long the whole board is held in shot, and how long the camera takes to close. */
@@ -1214,6 +1216,19 @@ export default function App() {
     [world],
   );
 
+  // Back and next through the words stood on, followed by the camera. Only on the board itself.
+  const onStep = useCallback(
+    (way: Way) => {
+      if (!state) return;
+      const next = walk(state, way);
+      if (next === state) return;
+      setState(next);
+      setFollow({ word: next.selected, centre: narrow });
+    },
+    [state, narrow],
+  );
+  const steps = useTrail(page === null ? (state?.stood ?? null) : null, onStep);
+
   /**
    * A hint on a word only the shortcut draws, refused.
    *
@@ -2117,6 +2132,7 @@ export default function App() {
             isWord={isWord}
             lexicon={data.lexicon}
             error={error}
+            steps={steps}
             onSubmit={handleGuess}
             onClearError={clearError}
           />

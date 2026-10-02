@@ -14,6 +14,7 @@ import { ITSELF, type Spell } from './hints';
 import { PLAIN, type Lexicon } from './lexicon';
 import { judgeGuess } from './moves';
 import type { Regions } from './regions';
+import { readTrail, stand, startTrail, type Trail } from './trail';
 import type { Graph, Revealed } from './types';
 
 /** An accepted mission. An offer is a bare word; see `Atlas.offers`. */
@@ -28,6 +29,8 @@ export interface Atlas extends Found {
   start: string;
   /** Where the next guess is made from. Always a found word. */
   selected: string;
+  /** Every word stood on, for back and next. See trail.ts. */
+  stood: Trail;
   /** Words whose letter count was bought. Always level `NAMED`, kept as a level for `hintLabel`. */
   hints: Map<string, number>;
   points: number;
@@ -59,6 +62,7 @@ export function openAtlas(word: string): Atlas {
     ...open(word),
     start: word,
     selected: word,
+    stood: startTrail(word),
     hints: new Map(),
     points: 0,
     offers: [],
@@ -93,7 +97,12 @@ export function guess(
     atlas.revealed.has(word) ? 0 : 1,
   );
   return {
-    atlas: { ...atlas, ...step.found, selected: step.landed },
+    atlas: {
+      ...atlas,
+      ...step.found,
+      selected: step.landed,
+      stood: stand(atlas.stood, step.landed),
+    },
     landed: step.landed,
   };
 }
@@ -101,7 +110,7 @@ export function guess(
 /** Move the cursor to a found word, whether tapped or typed. */
 export function travel(atlas: Atlas, word: string): Outcome {
   if (!atlas.revealed.has(word) || word === atlas.selected) return { atlas };
-  return { atlas: { ...atlas, selected: word }, landed: word };
+  return { atlas: { ...atlas, selected: word, stood: stand(atlas.stood, word) }, landed: word };
 }
 
 /** The first reading of a typed word that is found and is not the cursor, or null. */
@@ -172,7 +181,13 @@ export function drop(
   const revealed = new Map(atlas.revealed);
   revealed.set(wanted, { word: wanted, via: null, move: null, order: 0 } satisfies Revealed);
   return {
-    atlas: { ...atlas, revealed, points: atlas.points - price, selected: wanted },
+    atlas: {
+      ...atlas,
+      revealed,
+      points: atlas.points - price,
+      selected: wanted,
+      stood: stand(atlas.stood, wanted),
+    },
     landed: wanted,
   };
 }
@@ -380,6 +395,8 @@ export interface AtlasSave {
   /** Revealed words no logged move reached: drops. */
   dropped: string[];
   selected: string;
+  /** Absent in maps saved before it existed. */
+  stood?: Trail;
   hints: [string, number][];
   points: number;
   offers: string[];
@@ -395,6 +412,7 @@ export function saveAtlas(atlas: Atlas): AtlasSave {
     log: atlas.log,
     dropped: [...atlas.revealed.keys()].filter((word) => !walked.has(word)),
     selected: atlas.selected,
+    stood: atlas.stood,
     hints: [...atlas.hints],
     points: atlas.points,
     offers: atlas.offers,
@@ -427,6 +445,8 @@ export function loadAtlas(saved: AtlasSave | null | undefined): Atlas | null {
     hints.set(word, NAMED);
   }
 
+  const selected = found.revealed.has(saved.selected) ? saved.selected : saved.start;
+
   const count = (value: unknown) =>
     Number.isFinite(value) ? Math.max(0, Math.trunc(value as number)) : 0;
   const mission = (value: unknown): Mission | null => {
@@ -439,7 +459,8 @@ export function loadAtlas(saved: AtlasSave | null | undefined): Atlas | null {
   return {
     ...found,
     start: saved.start,
-    selected: found.revealed.has(saved.selected) ? saved.selected : saved.start,
+    selected,
+    stood: readTrail(saved.stood, (word) => found.revealed.has(word), selected),
     hints,
     points: count(saved.points),
     offers: (Array.isArray(saved.offers) ? saved.offers : []).filter(

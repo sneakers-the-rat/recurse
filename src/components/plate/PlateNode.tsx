@@ -38,11 +38,8 @@ export type At = {
   buttons?: number;
 };
 
-/** Border width of an `inverted` mark: a share of its radius, at least `BORDER_MIN`. */
-const BORDER_OF_MARK = 0.12;
-const BORDER_MIN = 3;
-/** Gap between that border and the gilt ring outside it. */
-const BORDER_CLEAR = 2.5;
+/** How far the selected ring stands off its mark, whatever the mark's size. */
+const RING_CLEAR = 5;
 
 /**
  * Moves that lead off the board, drawn as a fan of ticks aimed at `awayFrom`. One tick per
@@ -157,7 +154,7 @@ export const PlateNode = memo(function PlateNode({
   const full = markRadius(degree);
   const r = isRevealed || isEndpoint ? full : hinted ? NODE_R - 3 : DOT_R;
   const ring = inverted
-    ? 'var(--color-noir)'
+    ? 'var(--color-gilt)'
     : isEndpoint
       ? 'var(--color-bone)'
       : onRoute
@@ -178,14 +175,7 @@ export const PlateNode = memo(function PlateNode({
           : onRoute
             ? 'var(--color-gilt-dim)'
             : 'var(--color-ash)';
-  // Scaled by radius, since marks that grow with degree vary widely in size.
-  const weight = inverted
-    ? Math.max(BORDER_MIN, r * BORDER_OF_MARK)
-    : named
-      ? 1.4
-      : hinted
-        ? 1
-        : 0.8;
+  const weight = named ? 1.4 : hinted ? 1 : 0.8;
   const presence = inverted || named || secret ? 1 : onRoute ? 0.95 : 0.7;
 
   // A known word is drawn as its spelling, with its transcription beneath in a translated mode.
@@ -237,7 +227,7 @@ export const PlateNode = memo(function PlateNode({
         {/* Clear of the mark's stroke, half of which lies outside `r`. */}
         {isSelected && (
           <circle
-            r={inverted ? r + weight / 2 + BORDER_CLEAR : r + 5}
+            r={r + RING_CLEAR}
             fill="none"
             pointerEvents="none"
             stroke="var(--color-gilt)"

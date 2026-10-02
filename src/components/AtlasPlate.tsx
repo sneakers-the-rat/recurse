@@ -19,7 +19,7 @@ import { Plate } from './plate/Plate';
 import { PlateEdge } from './plate/PlateEdge';
 import { PlateNode, type At as PointerAt } from './plate/PlateNode';
 import { usePointing, type Pointing } from './plate/usePointing';
-import { usePainting, type Painting } from './plate/usePainting';
+import { markAt, usePainting, type Painting } from './plate/usePainting';
 import { roomFor, type Sizes, type Territory } from '../lib/atlasLayout';
 import { reachOf } from '../lib/forces';
 import { ringPath } from '../lib/hull';
@@ -143,6 +143,7 @@ const Moves = memo(function Moves({
               bothKnown={known}
               live={!trail && !known && (edge.a === selected || edge.b === selected)}
               lifted={lit.overEdge === key || edge.a === lit.overWord || edge.b === lit.overWord}
+              hairline
               sprouting={entrance !== undefined}
               delay={entrance?.delay ?? 0}
               draw={entrance?.duration ?? 0}
@@ -157,14 +158,16 @@ const Moves = memo(function Moves({
   );
 });
 
-/**
- * A list of words, arriving ones drawn first so they are painted under the settled word they
- * start on top of (see atlasLayout.ts) and come out from beneath it. Takes nothing about the
- * pointer, so hovering does not re-render the marks.
- */
+/** Whether a word is still coming out of its parent, and so painted beneath every found word. */
+function emerging(word: string, arrivals: Entrances, revealed: ReadonlySet<string>): boolean {
+  return arrivals.nodes.has(word) && !revealed.has(word);
+}
+
+/** A list of words. Takes nothing about the pointer, so hovering does not re-render the marks. */
 const Words = memo(function Words({
   words,
   at,
+  scale,
   sizes,
   revealed,
   selected,
@@ -178,6 +181,7 @@ const Words = memo(function Words({
 }: {
   words: readonly string[];
   at: ReadonlyMap<string, Point>;
+  scale: (word: string) => number;
   sizes: Sizes;
   revealed: ReadonlySet<string>;
   selected: string;
@@ -189,47 +193,36 @@ const Words = memo(function Words({
   onUnhover: (word: string, at: PointerAt | null) => void;
   onActivate: (word: string, at: PointerAt | null) => void;
 }) {
-  const layers = useMemo(() => {
-    const coming: string[] = [];
-    const settled: string[] = [];
-    for (const word of words) (arrivals.nodes.has(word) ? coming : settled).push(word);
-    return [coming, settled];
-  }, [words, arrivals]);
-
   return (
     <>
-      {layers.map((layer, which) => (
-        <g key={which}>
-          {layer.map((word) => {
-            const spot = at.get(word);
-            if (!spot) return null;
-            const entrance = arrivals.nodes.get(word);
-            const degree = sizes.degree(word);
-            return (
-              <g key={word} data-word={word} transform={`translate(${spot.x} ${spot.y})`}>
-                <PlateNode
-                  word={word}
-                  lexicon={lexicon}
-                  isRevealed={revealed.has(word)}
-                  isSelected={word === selected}
-                  standing
-                  level={hints.get(word) ?? 0}
-                  degree={degree}
-                  // Where you stand is always named, however small it is on screen.
-                  showName={word === selected || showsName(degree, zoom)}
-                  sprouting={entrance !== undefined}
-                  delay={entrance?.delay ?? 0}
-                  grow={entrance?.duration ?? 0}
-                  onHover={onHover}
-                  onUnhover={onUnhover}
-                  onActivate={onActivate}
-                  onInspect={undefined}
-                />
-              </g>
-            );
-          })}
-        </g>
-      ))}
+      {words.map((word) => {
+        const spot = at.get(word);
+        if (!spot) return null;
+        const entrance = arrivals.nodes.get(word);
+        const degree = sizes.degree(word);
+        return (
+          <g key={word} data-word={word} transform={markAt(spot, scale(word))}>
+            <PlateNode
+              word={word}
+              lexicon={lexicon}
+              isRevealed={revealed.has(word)}
+              isSelected={word === selected}
+              standing
+              level={hints.get(word) ?? 0}
+              degree={degree}
+              // Where you stand is always named, however small it is on screen.
+              showName={word === selected || showsName(degree, zoom)}
+              sprouting={entrance !== undefined}
+              delay={entrance?.delay ?? 0}
+              grow={entrance?.duration ?? 0}
+              onHover={onHover}
+              onUnhover={onUnhover}
+              onActivate={onActivate}
+              onInspect={undefined}
+            />
+          </g>
+        );
+      })}
     </>
   );
 });
@@ -296,6 +289,7 @@ const CountryWords = memo(function CountryWords({
   shape: number;
   words: readonly string[];
   offset: (word: string) => Point | undefined;
+  scale: (word: string) => number;
   sizes: Sizes;
   revealed: ReadonlySet<string>;
   selected: string;
@@ -408,6 +402,18 @@ export function AtlasPlate({
     held.current = { words, inside, across };
     return held.current;
   }, [figure, layout]);
+
+  /** Each territory's words, emerging ones apart so they are painted under every other. */
+  const layered = useMemo(() => {
+    const under = new Map<number, string[]>();
+    const over = new Map<number, readonly string[]>();
+    for (const [slot, words] of split.words) {
+      const coming = new Set(words.filter((word) => emerging(word, arrivals, revealed)));
+      under.set(slot, [...coming]);
+      over.set(slot, coming.size === 0 ? words : words.filter((word) => !coming.has(word)));
+    }
+    return { under, over };
+  }, [split, arrivals, revealed]);
 
   // The territories the pointer is in, so only they get a non-empty `lit`.
   const litSlot = overWord === null ? -1 : layout.homeOf(overWord);
@@ -530,37 +536,41 @@ export function AtlasPlate({
         </g>
       </g>
 
-      <g>
-        {territories.map((one) => {
-          const words = split.words.get(one.slot);
-          if (!words || words.length === 0) return null;
-          return (
-            <g
-              key={one.slot}
-              data-slot={one.slot}
-              data-layer="words"
-              data-region={one.region}
-              transform={`translate(${one.at.x} ${one.at.y})`}
-            >
-              <CountryWords
-                shape={one.shape}
-                words={words}
-                offset={layout.offset}
-                sizes={sizes}
-                revealed={revealed}
-                selected={selected}
-                hints={hints}
-                lexicon={lexicon}
-                arrivals={arrivals}
-                zoom={zoom}
-                onHover={onHover}
-                onUnhover={onUnhover}
-                onActivate={onActivate}
-              />
-            </g>
-          );
-        })}
-      </g>
+      {/* Emerging words first in every territory, so each comes out from under its parent. */}
+      {[layered.under, layered.over].map((layer, which) => (
+        <g key={which}>
+          {territories.map((one) => {
+            const words = layer.get(one.slot);
+            if (!words || words.length === 0) return null;
+            return (
+              <g
+                key={one.slot}
+                data-slot={one.slot}
+                data-layer="words"
+                data-region={one.region}
+                transform={`translate(${one.at.x} ${one.at.y})`}
+              >
+                <CountryWords
+                  shape={one.shape}
+                  words={words}
+                  offset={layout.offset}
+                  scale={layout.scale}
+                  sizes={sizes}
+                  revealed={revealed}
+                  selected={selected}
+                  hints={hints}
+                  lexicon={lexicon}
+                  arrivals={arrivals}
+                  zoom={zoom}
+                  onHover={onHover}
+                  onUnhover={onUnhover}
+                  onActivate={onActivate}
+                />
+              </g>
+            );
+          })}
+        </g>
+      ))}
 
       {/*
         Subwords of made moves under the pointer (the move, or every move of the word), drawn last

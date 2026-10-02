@@ -1575,6 +1575,12 @@
       "value": "Which game?SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "guess.back": [
+    {
+      "type": 0,
+      "value": "backSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "guess.empty": [
     {
       "type": 0,
@@ -1584,7 +1590,7 @@
   "guess.field": [
     {
       "type": 0,
-      "value": "a wordSSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "add or remove a wordSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "guess.fieldLabel": [
@@ -1643,6 +1649,12 @@
       "value": ".SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
+  "guess.next": [
+    {
+      "type": 0,
+      "value": "nextSSSSSSSSSSSSSSSSSSSSSSSSS"
+    }
+  ],
   "guess.noMove": [
     {
       "type": 0,
@@ -1685,12 +1697,6 @@
     {
       "type": 0,
       "value": "not one runSSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
-  "guess.prompt": [
-    {
-      "type": 0,
-      "value": "add or remove a wordSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "guess.sameLength": [

@@ -126,19 +126,12 @@ export const MoveReadout = memo(function MoveReadout({
     );
   }
 
-  if (!raw || word === from) {
-    return (
-      <p className="label" aria-live="polite">
-        <FormattedMessage {...(word === from && raw ? says.unchanged : says.prompt)} />
-      </p>
-    );
-  }
+  if (!raw || !word) return null;
 
-  // Not a word in this alphabet yet, so there is no move to describe.
-  if (!word) {
+  if (word === from) {
     return (
       <p className="label" aria-live="polite">
-        <FormattedMessage {...says.prompt} />
+        <FormattedMessage {...says.unchanged} />
       </p>
     );
   }

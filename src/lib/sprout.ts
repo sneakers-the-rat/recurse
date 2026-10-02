@@ -31,7 +31,10 @@ const PER_WORD = 110;
 /** Cap on that window. The busiest word has ~180 moves. */
 const MOST_SPREAD = 5200;
 
-export const GROW_MS = 760;
+/** How long a found word takes to surface (`.surface` in index.css), which rim words wait for. */
+const SURFACE_MS = 300;
+
+const GROW_MS = 760;
 /** A word grows in between `GROW_JITTER` and `2 - GROW_JITTER` times `GROW_MS`. */
 const GROW_JITTER = 0.45;
 
@@ -72,7 +75,7 @@ export function entrances(
   let span = 0;
   for (const word of arriving) {
     const duration = GROW_MS * (GROW_JITTER + dice(word, 1) * (2 - 2 * GROW_JITTER));
-    const delay = reached(word) ? 0 : dice(word, 2) * window;
+    const delay = reached(word) ? 0 : SURFACE_MS + dice(word, 2) * window;
     nodes.set(word, { delay, duration });
     span = Math.max(span, delay + duration);
   }

@@ -77,6 +77,10 @@ export const Ticked = () => (
 export const StepBack = () => <>‹</>;
 export const StepOn = () => <>›</>;
 
+/** The keys for back and next. See useTrail.ts. */
+export const KeyUp = () => <span aria-hidden>↑</span>;
+export const KeyDown = () => <span aria-hidden>↓</span>;
+
 /** Dev mode's, which step the calendar rather than the lesson. */
 export const TrackBack = () => <>◀</>;
 export const TrackOn = () => <>▶</>;

@@ -13,8 +13,10 @@ import { memo } from 'react';
 import { EdgeLabel } from './EdgeLabel';
 import type { Lexicon } from '../../lib/lexicon';
 
-/** Stroke opacity of a `quiet` move. */
-const GROUND = 0.3;
+/** Stroke opacity and width of a `quiet` move, and the width of one under the pointer. */
+const GROUND = 0.4;
+const GROUND_WIDTH = 1.3;
+const LIFTED_WIDTH = 2;
 
 export const PlateEdge = memo(function PlateEdge({
   ax,
@@ -25,6 +27,7 @@ export const PlateEdge = memo(function PlateEdge({
   bothKnown,
   live = false,
   lifted = false,
+  hairline = false,
   ahead = false,
   golden = false,
   shortcut = false,
@@ -51,6 +54,8 @@ export const PlateEdge = memo(function PlateEdge({
   live?: boolean;
   /** The pointer is on this move, or on a word it touches. */
   lifted?: boolean;
+  /** An unwalked move keeps its width when lifted; only its colour changes. */
+  hairline?: boolean;
   /** On the way from the hovered word to the goal. */
   ahead?: boolean;
   /** Part of a route that beat par: the whole line glows, not any one move on it. */
@@ -85,6 +90,18 @@ export const PlateEdge = memo(function PlateEdge({
 
   // The map draws thousands of made moves, so they are dimmed until pointed at.
   const quiet = walked === 'made' && !lifted;
+
+  const width = walked
+    ? golden
+      ? 2
+      : quiet
+        ? GROUND_WIDTH
+        : walked === 'made'
+          ? LIFTED_WIDTH
+          : 1.6
+    : ahead || (lifted && !hairline)
+      ? 1.8
+      : 1;
 
   const lines = (
     <>
@@ -137,11 +154,9 @@ export const PlateEdge = memo(function PlateEdge({
               ? 'var(--color-gilt)'
               : lifted && !walked
                 ? 'var(--color-bone-dim)'
-                : quiet
-                  ? 'var(--color-gilt-dim)'
-                  : stroke
+                : stroke
         }
-        strokeWidth={walked ? (golden ? 2 : quiet ? 1 : 1.6) : ahead ? 1.8 : lifted ? 1.8 : 1}
+        strokeWidth={width}
         strokeOpacity={
           quiet
             ? GROUND
