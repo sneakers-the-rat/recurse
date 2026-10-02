@@ -69,7 +69,7 @@ test('refuses a word with nowhere to go, and says why', async ({ page }) => {
   await page.goto('/explore/letters');
   await page.getByRole('textbox').first().fill(lonely!);
   await page.getByRole('button', { name: 'Begin' }).click();
-  await expect(page.getByText(/nowhere to go/i)).toBeVisible();
+  await expect(page.getByText(/not on the map/i)).toBeVisible();
   await expect(page.locator('svg[role="img"]')).toBeHidden();
 });
 
@@ -168,8 +168,8 @@ test('the missions drawer folds away, and says what it holds while it is shut', 
   await start(page, busy());
   const line = page.getByRole('button', { name: /show missions/i });
   await expect(line).toHaveAttribute('aria-expanded', 'false');
-  await expect(line).toContainText(/0 of \d+ in hand/i);
-  await expect(line).toContainText(/\d+ on offer/i);
+  await expect(line).toContainText(/0 of \d+ active/i);
+  await expect(line).toContainText(/\d+ available/i);
   await expect(onOffer(page)).toHaveCount(0);
 
   await showMissions(page);
@@ -285,12 +285,11 @@ test('a move between two found words is drawn as one, typed or not', async ({ pa
   await guess(page, rim);
   await expect(page.locator(`g[data-word="${rim}"] text.word`)).toHaveText(rim);
 
+  // Drawn as made, in gilt, and lit: it touches the word now stood on.
   const key = [from, rim].sort().join(' ');
   const line = page.locator(`g[data-edge="${key}"] line`).first();
-  await expect(line).toHaveAttribute('stroke', 'var(--color-gilt-dim)');
-
-  await page.locator(`g[data-word="${from}"] circle[role="button"]`).hover();
   await expect(line).toHaveAttribute('stroke', 'var(--color-gilt)');
+  await expect(line).toHaveAttribute('stroke-opacity', '1');
 });
 
 test('a power says what to do next, and refuses what cannot be paid for', async ({ page }) => {

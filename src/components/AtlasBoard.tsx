@@ -43,6 +43,7 @@ import {
   leastScale,
   grown,
   OVERDRAW,
+  inView,
   lookAt,
   showBox,
   viewOf,
@@ -384,9 +385,13 @@ export function AtlasBoard({
   const onStep = useCallback(
     (way: Way) => {
       const next = walk(atlas, way);
-      if (next !== atlas) answer({ atlas: next, landed: next.selected }, true);
+      if (next === atlas) return;
+      // Centred on only if it is off screen.
+      const at = laid?.place(next.selected);
+      const seen = at !== undefined && inView(camera, at, plateSize);
+      answer(seen ? { atlas: next } : { atlas: next, landed: next.selected }, true);
     },
-    [atlas, answer],
+    [atlas, answer, laid, camera, plateSize],
   );
   const steps = useTrail(atlas.stood, onStep);
   const onAsk = useCallback(

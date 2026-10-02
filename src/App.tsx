@@ -115,6 +115,7 @@ import { buildPlate } from './lib/plate';
 import { useBoardLayout, type BoardSpec } from './lib/useBoardLayout';
 import {
   bringInto,
+  inView,
   lookAt,
   openingCamera,
   playCamera,
@@ -1216,16 +1217,18 @@ export default function App() {
     [world],
   );
 
-  // Back and next through the words stood on, centring the camera. Only on the board itself.
+  // Back and next through the words stood on. Only on the board itself.
   const onStep = useCallback(
     (way: Way) => {
       if (!state) return;
       const next = walk(state, way);
       if (next === state) return;
       setState(next);
-      setFollow({ word: next.selected, centre: true });
+      // Centred on only if it is off screen.
+      const at = laid?.positions.get(next.selected);
+      if (!at || !inView(camera, at, plateSize)) setFollow({ word: next.selected, centre: true });
     },
-    [state],
+    [state, laid, camera, plateSize],
   );
   const steps = useTrail(page === null ? (state?.stood ?? null) : null, onStep);
 

@@ -1142,7 +1142,7 @@
   "explore.blurb": [
     {
       "type": 0,
-      "value": "Explore the whole damn graph!!!SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "Explore the whole damn graph!!! Keep guessing and try and reveal as many words as you can. Maps are continuous over time rather than a daily puzzle. Accept missions to reach words to earn mana, and spend mana to drop new words and get hints!SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "explore.drop": [
@@ -1266,7 +1266,7 @@
     },
     {
       "type": 0,
-      "value": " — "
+      "value": " - "
     },
     {
       "type": 1,
@@ -1312,7 +1312,7 @@
     },
     {
       "type": 0,
-      "value": " in hand · "
+      "value": " active - "
     },
     {
       "type": 1,
@@ -1320,7 +1320,7 @@
     },
     {
       "type": 0,
-      "value": " on offerSSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": " availableSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "explore.nameIt": [
