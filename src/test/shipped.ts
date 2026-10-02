@@ -72,14 +72,19 @@ export function shippedVersion(): { version: string; puzzles: number } {
   return { version: manifest.version, puzzles: manifest.puzzles };
 }
 
-/** The modes the bank holds, in manifest order, with the first band of each. */
+/**
+ * The modes the bank holds, in manifest order, with the first band of each. An explore mode has no
+ * bands, and no puzzles, so it is left out.
+ */
 export function shippedModes(): { mode: number; name: string; band: number }[] {
   const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
-  return manifest.modes.map((one, mode) => ({
-    mode,
-    name: one.name,
-    band: manifest.bands.findIndex((band) => band.mode === mode),
-  }));
+  return manifest.modes
+    .map((one, mode) => ({
+      mode,
+      name: one.name,
+      band: manifest.bands.findIndex((band) => band.mode === mode),
+    }))
+    .filter((one) => one.band >= 0);
 }
 
 /** One shard, read off disk, decoded. */
