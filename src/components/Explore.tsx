@@ -24,7 +24,14 @@ import {
   type AtlasCard,
   type AtlasRecord,
 } from '../lib/atlasStore';
-import { loadMode, loadRegions, mapMode, type ModeData, type RawManifest } from '../lib/data';
+import {
+  dailyGames,
+  loadMode,
+  loadRegions,
+  mapMode,
+  type ModeData,
+  type RawManifest,
+} from '../lib/data';
 import { NOWHERE, type Regions } from '../lib/regions';
 
 interface Props {
@@ -52,6 +59,11 @@ export const Explore = memo(function Explore({ manifest, open, ways, onOpen, onP
     null,
   );
   const [refusal, setRefusal] = useState<string | null>(null);
+  // The game a new map is started in: the one the path names, else the last one open.
+  const [game, setGame] = useState(() => open ?? dailyGames(manifest)[0]?.name ?? '');
+  useEffect(() => {
+    if (open !== null) setGame(open);
+  }, [open]);
   // Bumped when the stored maps change, since making, opening or removing one can leave the
   // path unchanged and the effect below has to run again.
   const [stamp, setStamp] = useState(0);
@@ -193,9 +205,8 @@ export const Explore = memo(function Explore({ manifest, open, ways, onOpen, onP
 
   return (
     <Atlases
-      manifest={manifest}
       cards={cards}
-      game={open}
+      game={game}
       refusal={refusal}
       ways={ways}
       onOpen={(id) => {

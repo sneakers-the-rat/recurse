@@ -24,8 +24,7 @@ export function labelSpot(
   const dy = by - ay;
   const span = Math.hypot(dx, dy) || 1;
   const along = labelAlong(span, ar, br);
-  // Raised a little so the line does not strike through the word.
-  return { x: ax + (dx / span) * along, y: ay + (dy / span) * along - 5 };
+  return { x: ax + (dx / span) * along, y: ay + (dy / span) * along };
 }
 
 export const EdgeLabel = memo(function EdgeLabel({
@@ -57,6 +56,8 @@ export const EdgeLabel = memo(function EdgeLabel({
     <text
       x={at.x}
       y={at.y}
+      // Centred on the line; the halo below keeps the line from striking through it.
+      dy="0.35em"
       textAnchor="middle"
       pointerEvents="none"
       className="word"

@@ -1216,16 +1216,16 @@ export default function App() {
     [world],
   );
 
-  // Back and next through the words stood on, followed by the camera. Only on the board itself.
+  // Back and next through the words stood on, centring the camera. Only on the board itself.
   const onStep = useCallback(
     (way: Way) => {
       if (!state) return;
       const next = walk(state, way);
       if (next === state) return;
       setState(next);
-      setFollow({ word: next.selected, centre: narrow });
+      setFollow({ word: next.selected, centre: true });
     },
-    [state, narrow],
+    [state],
   );
   const steps = useTrail(page === null ? (state?.stood ?? null) : null, onStep);
 

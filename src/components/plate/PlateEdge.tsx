@@ -17,6 +17,10 @@ import type { Lexicon } from '../../lib/lexicon';
 const GROUND = 0.4;
 const GROUND_WIDTH = 1.3;
 const LIFTED_WIDTH = 2;
+/** Stroke opacity and width of an unexplored move at rest, by `rest`. */
+const FAINT = 0.38;
+const FAINT_WIDTH = 0.6;
+const CLEAR = 0.9;
 
 export const PlateEdge = memo(function PlateEdge({
   ax,
@@ -28,6 +32,7 @@ export const PlateEdge = memo(function PlateEdge({
   live = false,
   lifted = false,
   hairline = false,
+  rest,
   ahead = false,
   golden = false,
   shortcut = false,
@@ -56,6 +61,11 @@ export const PlateEdge = memo(function PlateEdge({
   lifted?: boolean;
   /** An unwalked move keeps its width when lifted; only its colour changes. */
   hairline?: boolean;
+  /**
+   * How an unexplored move looks when nothing is lifting it: `clear` brighter than usual, `faint`
+   * thinner and dimmer. Unset, the daily board's look.
+   */
+  rest?: 'clear' | 'faint';
   /** On the way from the hovered word to the goal. */
   ahead?: boolean;
   /** Part of a route that beat par: the whole line glows, not any one move on it. */
@@ -86,22 +96,28 @@ export const PlateEdge = memo(function PlateEdge({
       : 'var(--color-gilt)'
     : bothKnown
       ? 'var(--color-ash-lit)'
-      : 'var(--color-rule)';
+      : rest === 'clear'
+        ? 'var(--color-ash)'
+        : 'var(--color-rule)';
 
   // The map draws thousands of made moves, so they are dimmed until pointed at.
   const quiet = walked === 'made' && !lifted;
 
-  const width = walked
-    ? golden
-      ? 2
-      : quiet
-        ? GROUND_WIDTH
-        : walked === 'made'
-          ? LIFTED_WIDTH
-          : 1.6
-    : ahead || (lifted && !hairline)
-      ? 1.8
-      : 1;
+  const resting = !walked && !bothKnown && !live && !lifted && !ahead ? rest : undefined;
+  const dim = resting === 'faint';
+  const width = dim
+    ? FAINT_WIDTH
+    : walked
+      ? golden
+        ? 2
+        : quiet
+          ? GROUND_WIDTH
+          : walked === 'made'
+            ? LIFTED_WIDTH
+            : 1.6
+      : ahead || (lifted && !hairline)
+        ? 1.8
+        : 1;
 
   const lines = (
     <>
@@ -158,17 +174,21 @@ export const PlateEdge = memo(function PlateEdge({
         }
         strokeWidth={width}
         strokeOpacity={
-          quiet
-            ? GROUND
-            : ahead || lifted
-              ? 1
-              : walked
-                ? 1
-                : bothKnown
-                  ? 0.9
-                  : live
-                    ? 0.85
-                    : 0.6
+          dim
+            ? FAINT
+            : resting === 'clear'
+              ? CLEAR
+              : quiet
+                ? GROUND
+                : ahead || lifted
+                  ? 1
+                  : walked
+                    ? 1
+                    : bothKnown
+                      ? 0.9
+                      : live
+                        ? 0.85
+                        : 0.6
         }
       />
       {/*

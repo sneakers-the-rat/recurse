@@ -110,6 +110,7 @@ const Moves = memo(function Moves({
   lit,
   arrivals,
   edgeHandlers,
+  rest,
 }: {
   edges: readonly Edge[];
   at: ReadonlyMap<string, Point>;
@@ -119,6 +120,8 @@ const Moves = memo(function Moves({
   lit: Lit;
   arrivals: Entrances;
   edgeHandlers: Pointing['edgeHandlers'];
+  /** How unexplored moves look at rest: clear within a territory, faint between them. */
+  rest: 'clear' | 'faint';
 }) {
   return (
     <g>
@@ -142,8 +145,13 @@ const Moves = memo(function Moves({
               walked={trail || known ? 'made' : null}
               bothKnown={known}
               live={!trail && !known && (edge.a === selected || edge.b === selected)}
-              lifted={lit.overEdge === key || edge.a === lit.overWord || edge.b === lit.overWord}
+              // The word guessed from is lit as if the pointer were on it.
+              lifted={
+                lit.overEdge === key ||
+                [edge.a, edge.b].some((end) => end === lit.overWord || end === selected)
+              }
               hairline
+              rest={rest}
               sprouting={entrance !== undefined}
               delay={entrance?.delay ?? 0}
               draw={entrance?.duration ?? 0}
@@ -275,6 +283,7 @@ const CountryMoves = memo(function CountryMoves({
       lit={lit}
       arrivals={arrivals}
       edgeHandlers={edgeHandlers}
+      rest="clear"
     />
   );
 });
@@ -532,6 +541,7 @@ export function AtlasPlate({
             lit={lit}
             arrivals={arrivals}
             edgeHandlers={edgeHandlers}
+            rest="faint"
           />
         </g>
       </g>

@@ -44,9 +44,8 @@ export const explore = defineMessages({
   },
   blurb: {
     id: 'explore.blurb',
-    defaultMessage:
-      'An open map of the whole word graph. No par, no clock, no day: pick a word, and see how much of the language you can reach from it. A map is yours and keeps until you delete it.',
-    description: 'One paragraph under the heading, saying what this mode is.',
+    defaultMessage: 'Explore the whole damn graph!!! Keep guessing and try and reveal as many words as you can. Maps are continuous over time rather than a daily puzzle. Accept missions to reach words to earn mana, and spend mana to drop new words and get hints!',
+    description: 'Explanation under the heading saying what this mode is.',
   },
   maps: {
     id: 'explore.maps',
@@ -72,15 +71,9 @@ export const explore = defineMessages({
   notOnTheMap: {
     id: 'explore.notOnTheMap',
     defaultMessage:
-      '{word} has nowhere to go — no other word is one move from it, so there would be nothing to explore.',
+      '{word} is not on the map! Either it has no moves or isn\'t in the word list',
     description:
       'Refusal when the typed starting word is real but sits alone in the graph, or in a clump too small to be part of the map.',
-  },
-  which: {
-    id: 'explore.which',
-    defaultMessage: 'Which game?',
-    description:
-      'Label on the choice between the letters game and the phonemes game when starting a map.',
   },
   noMaps: {
     id: 'explore.noMaps',
@@ -130,7 +123,7 @@ export const explore = defineMessages({
   },
   missionsHeld: {
     id: 'explore.missionsHeld',
-    defaultMessage: '{taken} of {slots} in hand · {offers} on offer',
+    defaultMessage: '{taken} of {slots} active - {offers} available',
     description:
       'Summary on the shut drawer: missions taken out of slots available, and how many are on offer.',
   },
@@ -164,7 +157,7 @@ export const explore = defineMessages({
   },
   missionDone: {
     id: 'explore.missionDone',
-    defaultMessage: 'Found {word} — {points} mana',
+    defaultMessage: 'Found {word} - {points} mana',
     description: 'Said when the word a mission named has been reached.',
   },
   abandon: {

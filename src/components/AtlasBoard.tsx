@@ -43,6 +43,7 @@ import {
   leastScale,
   grown,
   OVERDRAW,
+  lookAt,
   showBox,
   viewOf,
   type Box,
@@ -129,7 +130,8 @@ export function AtlasBoard({
   const intl = useIntl();
   const [armed, setArmed] = useState<Armed>(null);
   const [said, setSaid] = useState<string | null>(null);
-  const [follow, setFollow] = useState<string | null>(null);
+  /** The word the camera goes to once the layout stops: centred on it, or just bringing it in. */
+  const [follow, setFollow] = useState<{ word: string; centre: boolean } | null>(null);
 
   const [plateRef, plateSize, plateEl] = usePlateSize();
 
@@ -282,14 +284,18 @@ export function AtlasBoard({
    */
   useEffect(() => {
     if (!follow || !laid || laid.moving) return;
-    const at = laid.place(follow);
+    const at = laid.place(follow.word);
     if (!at) return;
     setFollow(null);
+    if (follow.centre) {
+      glideTo(lookAt(camera, at), 380);
+      return;
+    }
     const box: Box = {
-      minX: at.x - reach(follow),
-      maxX: at.x + reach(follow),
-      minY: at.y - reach(follow),
-      maxY: at.y + reach(follow),
+      minX: at.x - reach(follow.word),
+      maxX: at.x + reach(follow.word),
+      minY: at.y - reach(follow.word),
+      maxY: at.y + reach(follow.word),
     };
     for (const word of arrivals.nodes.keys()) {
       const spot = laid.place(word);
@@ -343,10 +349,10 @@ export function AtlasBoard({
   // --- what the player can do ------------------------------------------------
 
   const answer = useCallback(
-    (out: ReturnType<typeof guess>) => {
+    (out: ReturnType<typeof guess>, centre = false) => {
       setAtlas(out.atlas);
       setSaid(out.refusal ? say(intl, out.refusal) : null);
-      if (out.landed) setFollow(out.landed);
+      if (out.landed) setFollow({ word: out.landed, centre });
     },
     [intl, setAtlas],
   );
@@ -378,7 +384,7 @@ export function AtlasBoard({
   const onStep = useCallback(
     (way: Way) => {
       const next = walk(atlas, way);
-      if (next !== atlas) answer({ atlas: next, landed: next.selected });
+      if (next !== atlas) answer({ atlas: next, landed: next.selected }, true);
     },
     [atlas, answer],
   );
@@ -459,7 +465,7 @@ export function AtlasBoard({
       setWalking((now) => (next === atlas ? 0 : now - 1));
       if (next === atlas) return;
       setAtlas(next);
-      setFollow(next.selected);
+      setFollow({ word: next.selected, centre: false });
     }, Math.max(arrivals.span, LEAST_STEP));
     return () => clearTimeout(timer);
   }, [walking, walkFrom, arrivals.span, atlas, graph, lexicon, setAtlas]);
@@ -476,7 +482,7 @@ export function AtlasBoard({
           : spread(atlas, graph, lexicon, steps, origin);
       if (next === atlas) return;
       setAtlas(next);
-      setFollow(next.selected);
+      setFollow({ word: next.selected, centre: false });
     },
     [atlas, graph, lexicon, originOf, setAtlas],
   );

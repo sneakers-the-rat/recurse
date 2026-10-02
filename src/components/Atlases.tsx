@@ -6,13 +6,11 @@ import { gameName } from '../i18n/bands';
 import { explore as says } from '../i18n/messages/explore';
 import { Masthead, type Ways } from './Masthead';
 import type { AtlasCard } from '../lib/atlasStore';
-import { dailyGames, type RawManifest } from '../lib/data';
 
 interface Props {
-  manifest: RawManifest;
   cards: readonly AtlasCard[];
-  /** The game to preselect in the form, when the path named one with no map yet. */
-  game: string | null;
+  /** The game a new map is started in. */
+  game: string;
   /** Why the last attempt to start a map was refused, as text. */
   refusal: string | null;
   ways: Ways;
@@ -24,7 +22,6 @@ interface Props {
 }
 
 export function Atlases({
-  manifest,
   cards,
   game,
   refusal,
@@ -35,11 +32,6 @@ export function Atlases({
   onStart,
 }: Props) {
   const intl = useIntl();
-  // Games only: the explore graphs are modes too, but not games of their own.
-  const games = dailyGames(manifest);
-  const [mode, setMode] = useState(
-    () => games.find((one) => one.name === game)?.name ?? games[0]?.name ?? '',
-  );
   const [word, setWord] = useState('');
 
   return (
@@ -61,27 +53,10 @@ export function Atlases({
           onSubmit={(event) => {
             event.preventDefault();
             if (word.trim() === '') return;
-            onStart(mode, word);
+            onStart(game, word);
             setWord('');
           }}
         >
-          <label className="flex flex-col gap-1">
-            <span className="label text-ash-lit">
-              <FormattedMessage {...says.which} />
-            </span>
-            <select
-              value={mode}
-              onChange={(event) => setMode(event.target.value)}
-              className="border-rule bg-noir-2 text-bone border px-2 py-1"
-            >
-              {games.map((one) => (
-                <option key={one.name} value={one.name}>
-                  {gameName(intl, one.name)}
-                </option>
-              ))}
-            </select>
-          </label>
-
           <label className="flex min-w-48 flex-1 flex-col gap-1">
             <span className="label text-ash-lit">
               <FormattedMessage {...says.startFrom} />

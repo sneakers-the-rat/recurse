@@ -1142,7 +1142,7 @@
   "explore.blurb": [
     {
       "type": 0,
-      "value": "An open map of the whole word graph. No par, no clock, no day: pick a word, and see how much of the language you can reach from it. A map is yours and keeps until you delete it.SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": "Explore the whole damn graph!!!SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "explore.drop": [
@@ -1354,7 +1354,7 @@
     },
     {
       "type": 0,
-      "value": " has nowhere to go — no other word is one move from it, so there would be nothing to explore.SSSSSSSSSSSSSSSSSSSSSSSSS"
+      "value": " is not on the map! Either it has no moves or isn't in the word listSSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "explore.open": [
@@ -1567,12 +1567,6 @@
     {
       "type": 0,
       "value": "SSSSSSSSSSSSSSSSSSSSSSSSS"
-    }
-  ],
-  "explore.which": [
-    {
-      "type": 0,
-      "value": "Which game?SSSSSSSSSSSSSSSSSSSSSSSSS"
     }
   ],
   "guess.back": [
