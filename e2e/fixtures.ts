@@ -12,6 +12,7 @@ import {
   DEFAULT_BAND,
   shippedData,
   shippedIdForDay,
+  shippedMap,
   shippedRedirects,
   shippedShard,
 } from '../src/test/shipped';
@@ -21,9 +22,11 @@ import { pathFor } from '../src/lib/route';
 import type { Puzzle } from '../src/lib/types';
 
 export const gameData = shippedData;
+/** The letters game's open map: its own graph and regions. */
+export const mapData = shippedMap;
 
 /**
- * Take one of the masthead menus — the archive, the stats, or the rules.
+ * Take one of the masthead's destinations: the archive, stats, tutorial or how-to.
  *
  * A phone keeps them behind the hamburger and a wider screen writes them out, and both are
  * in the DOM at every width — so which one a test can click is a question about the

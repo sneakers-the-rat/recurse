@@ -13,10 +13,25 @@ import { drawOptions } from '../src/test/shipped';
 
 const { puzzles } = gameData();
 
-/** The viewBox, as four numbers. */
+/**
+ * The viewBox, as four numbers. During a drag it covers more than is on screen (see `OVERDRAW`
+ * in camera.ts), so read it after `rested`.
+ */
 async function view(page: Page): Promise<number[]> {
   const box = await page.locator('main svg').getAttribute('viewBox');
   return (box ?? '').split(' ').map(Number);
+}
+
+/** Wait two frames, so the render that ends a drag has been committed. */
+async function rested(page: Page) {
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+}
+
+/** The visible plate in pixels: the SVG's wrapper, since the SVG overhangs it during a drag. */
+async function plateBox(page: Page) {
+  return (await page.locator('main svg').locator('..').boundingBox())!;
 }
 
 /** Where the camera is looking, in graph units — the middle of the viewBox. */
@@ -63,18 +78,19 @@ async function guess(page: Page, word: string) {
  * still a drag — the click is swallowed — but a test should not be leaning on that.
  */
 async function drag(page: Page, dx: number) {
-  const box = (await page.locator('main svg').boundingBox())!;
+  const box = await plateBox(page);
   const y = box.y + box.height - 30;
   const from = dx > 0 ? box.x + 20 : box.x + box.width - 20;
   await page.mouse.move(from, y);
   await page.mouse.down();
   await page.mouse.move(from + dx, y, { steps: 8 });
   await page.mouse.up();
+  await rested(page);
 }
 
 /** One sweep of the whole plate. */
 async function sweep(page: Page) {
-  const box = (await page.locator('main svg').boundingBox())!;
+  const box = await plateBox(page);
   await drag(page, box.width - 40);
 }
 
@@ -148,11 +164,12 @@ test('the board can be dragged and zoomed', async ({ page }) => {
   const before = await view(page);
 
   // Drag from a patch of empty board, so nothing is clicked.
-  const box = (await svg.boundingBox())!;
+  const box = await plateBox(page);
   await page.mouse.move(box.x + 24, box.y + box.height - 24);
   await page.mouse.down();
   await page.mouse.move(box.x + 140, box.y + box.height - 90, { steps: 8 });
   await page.mouse.up();
+  await rested(page);
 
   const panned = await view(page);
   expect(panned[0]).not.toBeCloseTo(before[0]!, 1);
@@ -172,6 +189,46 @@ test('the board can be dragged and zoomed', async ({ page }) => {
   await expect.poll(async () => (await view(page))[2]!).toBeLessThan(panned[2]!);
 });
 
+// The moves are dispatched in one tick with no render between them, which Playwright's mouse
+// cannot do. Each must build on the last move's camera, not the last render's; see `looking`
+// in usePanZoom.ts.
+test('a fast drag moves the board as far as a slow one', async ({ page }) => {
+  await page.goto(board(puzzles[0]!, '?dev=0'));
+  await expect(page.locator('main svg circle').first()).toBeVisible();
+
+  const box = await plateBox(page);
+  const before = await view(page);
+  // Graph units per pixel.
+  const per = before[2]! / box.width;
+  const STEPS = 20;
+  const BY = 10;
+
+  await page.evaluate(
+    ({ x, y, steps, by }) => {
+      const surface = document.querySelector('main svg')!.parentElement!;
+      const fire = (type: string, at: number, buttons: number) =>
+        surface.dispatchEvent(
+          new PointerEvent(type, {
+            pointerId: 1,
+            bubbles: true,
+            clientX: at,
+            clientY: y,
+            buttons,
+          }),
+        );
+      fire('pointerdown', x, 1);
+      for (let i = 1; i <= steps; i++) fire('pointermove', x + i * by, 1);
+      fire('pointerup', x + steps * by, 0);
+    },
+    { x: box.x + 30, y: box.y + box.height - 30, steps: STEPS, by: BY },
+  );
+  await rested(page);
+
+  const after = await view(page);
+  // Dragging right moves the camera left by the same distance, in graph units.
+  expect(before[0]! - after[0]!).toBeCloseTo(STEPS * BY * per, 0);
+});
+
 test('a wheel is the page’s until the board is asked for', async ({ page }) => {
   // Both at once is the one answer that cannot be right, and it was the answer: React
   // registers `wheel` passively, so the handler's `preventDefault` was being ignored and
@@ -188,7 +245,7 @@ test('a wheel is the page’s until the board is asked for', async ({ page }) =>
   await expect(page.getByRole('region', { name: 'Result' })).toBeVisible();
 
   const plate = page.locator('main');
-  const box = (await page.locator('main svg').boundingBox())!;
+  const box = await plateBox(page);
   const mid = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   const width = async () => (await view(page))[2]!;
   const scrollY = () => page.evaluate(() => window.scrollY);

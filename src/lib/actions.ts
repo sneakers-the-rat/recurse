@@ -38,19 +38,16 @@
  * drawing, and `boardCode.test.ts` is what checks that whatever it does survives a URL.
  */
 
+import { edgeKey, moveKey, newGuess, type LogEntry } from "./found";
+import { hintLevels } from "./hints";
 import {
   applyGuess,
-  edgeKey,
-  hintLevels,
-  moveKey,
-  newGuess,
   select,
   useHint,
   useMoveHint,
   type Drawn,
   type GameSnapshot,
   type GameState,
-  type LogEntry,
 } from "./game";
 import { PLAIN, type Lexicon } from "./lexicon";
 import type { Graph, Judgement, Puzzle } from "./types";

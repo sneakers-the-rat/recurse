@@ -26,7 +26,10 @@ import { Opening } from './components/Opening';
 import { DevBar } from './components/DevBar';
 import { GraphPlate } from './components/GraphPlate';
 import { GuessBar } from './components/GuessBar';
+import { Explore } from './components/Explore';
 import { Header } from './components/Header';
+import type { Ways } from './components/Masthead';
+import type { Playing } from './components/Boards';
 import { HowTo } from './components/HowTo';
 import { Puzzles } from './components/Puzzles';
 import { ResetView } from './components/ResetView';
@@ -39,11 +42,10 @@ import { Welcome } from './components/Welcome';
 import { LESSON } from './components/lessons';
 import type { Moment } from './lib/tutorial';
 import { shortestPath, shortestRoutes } from './lib/graph';
+import { guessedWords, moveKey } from './lib/found';
 import {
   applyGuess,
-  guessedWords,
   hintCount,
-  moveKey,
   newGame,
   restore,
   snapshot,
@@ -52,6 +54,7 @@ import {
 } from './lib/game';
 import { act, type World } from './lib/actions';
 import { PLAIN } from './lib/lexicon';
+import { usePlateSize } from './lib/usePlateSize';
 import {
   BANDS,
   idForDay,
@@ -78,7 +81,7 @@ import {
 } from './lib/daily';
 import {
   idFromPath,
-  modeFromPath,
+  pageArg,
   pageFromPath,
   pagePath,
   pathFor,
@@ -112,115 +115,20 @@ import { buildPlate } from './lib/plate';
 import { useBoardLayout, type BoardSpec } from './lib/useBoardLayout';
 import {
   bringInto,
+  inView,
   lookAt,
   openingCamera,
   playCamera,
+  grown,
+  OVERDRAW,
   viewOf,
   type Camera,
-  type Plate,
 } from './lib/camera';
 import { usePanZoom } from './lib/usePanZoom';
+import { useDevMode } from './lib/useDevMode';
+import { walk, type Way } from './lib/trail';
+import { useTrail } from './lib/useTrail';
 import type { Puzzle } from './lib/types';
-
-/**
- * The plate's size on screen, in pixels.
- *
- * The camera needs the real thing, not a ratio: scale is pixels per graph unit, and
- * that is what keeps a word the same size on a bare board and a crowded one.
- */
-function usePlateSize() {
-  // A callback ref, not a ref object: the plate does not exist on the first
-  // render — the game is still loading its data — so an effect that reads
-  // ref.current once on mount finds null and never looks again, which is how the
-  // board ended up laid out for a phone on a desktop.
-  const [element, setElement] = useState<HTMLElement | null>(null);
-  const [size, setSize] = useState<Plate>({ width: 0, height: 0 });
-
-  useEffect(() => {
-    if (!element) return;
-
-    /**
-     * Take a size, and say nothing if it is the size we already had.
-     *
-     * Both halves matter. A fresh `{width, height}` object every time is a new prop
-     * for the camera and a new view for the plate, so re-reporting an unchanged size
-     * re-rendered the board for nothing — and the plate is resized by ordinary play,
-     * because the error line under the guess bar reserves its space and the header's
-     * statement fades in.
-     */
-    const report = (width: number, height: number) => {
-      if (width <= 0 || height <= 0) return;
-      setSize((was) => (was.width === width && was.height === height ? was : { width, height }));
-    };
-
-    const box = element.getBoundingClientRect();
-    report(box.width, box.height);
-
-    // The observer's own `contentRect`, never `getBoundingClientRect` again: asking the
-    // element forces a synchronous layout of the whole document, and the document
-    // contains a thousand-element SVG. Measured at 80ms of the first second of a page
-    // load, for a number the observer had already worked out and handed over.
-    const observer = new ResizeObserver((entries) => {
-      const rect = entries[entries.length - 1]?.contentRect;
-      if (rect) report(rect.width, rect.height);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element]);
-
-  // The element itself as well as its size: the wheel is listened for on it directly,
-  // because React's own `wheel` is passive and cannot refuse a scroll. See usePanZoom.
-  return [setElement, size, element] as const;
-}
-
-/**
- * Whether the instrument panel is showing, and a way to turn it on and off *in place*.
- *
- * **Off unless asked for, everywhere.** It used to come up by itself in a development
- * build, which meant the game as written was never the game as seen: every `npm run dev`
- * page load, and most of what gets looked at while working, arrived with a bar of
- * instruments across the top of it.
- *
- * Asking is `?dev`, the switch in the help panel, or Ctrl+D, and all three are the same
- * toggle. The keystroke needs a keyboard and the parameter needs a URL bar, so on a phone
- * the switch is the only one of the three there is — and inspecting a real board on a real
- * phone is most of what the panel is for.
- *
- * The `dev` parameter is kept in step either way, so a reload holds whichever was chosen and
- * the state of the instruments is a thing that can be sent to somebody. Ctrl rather than a
- * bare key because GuessBar sends unmodified keystrokes to the guess field, where a shortcut
- * would arrive as a letter.
- */
-function useDevMode(): [boolean, () => void] {
-  const [on, setOn] = useState(() => {
-    const flag = new URLSearchParams(window.location.search).get('dev');
-    return flag !== null && flag !== '0' && flag !== 'false';
-  });
-
-  const toggle = useCallback(() => {
-    setOn((was) => {
-      const next = !was;
-      const url = new URL(window.location.href);
-      url.searchParams.set('dev', next ? '1' : '0');
-      window.history.replaceState(null, '', url);
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'd' || !event.ctrlKey || event.metaKey || event.altKey) {
-        return;
-      }
-      event.preventDefault();
-      toggle();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [toggle]);
-
-  return [on, toggle];
-}
 
 /** How long the whole board is held in shot, and how long the camera takes to close. */
 const OPENING_HOLD = 1100;
@@ -386,6 +294,13 @@ export default function App() {
    * back button pops. Null is the board.
    */
   const [page, setPage] = useState<Page | null>(() => pageFromPath(window.location.pathname));
+  /** The game named by `explore/{game}`, mirrored from the path so a push re-renders. */
+  const [atlasAt, setAtlasAt] = useState<string | null>(() =>
+    pageArg('explore', window.location.pathname),
+  );
+
+  // The day on screen, read by `pick` through a ref so the memoised header's handler is stable.
+  const atRef = useRef<{ day: number } | null>(null);
   const [years, setYears] = useState<ReadonlyMap<number, RawCalendar>>(new Map());
   const needYear = useCallback(
     (year: number) => {
@@ -410,7 +325,7 @@ export default function App() {
   /**
    * How a token is written, which is what a hint is counted in.
    *
-   * Hints are letters in every game — see `Spell` in game.ts — so anything that buys, caps or
+   * Hints are letters in every game — see `Spell` in hints.ts — so anything that buys, caps or
    * draws one needs this. `PLAIN.label` before the data lands, which is the identity and so
    * right for the letters game and harmless before there is a board.
    */
@@ -434,10 +349,24 @@ export default function App() {
   const openPage = useCallback((wanted: Page) => {
     window.history.pushState(null, '', pagePath(wanted, window.location.search));
     setPage(wanted);
+    // The bare page is the list of maps, so drop any open map with it.
+    if (wanted === 'explore') setAtlasAt(null);
   }, []);
 
   const openArchive = useCallback(() => openPage('archive'), [openPage]);
   const openStats = useCallback(() => openPage('stats'), [openPage]);
+
+
+  /** Push `explore/{game}`, or `explore` for the list of maps. */
+  const openAtlas = useCallback((mode: string | null) => {
+    window.history.pushState(
+      null,
+      '',
+      pagePath('explore', window.location.search, undefined, mode ?? undefined),
+    );
+    setPage('explore');
+    setAtlasAt(mode);
+  }, []);
 
   /**
    * Which game's rules are being read, when that is what is on screen.
@@ -448,7 +377,7 @@ export default function App() {
    * `page` is — a popstate has to be able to change it.
    */
   const [rulesFor, setRulesFor] = useState<string | null>(() =>
-    modeFromPath(window.location.pathname),
+    pageArg('rules', window.location.pathname),
   );
 
   const openModeRules = useCallback((mode: string) => {
@@ -543,6 +472,7 @@ export default function App() {
       // the URL.
       setPage(teaching ? 'tutorial' : null);
       setAt({ day: chosen.day });
+      atRef.current = { day: chosen.day };
       // The length on screen is the one the player is on, and the one a bare visit will open
       // next time. Read off the puzzle rather than tracked separately: a board knows which of
       // the three it is, including a board arrived at by link.
@@ -797,6 +727,11 @@ export default function App() {
     // direct visit still needs a board resolved underneath — leaving a page has to land
     // somewhere — so the board is loaded and then the address put back.
     const arrived = pageFromPath(window.location.pathname);
+    // The page's second segment (`rules/{game}`, `explore/{game}`), read before `showBoard`
+    // below rewrites the address.
+    const carried = arrived
+      ? (pageArg(arrived, window.location.pathname) ?? undefined)
+      : undefined;
     // `/tutorial` is the one page that names a board: the lesson's, so the shard fetched
     // with the graph is the one holding it rather than today's.
     const asked = arrived === 'tutorial' ? LESSON.puzzle : idFromPath(window.location.pathname);
@@ -824,13 +759,11 @@ export default function App() {
         // the board somebody sent rather than as an empty one.
         await showBoard(chosen, 'replace', 'play', codeForBoard(chosen, window.location.pathname));
         if (arrived) {
-          // The mode goes back into the address for the one page that has one, or arriving at
-          // `rules/phonemes` would rewrite itself to a bare `rules` and lose which game.
-          const of = arrived === 'rules' ? (rulesFor ?? undefined) : undefined;
+          // Put the page back with its second segment.
           window.history.replaceState(
             null,
             '',
-            pagePath(arrived, window.location.search, undefined, of),
+            pagePath(arrived, window.location.search, undefined, carried),
           );
           setPage(arrived);
         }
@@ -859,9 +792,9 @@ export default function App() {
         return;
       }
       if (wanted) {
-        // The rules page carries which game in its second segment, so stepping back into one
-        // has to read it again — the two are one address.
-        if (wanted === 'rules') setRulesFor(modeFromPath(window.location.pathname));
+        // Re-read the second segment of the two pages that have one.
+        if (wanted === 'rules') setRulesFor(pageArg('rules', window.location.pathname));
+        if (wanted === 'explore') setAtlasAt(pageArg('explore', window.location.pathname));
         setPage(wanted);
         return;
       }
@@ -1132,7 +1065,7 @@ export default function App() {
   const spineHeight = laid?.spineHeight ?? 1;
   const figure = laid?.figure ?? { minX: 0, maxX: 0, minY: 0, maxY: spineHeight };
   const play = useMemo(() => playCamera(spineHeight, plateSize), [spineHeight, plateSize]);
-  const { camera, jumpTo, glideTo, engaged, handlers } = usePanZoom(
+  const { camera, drawnFrom, nudge, dragging, jumpTo, glideTo, engaged, handlers } = usePanZoom(
     play,
     plateSize,
     figure,
@@ -1162,7 +1095,14 @@ export default function App() {
     glideTo,
   });
 
+  // `view` is the current window; `frame` is what the surface was last drawn for, which lags a
+  // drag and overhangs by `OVERDRAW`. See `nudgeOf` in camera.ts.
   const view = useMemo(() => viewOf(camera, plateSize), [camera, plateSize]);
+  const overhang = dragging ? OVERDRAW : 0;
+  const frame = useMemo(
+    () => viewOf(drawnFrom, grown(plateSize, overhang)),
+    [drawnFrom, plateSize, overhang],
+  );
 
   /**
    * Moving the camera on the player's behalf.
@@ -1277,6 +1217,21 @@ export default function App() {
     [world],
   );
 
+  // Back and next through the words stood on. Only on the board itself.
+  const onStep = useCallback(
+    (way: Way) => {
+      if (!state) return;
+      const next = walk(state, way);
+      if (next === state) return;
+      setState(next);
+      // Centred on only if it is off screen.
+      const at = laid?.positions.get(next.selected);
+      if (!at || !inView(camera, at, plateSize)) setFollow({ word: next.selected, centre: true });
+    },
+    [state, laid, camera, plateSize],
+  );
+  const steps = useTrail(page === null ? (state?.stood ?? null) : null, onStep);
+
   /**
    * A hint on a word only the shortcut draws, refused.
    *
@@ -1352,7 +1307,7 @@ export default function App() {
         }
         return;
       }
-      // A hint is counted in *letters* — see `Spell` in game.ts — and `act` reaches for the
+      // A hint is counted in *letters* — see `Spell` in hints.ts — and `act` reaches for the
       // lexicon for that. Capped on the token instead, a long word said in few sounds would
       // stop selling letters half way through and a short one would charge for nothing.
       setState((s) => (s && world ? act(s, world, { do: 'hint', word }).state : s));
@@ -1378,6 +1333,17 @@ export default function App() {
   }, []);
 
   const openHelp = useCallback(() => setShowHelp(true), []);
+
+  /** The masthead's links off the board, shared by every masthead. See `Ways` in Masthead.tsx. */
+  const ways: Ways = useMemo(
+    () => ({
+      onPuzzles: openArchive,
+      onStats: openStats,
+      onTutorial: goTutorial,
+      onHelp: openHelp,
+    }),
+    [openArchive, openStats, goTutorial, openHelp],
+  );
   const closeHelp = useCallback(() => setShowHelp(false), []);
 
   /**
@@ -1429,6 +1395,25 @@ export default function App() {
       });
     },
     [data, showBoard],
+  );
+
+  /** Open what the board switch picked: a daily band, or an open-game map page. */
+  const pick = useCallback(
+    (wanted: Playing) => {
+      if ('daily' in wanted) {
+        // Keep the day and change the band; from a map, where no day is open, today.
+        openDay(atRef.current?.day ?? dayNumber(new Date(), dataRef.current?.manifest.epoch), wanted.daily);
+        return;
+      }
+      window.history.pushState(
+        null,
+        '',
+        pagePath('explore', window.location.search, undefined, wanted.explore),
+      );
+      setPage('explore');
+      setAtlasAt(wanted.explore);
+    },
+    [openDay],
   );
 
   /**
@@ -1889,6 +1874,19 @@ export default function App() {
     );
   }
 
+  // Before the loading guard: the open game needs only the manifest and loads its own data.
+  if (page === 'explore' && data) {
+    return (
+      <Explore
+        manifest={data.manifest}
+        open={atlasAt}
+        ways={ways}
+        onOpen={openAtlas}
+        onPlay={pick}
+      />
+    );
+  }
+
   /*
     The board on screen and the graph under it have to belong to the same game.
 
@@ -2038,10 +2036,8 @@ export default function App() {
           // anything to read. The letters game has none and draws no marker.
           game={hasModeRules(hereMode) ? hereMode : null}
           onModeRules={() => openModeRules(hereMode)}
-          band={band}
-          // The day is kept and the length changes: a link to Tuesday's short board leads to
-          // Tuesday's long one, not to today's.
-          onBand={(next) => openDay(at.day, next)}
+          at={{ daily: band }}
+          onPlay={pick}
           day={at.day}
           guesses={state.guesses}
           hints={hintCount(state)}
@@ -2052,10 +2048,7 @@ export default function App() {
           // Not on somebody else's board: the round up there is theirs, and `SharedBoard`
           // already offers the one thing there is to do with it. See `frozen`.
           onShare={frozen ? undefined : shareBoard}
-          onHelp={openHelp}
-          onPuzzles={openArchive}
-          onStats={openStats}
-          onTutorial={goTutorial}
+          ways={ways}
         />
 
         {/*
@@ -2106,6 +2099,9 @@ export default function App() {
             namesWords={devMode}
             spelled={spelled}
             view={view}
+            frame={frame}
+            overhang={overhang}
+            nudge={nudge}
             gestures={handlers}
             engaged={engaged}
             onSelect={selectWord}
@@ -2139,6 +2135,7 @@ export default function App() {
             isWord={isWord}
             lexicon={data.lexicon}
             error={error}
+            steps={steps}
             onSubmit={handleGuess}
             onClearError={clearError}
           />

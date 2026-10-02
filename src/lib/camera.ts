@@ -109,6 +109,32 @@ export function viewOf(camera: Camera, plate: Plate): View {
 }
 
 /**
+ * How far past each edge of the plate the board is drawn during a drag, in pixels: how far a
+ * drag can shift the drawn picture (`nudgeOf`) before it has to be redrawn. Everything in it is
+ * drawn unseen, so it is kept small.
+ */
+export const OVERDRAW = 400;
+
+/** The plate grown by `by` on every side. */
+export function grown(plate: Plate, by: number): Plate {
+  return { width: plate.width + 2 * by, height: plate.height + 2 * by };
+}
+
+/**
+ * The pixel shift that makes a board drawn from `drawnFrom` look as seen from `looking`.
+ *
+ * A drag translates the drawn picture instead of moving the `viewBox`, which on a large map
+ * makes the browser revisit every element each frame. The board is redrawn when the drag ends
+ * or passes `OVERDRAW`. Translation only: both cameras must share a scale.
+ */
+export function nudgeOf(drawnFrom: Camera, looking: Camera): { x: number; y: number } {
+  return {
+    x: (drawnFrom.cx - looking.cx) * looking.scale,
+    y: (drawnFrom.cy - looking.cy) * looking.scale,
+  };
+}
+
+/**
  * The view a puzzle is played at: source, target and the route between them, filling
  * the plate.
  *
@@ -169,12 +195,26 @@ export function openingCamera(box: Box, spineHeight: number, plate: Plate): Came
   };
 }
 
-/** The view that shows all of something, with a little air around it. */
+/**
+ * The view that shows all of something, with a margin.
+ *
+ * May go below `MIN_SCALE`, which only limits gestures: a large map has to be framed smaller to
+ * be seen whole. An unmeasured plate (zero pixels) falls back to `MIN_SCALE`.
+ */
 export function fitCamera(box: Box, plate: Plate, margin = 30): Camera {
   const width = Math.max(box.maxX - box.minX + margin * 2, 1);
   const height = Math.max(box.maxY - box.minY + margin * 2, 1);
-  const scale = clamp(Math.min(plate.width / width, plate.height / height), MIN_SCALE, MAX_SCALE);
+  const fits = Math.min(plate.width / width, plate.height / height);
+  const scale = clamp(fits, Math.min(MIN_SCALE, fits > 0 ? fits : MIN_SCALE), MAX_SCALE);
   return { cx: (box.minX + box.maxX) / 2, cy: (box.minY + box.maxY) / 2, scale };
+}
+
+/**
+ * How far out a gesture may zoom this board: `MIN_SCALE`, or further if that is what it takes to
+ * see all of `box`.
+ */
+export function leastScale(box: Box, plate: Plate): number {
+  return Math.min(MIN_SCALE, fitCamera(box, plate).scale);
 }
 
 /**
@@ -189,8 +229,10 @@ export function zoomAround(
   plate: Plate,
   factor: number,
   at: { x: number; y: number },
+  /** See `leastScale`. */
+  least: number = MIN_SCALE,
 ): Camera {
-  const scale = clamp(camera.scale * factor, MIN_SCALE, MAX_SCALE);
+  const scale = clamp(camera.scale * factor, least, MAX_SCALE);
   if (scale === camera.scale) return camera;
   // The graph point under the pointer, before and after: the centre moves by the
   // difference, so that point stays put.
@@ -256,25 +298,63 @@ export function bringInto(
   plate: Plate,
   margin = WORD_MARGIN,
 ): Camera {
+  return bringBoxInto(
+    camera,
+    { minX: point.x, maxX: point.x, minY: point.y, maxY: point.y },
+    plate,
+    margin,
+  );
+}
+
+/**
+ * `bringInto` for a box, such as everything a guess on the map revealed. Pans only; a box wider
+ * than the view is centred.
+ */
+export function bringBoxInto(
+  camera: Camera,
+  box: Box,
+  plate: Plate,
+  margin = WORD_MARGIN,
+): Camera {
   const view = viewOf(camera, plate);
   return {
     ...camera,
-    cx: nearest(camera.cx, point.x, view.width, margin),
-    cy: nearest(camera.cy, point.y, view.height, margin),
+    cx: nearestSpan(camera.cx, box.minX, box.maxX, view.width, margin),
+    cy: nearestSpan(camera.cy, box.minY, box.maxY, view.height, margin),
   };
 }
 
 /**
- * The nearest centre to `centre` that holds `point` inside a span of `span`, keeping
- * `margin` clear of the edge.
- *
- * A view narrower than two margins has no such centre — a board pinched right in, where
- * every word is against an edge — and then the point itself is the only honest answer.
+ * `bringBoxInto`, zooming out (never in) if the box does not fit, as `fitCamera` does.
  */
-function nearest(centre: number, point: number, span: number, margin: number): number {
+export function showBox(camera: Camera, box: Box, plate: Plate, margin = WORD_MARGIN): Camera {
+  const view = viewOf(camera, plate);
+  const fits =
+    box.maxX - box.minX <= view.width - margin * 2 &&
+    box.maxY - box.minY <= view.height - margin * 2;
+  if (fits) return bringBoxInto(camera, box, plate, margin);
+  const pulled = fitCamera(box, plate, margin);
+  return { ...pulled, scale: Math.min(camera.scale, pulled.scale) };
+}
+
+/**
+ * The nearest centre to `centre` that holds `min`..`max` inside a span of `span`, keeping
+ * `margin` clear of either edge.
+ *
+ * When there is none (a view narrower than two margins, or a run wider than the view), the
+ * middle of the run.
+ */
+function nearestSpan(
+  centre: number,
+  min: number,
+  max: number,
+  span: number,
+  margin: number,
+): number {
   const room = span / 2 - margin;
-  if (room <= 0) return point;
-  return clamp(centre, point - room, point + room);
+  const middle = (min + max) / 2;
+  if (room <= 0 || max - min > 2 * room) return middle;
+  return clamp(centre, max - room, min + room);
 }
 
 /** Is this point in shot, with room for its name? True exactly when `bringInto` does nothing. */

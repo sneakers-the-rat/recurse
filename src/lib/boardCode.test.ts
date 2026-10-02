@@ -31,10 +31,10 @@ import {
   spending,
   staleCode,
 } from "./boardCode";
+import { moveKey } from "./found";
 import {
   applyGuess,
   hintCount,
-  moveKey,
   newGame,
   restore,
   select,

@@ -236,3 +236,47 @@ pub fn load(path: &Path) -> Option<Bank> {
         candidates,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::config::Config;
+
+    /// A minimal config's first mode, with `extra` appended to its block.
+    fn mode(extra: &str) -> crate::config::Mode {
+        Config::parse(&format!(
+            "shared:\n  epoch: 2025-01-01\n  seed: 1\n  idChars: 12\n  minGap: 45\n\
+             defaults:\n  alphabet: letters\n  minWord: 4\n  minSub: 2\n  legalScowl: 80\n  \
+             commonScowl: 35\n  slack: 6\n  minPar: 3\n  maxPar: 10\n  minSourceMoves: 2\n  \
+             altWays: 4\n  altSlack: 4\n  minDivergence: 2\n  aroundPercent: 45\n  \
+             linkReach: 3\n  minInternal: 1\n  maxSwaps: 0\n  minAltNodes: 4\n  \
+             minComponent: 3\n\
+             modes:\n  - name: letters\n    bands: [short, medium, long]\n    \
+             bandCuts: [4, 6]\n{extra}"
+        ))
+        .expect("loads")
+        .modes
+        .remove(0)
+    }
+
+    // `minComponent` affects only the open map, so changing it must not force a re-search.
+    #[test]
+    fn the_key_ignores_a_knob_that_decides_no_puzzle() {
+        let three = mode("    minComponent: 3\n");
+        let nine = mode("    minComponent: 9\n");
+        assert_eq!(three.min_component, 3);
+        assert_eq!(nine.min_component, 9);
+        assert_eq!(
+            super::key(&three, &[], 12, "abcd1234"),
+            super::key(&nine, &[], 12, "abcd1234"),
+            "minComponent decides the map and not the bank, so it must not invalidate one"
+        );
+    }
+
+    // Keeps the test above from passing vacuously.
+    #[test]
+    fn the_key_moves_with_a_knob_that_does() {
+        let one = mode("");
+        let other = mode("    minInternal: 2\n");
+        assert_ne!(super::key(&one, &[], 12, "abcd1234"), super::key(&other, &[], 12, "abcd1234"));
+    }
+}

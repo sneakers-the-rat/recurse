@@ -31,6 +31,7 @@ mod id;
 mod lexicon;
 mod phonetic;
 mod progress;
+mod regions;
 mod select;
 mod word;
 mod words;
@@ -215,6 +216,8 @@ struct Built<'a> {
     vocab: String,
     legal: graph::Graph,
     common: graph::Graph,
+    /// The open map's regions, by legal-graph word id. See regions.rs.
+    regions: regions::Regions,
     /// Before `schedule`, which runs once over the merged bank.
     ///
     /// Absent when the question did not need one. See `Want`.
@@ -515,8 +518,39 @@ fn build_mode<'a>(
     let legal = tier("legal ", &lex.legal, &legal_subs);
     let common = tier("common", &lex.common, &common_subs);
 
+    // Regions for the open map, over the legal graph so that every word a guess can reach has
+    // one. Cheap next to building either graph.
+    let phase = Instant::now();
+    let ranks: Vec<usize> = legal
+        .words
+        .iter()
+        .map(|token| {
+            // A phonemes token is ranked by its first spelling. Unranked words sort last.
+            let spelling = lex.labels(token).first().map(String::as_str).unwrap_or(token);
+            corpora.rank.get(spelling).copied().unwrap_or(usize::MAX)
+        })
+        .collect();
+    let regions = regions::build(&legal, mode.min_component, &ranks, config.shared.seed);
+    let size = regions.sizes();
+    eprintln!(
+        "  regions: {} over {} words in {} component(s) — {} of ten words or more, holding {} \
+         of them ({:.0}%), largest {}. {} word(s) are off the map, in components under {}. \
+         {} one-move word(s) moved to their neighbour's region. {:.1}s",
+        size.count,
+        size.words,
+        regions.components,
+        size.real,
+        size.in_real,
+        100.0 * size.in_real as f64 / size.words.max(1) as f64,
+        size.largest,
+        regions.dropped,
+        mode.min_component,
+        regions.leaves_moved,
+        phase.elapsed().as_secs_f64(),
+    );
+
     if want == Want::Graphs {
-        return Ok(Built { mode, lex, vocab, legal, common, found: None });
+        return Ok(Built { mode, lex, vocab, legal, common, regions, found: None });
     }
 
     // The search is the expensive half and its result is cached; the calendar and the output
@@ -606,7 +640,7 @@ fn build_mode<'a>(
         }
     };
 
-    Ok(Built { mode, lex, vocab, legal, common, found: Some(found) })
+    Ok(Built { mode, lex, vocab, legal, common, regions, found: Some(found) })
 }
 
 fn run(command: Command, only: Option<&str>) -> Result<(), String> {
@@ -655,7 +689,13 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
         }
     };
 
-    let corpora = Corpora::load(&cache, &root, &asked)?;
+    // The open map's graphs are built only by `build`: every inspection is about a bank.
+    let maps: Vec<&Mode> = match command {
+        Command::Build => config.explore.iter().collect(),
+        _ => Vec::new(),
+    };
+
+    let corpora = Corpora::load(&cache, &root, &[asked.clone(), maps.clone()].concat())?;
     corpora.seen.check(&config.shared.sources)?;
 
     // Every mode asked about, searched. They are independent — one alphabet, one pair of
@@ -700,6 +740,12 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
             return Ok(());
         }
         Command::Build => {}
+    }
+
+    // The open map's graphs: lexicon, both tiers and regions, with no search or bank.
+    let mut drawn: Vec<Built> = Vec::with_capacity(maps.len());
+    for mode in maps {
+        drawn.push(build_mode(mode, &corpora, &config, &cache, nonwords, threads, Want::Graphs)?);
     }
 
     // --------------------------------------------------------------- the bank
@@ -771,7 +817,7 @@ fn run(command: Command, only: Option<&str>) -> Result<(), String> {
 
     // ----------------------------------------------------------------- output
     check_ids(&selection.puzzles, &config)?;
-    write_outputs(&data, &config, &built, &selection, &dealt)?;
+    write_outputs(&data, &config, &built, &drawn, &selection, &dealt)?;
     progress::published_done();
     eprintln!("done in {:.1}s", started.elapsed().as_secs_f64());
     Ok(())
@@ -2472,8 +2518,11 @@ fn redirect_bodies(
 fn write_puzzle_shards(
     data: &Path,
     config: &Config,
+    // The daily games.
     built: &[Built],
-    // The digest naming each mode's four data files, in `built` order. See `named`.
+    // Every graph shipped, in manifest order. See `write_outputs`.
+    graphs: &[&Built],
+    // The digest naming each mode's data files, in `graphs` order. See `named`.
     digests: &[String],
     puzzles: &[select::Puzzle],
     dealt: &calendar::Calendar,
@@ -2593,18 +2642,25 @@ fn write_puzzle_shards(
         Conflating them was the first attempt and was wrong: three of the four files depend on
         the common tier as well, which the vocabulary deliberately does not cover. See `named`.
 
-        From `built` rather than from the config, because the config holds only what was
-        *declared* and a mode may decline to declare a vocabulary. Order is `built`'s, which is
-        `config.modes`' — a build refuses `--mode`, so the two cannot come apart, and the band
-        entries below index the same order.
+        From `graphs` rather than from the config, because the config holds only what was
+        *declared* and a mode may decline to declare a vocabulary. Order is `graphs`', which is
+        every daily game in `config.modes` and then every open one in `config.explore` — a build
+        refuses `--mode`, so the two cannot come apart, and the band entries below index the
+        same order.
+
+        `of` is written only for an open-map graph. See `Mode::of`.
     */
-    let modes = built
+    let modes = graphs
         .iter()
         .zip(digests)
         .map(|(one, data)| {
+            let of = match &one.mode.of {
+                Some(game) => format!(",\"of\":\"{game}\""),
+                None => String::new(),
+            };
             format!(
                 "{{\"name\":\"{}\",\"alphabet\":\"{}\",\"data\":\"{}\",\
-                 \"vocab\":\"{}\",\"slack\":{},\"minPar\":{},\"maxPar\":{}}}",
+                 \"vocab\":\"{}\",\"slack\":{},\"minPar\":{},\"maxPar\":{}{of}}}",
                 one.mode.name,
                 one.mode.alphabet.name(),
                 data,
@@ -2934,20 +2990,24 @@ fn write_outputs(
     data: &Path,
     config: &Config,
     built: &[Built],
+    // The open map's graphs. They ship the same files as a daily game.
+    maps: &[Built],
     selection: &select::Selection,
     dealt: &calendar::Calendar,
 ) -> Result<(), String> {
+    // Daily games first: a band's `mode` indexes this list, so the open map's go after.
+    let graphs: Vec<&Built> = built.iter().chain(maps).collect();
     // Each mode's four files, and the digest of them that names them. Collected here because
     // the manifest has to say what to fetch, and the manifest is written by the shards.
     let mut digests: Vec<String> = Vec::new();
-    for one in built {
+    for one in &graphs {
         digests.push(write_mode(&data.join(&one.mode.name), one)?);
     }
-    write_puzzle_shards(data, config, built, &digests, &selection.puzzles, dealt)?;
+    write_puzzle_shards(data, config, built, &graphs, &digests, &selection.puzzles, dealt)?;
     // Only once everything is written, because until then the manifest on disk is the old one
     // and still names the old files. Sweeping first left a window where a build that died
     // halfway had deleted the files its own manifest pointed at.
-    for (one, digest) in built.iter().zip(&digests) {
+    for (one, digest) in graphs.iter().zip(&digests) {
         sweep_mode(&data.join(&one.mode.name), one, digest);
     }
     Ok(())
@@ -2972,12 +3032,13 @@ fn named(what: &str, digest: &str) -> String {
     format!("{what}-{digest}.json")
 }
 
-/// Which of the four a mode ships. The lexicon is only for a translated alphabet.
+/// Which files a mode ships. The lexicon is only for a translated alphabet.
 fn mode_files(one: &Built, digest: &str) -> Vec<String> {
     let mut names = vec![
         named("dictionary", digest),
         named("graph", digest),
         named("common", digest),
+        named("regions", digest),
     ];
     if one.mode.alphabet != Alphabet::Letters {
         names.push(named("lexicon", digest));
@@ -3118,7 +3179,7 @@ fn write_mode(dir: &Path, one: &Built) -> Result<String, String> {
 
     // Every body, then the digest of all of them, then the files. Named by their own bytes —
     // see `named` — so this is the one order that can produce that name.
-    let mut bodies = vec![dictionary, graph_json, common_json];
+    let mut bodies = vec![dictionary, graph_json, common_json, regions_body(one, &index)];
     if mode.alphabet != Alphabet::Letters {
         bodies.push(lexicon_body(one, &index));
     }
@@ -3128,6 +3189,29 @@ fn write_mode(dir: &Path, one: &Built) -> Result<String, String> {
         eprintln!("  wrote {}/{name} ({} KB)", mode.name, body.len() / 1024);
     }
     Ok(digest)
+}
+
+/// `regions.json`: each region's name and members, as delta-encoded dictionary ids. A word off
+/// the map is in no region.
+fn regions_body(one: &Built, index: &FxMap<&str, u32>) -> String {
+    let mut rows: Vec<String> = Vec::with_capacity(one.regions.regions.len());
+    for region in &one.regions.regions {
+        let mut ids: Vec<u32> = region
+            .words
+            .iter()
+            .filter_map(|&id| index.get(one.legal.word(id)).copied())
+            .collect();
+        ids.sort_unstable();
+        let mut row = format!("{{\"name\":\"{}\",\"words\":[", one.lex.label(one.legal.word(region.name)));
+        push_deltas(&mut row, ids);
+        row.push_str("]}");
+        rows.push(row);
+    }
+    format!(
+        "{{\"minComponent\":{},\"regions\":[{}]}}",
+        one.mode.min_component,
+        rows.join(",")
+    )
 }
 
 /// How to read a token back: what to draw it as, and how to say it.

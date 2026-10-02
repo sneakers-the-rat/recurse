@@ -4,15 +4,17 @@
  * that is wrong rather than a graph that throws.
  */
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  dailyGames,
   decodeDeltas,
   decodeRedirects,
   decodeRows,
   decodeGameData,
+  mapMode,
   modeFile,
   shardOf,
 } from './data';
@@ -51,7 +53,7 @@ describe('the vocabulary each game is pinned to', () => {
       // — three of the four files depend on the common tier, which `vocab` does not cover.
       expect(one.vocab, one.name).toMatch(/^[0-9a-f]{4,}$/);
       expect(one.data, one.name).toMatch(/^[0-9a-f]{4,}$/);
-      const wanted = ['dictionary', 'graph', 'common'];
+      const wanted = ['dictionary', 'graph', 'common', 'regions'];
       if (one.alphabet !== 'letters') wanted.push('lexicon');
       for (const what of wanted) {
         const name = modeFile(what, mode, manifest);
@@ -62,13 +64,57 @@ describe('the vocabulary each game is pinned to', () => {
   });
 
   /**
+   * The builder's `vocab:` tripwire, checked against what shipped. A moved vocabulary stales
+   * every shared board code. The digest is read from recurse.yaml, not pinned here.
+   */
+  it('is the one recurse.yaml declares, so no board has been renamed', () => {
+    const config = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'recurse.yaml'),
+      'utf8',
+    );
+    // Each `- name:` and the `vocab:` under it, across both `modes:` and `explore:`. Names
+    // may contain a hyphen (`explore-letters`).
+    const declared = new Map<string, string>();
+    let mode: string | null = null;
+    for (const line of config.split('\n')) {
+      const named = /^\s*-\s*name:\s*([\w-]+)/.exec(line);
+      if (named) mode = named[1]!;
+      const vocab = /^\s*vocab:\s*'?([0-9a-f]{8})'?/.exec(line);
+      if (vocab && mode) declared.set(mode, vocab[1]!);
+    }
+    expect(declared.size, 'recurse.yaml declares a vocab per mode').toBe(manifest.modes.length);
+    for (const one of manifest.modes) {
+      expect(one.vocab, one.name).toBe(declared.get(one.name));
+    }
+  });
+
+  // A band's `mode` indexes this list, so a map graph among the games would re-point bands.
+  it('lists the open game’s graphs after the games, so no band’s mode moves', () => {
+    const daily = dailyGames(manifest);
+    expect(daily.length).toBeGreaterThan(0);
+    expect(manifest.modes.slice(0, daily.length)).toEqual(daily);
+    for (const band of manifest.bands) {
+      expect(manifest.modes[band.mode]?.of, band.name).toBeUndefined();
+    }
+  });
+
+  it('draws every game’s map on a graph of that game', () => {
+    for (const game of dailyGames(manifest)) {
+      const drawn = manifest.modes[mapMode(game.name, manifest)];
+      expect(drawn, game.name).toBeDefined();
+      expect(drawn!.of ?? drawn!.name, game.name).toBe(game.name);
+      expect(drawn!.alphabet, game.name).toBe(game.alphabet);
+    }
+  });
+
+  /**
    * And nothing else in the directory, because a stale vocabulary is six megabytes of file a
    * browser could still be asking for by name — which was the whole reason for versioning
    * them. The builder sweeps them; this is what notices if it stops.
    */
   it('leaves no file from another vocabulary behind', () => {
     for (const [mode, one] of manifest.modes.entries()) {
-      const ours = ['dictionary', 'graph', 'common', 'lexicon'].map((what) =>
+      const ours = ['dictionary', 'graph', 'common', 'regions', 'lexicon'].map((what) =>
         modeFile(what, mode, manifest).split('/').pop(),
       );
       const found = readdirSync(join(dir, one.name)).filter((name) => name.endsWith('.json'));

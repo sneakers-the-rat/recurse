@@ -21,7 +21,14 @@ import { memo } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { board as says } from '../i18n/messages/board';
 
-export const ResetView = memo(function ResetView({ onReset }: { onReset: () => void }) {
+export const ResetView = memo(function ResetView({
+  onReset,
+  /** Positioning classes only; the open map moves it clear of its powers. */
+  at = 'right-2 bottom-2',
+}: {
+  onReset: () => void;
+  at?: string;
+}) {
   const intl = useIntl();
   const whole = intl.formatMessage(says.resetView);
   return (
@@ -34,7 +41,7 @@ export const ResetView = memo(function ResetView({ onReset }: { onReset: () => v
       data-tour="reset-view"
       // Padded past what the label needs, because this is a thumb's target on the screen
       // it matters on and the rest of the chrome is sized for a pointer.
-      className="label bg-noir/80 border-rule hover:border-gilt-dim hover:text-gilt absolute right-2 bottom-2 z-10 border px-3 py-2.5 leading-none whitespace-nowrap transition-colors"
+      className={`label bg-noir/80 border-rule hover:border-gilt-dim hover:text-gilt absolute z-10 border px-3 py-2.5 leading-none whitespace-nowrap transition-colors ${at}`}
     >
       <FormattedMessage {...says.reset} />
     </button>

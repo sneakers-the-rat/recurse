@@ -19,15 +19,15 @@ import { shortestPath } from '../src/lib/graph';
 /** The id in the address bar, whatever the base happens to be. */
 const idInUrl = (url: string) => new URL(url).pathname.replace(/^\//, '').split('?')[0];
 
-/** The switch itself: the masthead button that opens the three lengths. */
+/** The masthead button that opens the board menu. */
 const current = (page: import('@playwright/test').Page) =>
-  page.getByRole('button', { name: 'Choose a length' });
+  page.getByRole('button', { name: 'Choose a board' });
 
 /**
  * Open it and take one, which is the only way to a different length in the chrome.
  *
- * By the band's index, because both games label a band "short" and the menu draws six of them:
- * an option is found by its position in the list rather than by a word two of them share.
+ * By position, because option labels repeat across games. The daily boards come first, in band
+ * order, so a band index is a position.
  */
 async function choose(page: import('@playwright/test').Page, band: number) {
   await current(page).click();

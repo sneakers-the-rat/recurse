@@ -19,6 +19,7 @@
 import { memo } from 'react';
 import { FormattedMessage } from 'react-intl';
 
+import { explore } from '../i18n/messages/explore';
 import { guess as says } from '../i18n/messages/guess';
 import { PLAIN, type Lexicon } from '../lib/lexicon';
 import { analyzeEdit, bestReading, judgeGuess } from '../lib/moves';
@@ -36,6 +37,11 @@ interface Props {
   lexicon?: Lexicon;
   /** Dim the whole readout once the guess has been rejected. */
   muted?: boolean;
+  /**
+   * The open map's fast travel: the found word the typed text would jump to. Shown only when
+   * the text is not a move, since a move takes precedence. Absent in the daily game.
+   */
+  travel?: string | null;
 }
 
 function Marked({
@@ -81,6 +87,7 @@ export const MoveReadout = memo(function MoveReadout({
   isWord = null,
   muted = false,
   lexicon = PLAIN,
+  travel = null,
 }: Props) {
   const read = (piece: string) => (lexicon.translated ? lexicon.transcribe(piece) : piece);
   /*
@@ -110,19 +117,21 @@ export const MoveReadout = memo(function MoveReadout({
   const verdict = judgeGuess(graph, from, raw, isWord, lexicon);
   const word = (verdict.ok ? verdict.word : lexicon.parse(raw)[0]) ?? '';
 
-  if (!raw || word === from) {
+  // Nothing plays, but the map already holds this word: pressing Guess goes there.
+  if (raw && !verdict.ok && travel) {
     return (
-      <p className="label" aria-live="polite">
-        <FormattedMessage {...(word === from && raw ? says.unchanged : says.prompt)} />
+      <p className={`label ${muted ? 'opacity-55' : ''}`} aria-live="polite">
+        <FormattedMessage {...explore.travel} values={{ word: lexicon.label(travel) }} />
       </p>
     );
   }
 
-  // Not a word in this alphabet yet, so there is no move to describe.
-  if (!word) {
+  if (!raw || !word) return null;
+
+  if (word === from) {
     return (
       <p className="label" aria-live="polite">
-        <FormattedMessage {...says.prompt} />
+        <FormattedMessage {...says.unchanged} />
       </p>
     );
   }

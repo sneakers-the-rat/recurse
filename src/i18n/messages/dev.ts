@@ -139,6 +139,86 @@ export const dev = defineMessages({
     description: 'Accessible name of that button.',
   },
 
+  // --- the same instruments over an open map ---------------------------------
+  walk: {
+    id: 'dev.walk',
+    defaultMessage: 'walk',
+    description:
+      'Button: grows a map by making that many random legal guesses, one at a time, each animating in as a typed guess would.',
+  },
+  stopWalk: {
+    id: 'dev.stopWalk',
+    defaultMessage: 'stop',
+    description:
+      'What the walk button says while a walk is running; pressing it stops the walk.',
+  },
+  fill: {
+    id: 'dev.fill',
+    defaultMessage: 'fill',
+    description:
+      'Button: makes the same run of guesses as walk, all at once and without animation.',
+  },
+  walkHow: {
+    id: 'dev.walkHow',
+    defaultMessage: 'moves',
+    description: 'Placeholder in the box beside it, which takes a number of moves.',
+  },
+  walkLabel: {
+    id: 'dev.walkLabel',
+    defaultMessage: 'How many moves to walk',
+    description: 'Accessible name of that box.',
+  },
+  walkFrom: {
+    id: 'dev.walkFrom',
+    defaultMessage: 'from',
+    description:
+      'Placeholder in the box beside the move count, which takes a word already on the map. Given one, the run spreads outward from it, nearest words first, instead of wandering at random.',
+  },
+  walkFromLabel: {
+    id: 'dev.walkFromLabel',
+    defaultMessage: 'Which word to walk out from, or blank to wander',
+    description: 'Accessible name of that box.',
+  },
+  mana: {
+    id: 'dev.mana',
+    defaultMessage: 'mana',
+    description:
+      'Reading on the map bar: how many points are in hand.',
+  },
+  pay: {
+    id: 'dev.pay',
+    defaultMessage: 'pay',
+    description:
+      'Button: adds enough mana to try the powers without earning it first.',
+  },
+  blank: {
+    id: 'dev.blank',
+    defaultMessage: 'blank',
+    description:
+      'Button: empties the map back to the one word it began at, discarding everything found. Distinct from the daily game’s reset.',
+  },
+  found: {
+    id: 'dev.found',
+    defaultMessage: 'found',
+    description: 'Reading on the map bar: how many words have been reached.',
+  },
+  figure: {
+    id: 'dev.figure',
+    defaultMessage: 'figure',
+    description:
+      'Reading on the map bar: how many words the board holds, found and unfound.',
+  },
+  territories: {
+    id: 'dev.territories',
+    defaultMessage: 'regions',
+    description: 'Reading on the map bar: how many territories the board is laid out as.',
+  },
+  standing: {
+    id: 'dev.standing',
+    defaultMessage: 'at',
+    description: 'Reading on the map bar: the word the next guess would be made from.',
+  },
+
   answer: {
     id: 'dev.answer',
     defaultMessage: 'answer',
@@ -304,5 +384,11 @@ export const modes = defineMessages({
     defaultMessage: 'phonemes',
     description:
       'The game played by ear, where a word is its pronunciation and a move finds a word inside a word by sound: coolest − coo = lust.',
+  },
+  explore: {
+    id: 'modes.explore',
+    defaultMessage: 'explore',
+    description:
+      'The open game: a map of a whole word graph, with no par and no day, kept between visits. Its two boards are named after the letters and phonemes games.',
   },
 });

@@ -212,10 +212,57 @@ svg :focus:not(:focus-visible) {
   animation: crossed 700ms 200ms ease-in forwards;
 }
 
+/*
+ * A word arriving on an open map, growing in. `--delay` and `--grow` are per element, from
+ * `sprout.ts`. `backwards` keeps it hidden through its delay; `fill-box` scales it about its
+ * own centre.
+ */
+@keyframes sprout {
+  from {
+    opacity: 0;
+    transform: scale(0.12);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sprout {
+  animation: sprout var(--grow, 760ms) cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+  animation-delay: var(--delay, 0ms);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/*
+ * A move drawing itself in from one end. `--delay` and `--draw` are per edge, from `sprout.ts`.
+ * The line has `pathLength="1"`, so a dash of 1 is its whole length.
+ */
+@keyframes reach {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.tendril .reach {
+  stroke-dasharray: 1;
+  animation: reach var(--draw, 520ms) cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+  animation-delay: var(--delay, 0ms);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .surface,
-  .refuse {
+  .refuse,
+  .sprout,
+  .tendril .reach {
     animation: none;
+  }
+  .tendril .reach {
+    stroke-dasharray: none;
   }
   *,
   *::before,

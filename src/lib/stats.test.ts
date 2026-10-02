@@ -78,6 +78,7 @@ const state = (over: Partial<GameState> = {}): GameState => ({
   puzzle,
   revealed: new Map(),
   selected: 'base',
+  stood: { words: ['base'], at: 0 },
   spentHints: 0,
   guesses: 2,
   misses: 1,

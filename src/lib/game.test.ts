@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { testGraph } from '../test/fixture';
+import { guessedWords } from './found';
+import { fullyHinted, hintLabel, hintLevels } from './hints';
 import {
   applyGuess,
-  fullyHinted,
-  guessedWords,
   hintCount,
-  hintLabel,
-  hintLevels,
   moveHint,
   newGame,
   restore,
@@ -17,6 +15,7 @@ import {
   worthKeeping,
 } from './game';
 import type { Drawn } from './game';
+import { walk } from './trail';
 import type { Lexicon } from './lexicon';
 import type { Puzzle } from './types';
 
@@ -456,6 +455,14 @@ describe('snapshot and restore', () => {
     const before = played();
     const after = restore(puzzle, snapshot(before));
     expect(after).toEqual(before);
+  });
+
+  it('keeps where the player has stood, part way back along it', () => {
+    const behind = walk(walk(played(), 'back'), 'back');
+    const after = restore(puzzle, snapshot(behind));
+    expect(after.stood).toEqual(behind.stood);
+    expect(after.selected).toBe(behind.selected);
+    expect(walk(after, 'next').selected).toBe(walk(behind, 'next').selected);
   });
 
   it('rebuilds what it did not store', () => {

@@ -73,13 +73,14 @@ export function base(): string {
  * rather than off the board on screen so the page can be linked to — it is a thing somebody
  * sends somebody else, which is the whole reason it is a page and not a panel.
  */
-export type Page = 'archive' | 'stats' | 'tutorial' | 'rules';
+export type Page = 'archive' | 'stats' | 'tutorial' | 'rules' | 'explore';
 
 const PAGES: Record<Page, string> = {
   archive: 'puzzles',
   stats: 'stats',
   tutorial: 'tutorial',
   rules: 'rules',
+  explore: 'explore',
 };
 
 /** The first segment of a path, with the base and any trailing segments taken off. */
@@ -94,18 +95,15 @@ function segments(path: string, from: string): string[] {
 }
 
 /**
- * The mode a `rules/{mode}` path names, or null when it names none.
+ * A page's second segment, lowercased, or null when it has none or the path is another page.
  *
- * A bare `rules` answers null rather than guessing at a game, and so does any other path.
- * Which mode names are real is the manifest's business, not this module's — a name it does
- * not know is a page with nothing to say, the same way an unknown id is a board that is not
- * there.
+ * `rules/{game}` and `explore/{game}` both name a game. Whether it exists is not checked here.
  */
-export function modeFromPath(path: string, from: string = base()): string | null {
+export function pageArg(page: Page, path: string, from: string = base()): string | null {
   const parts = segments(path, from);
-  if (parts[0]?.toLowerCase() !== PAGES.rules) return null;
-  const mode = parts[1]?.toLowerCase() ?? '';
-  return mode === '' ? null : mode;
+  if (parts[0]?.toLowerCase() !== PAGES[page]) return null;
+  const arg = parts[1]?.toLowerCase() ?? '';
+  return arg === '' ? null : arg;
 }
 
 /** The id a path names, or null if it names none. */

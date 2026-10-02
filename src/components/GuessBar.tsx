@@ -10,9 +10,11 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { guess as says } from '../i18n/messages/guess';
+import { KeyDown, KeyUp } from './marks';
 import { MoveReadout } from './MoveReadout';
 import { PLAIN, type Lexicon } from '../lib/lexicon';
 import type { Graph } from '../lib/types';
+import type { Steps } from '../lib/useTrail';
 
 /**
  * Typing anywhere types here.
@@ -77,6 +79,10 @@ interface Props {
   isWord?: ((word: string) => boolean) | null;
   /** Set when the last submission was refused. */
   error: string | null;
+  /** The open map's fast travel: where the typed text would go. See `MoveReadout`. */
+  travel?: ((typed: string) => string | null) | undefined;
+  /** Back and next through the words stood on, drawn while nothing is typed. */
+  steps?: Steps | undefined;
   onSubmit: (word: string) => void;
   onClearError: () => void;
 }
@@ -87,6 +93,8 @@ export const GuessBar = memo(function GuessBar({
   graph,
   isWord = null,
   error,
+  travel,
+  steps,
   onSubmit,
   onClearError,
 }: Props) {
@@ -132,14 +140,19 @@ export const GuessBar = memo(function GuessBar({
             />
           </span>
           <div className="min-w-0 flex-1 text-right">
-            <MoveReadout
-              from={from}
-              lexicon={lexicon}
-              typed={value}
-              graph={graph}
-              isWord={isWord}
-              muted={error !== null}
-            />
+            {steps && !value.trim() ? (
+              <StepButtons steps={steps} />
+            ) : (
+              <MoveReadout
+                from={from}
+                lexicon={lexicon}
+                typed={value}
+                graph={graph}
+                isWord={isWord}
+                muted={error !== null}
+                travel={travel ? travel(value) : null}
+              />
+            )}
           </div>
         </div>
 
@@ -190,3 +203,35 @@ export const GuessBar = memo(function GuessBar({
     </form>
   );
 });
+
+/** Back and next, labelled with their arrow keys. `type="button"` so they don't submit the form. */
+function StepButtons({ steps }: { steps: Steps }) {
+  const button = `label border-rule text-bone hover:border-gilt hover:text-gilt inline-flex
+    items-baseline gap-1 rounded-sm border px-2 py-0.5 transition-colors
+    disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-rule
+    disabled:hover:text-bone`;
+  return (
+    <span className="inline-flex gap-2">
+      <button
+        type="button"
+        className={button}
+        disabled={!steps.canBack}
+        onClick={steps.back}
+        aria-keyshortcuts="ArrowUp"
+      >
+        <KeyUp />
+        <FormattedMessage {...says.back} />
+      </button>
+      <button
+        type="button"
+        className={button}
+        disabled={!steps.canNext}
+        onClick={steps.next}
+        aria-keyshortcuts="ArrowDown"
+      >
+        <KeyDown />
+        <FormattedMessage {...says.next} />
+      </button>
+    </span>
+  );
+}

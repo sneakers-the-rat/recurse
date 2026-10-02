@@ -22,6 +22,7 @@ import {
   shardName,
   calendarName,
   idOnDay,
+  mapMode,
   shardOf,
   type GameData,
   type RawCommon,
@@ -34,6 +35,7 @@ import { dateForDay, dayIndex, dayNumber, dayOfYear } from '../lib/daily';
 import type { RawLexicon } from '../lib/lexicon';
 import type { Puzzle } from '../lib/types';
 import type { PlateOptions } from '../lib/plate';
+import { buildRegions, type RawRegions, type Regions } from '../lib/regions';
 
 const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'data');
 
@@ -70,14 +72,19 @@ export function shippedVersion(): { version: string; puzzles: number } {
   return { version: manifest.version, puzzles: manifest.puzzles };
 }
 
-/** The modes the bank holds, in manifest order, with the first band of each. */
+/**
+ * The modes the bank holds, in manifest order, with the first band of each. An explore mode has no
+ * bands, and no puzzles, so it is left out.
+ */
 export function shippedModes(): { mode: number; name: string; band: number }[] {
   const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
-  return manifest.modes.map((one, mode) => ({
-    mode,
-    name: one.name,
-    band: manifest.bands.findIndex((band) => band.mode === mode),
-  }));
+  return manifest.modes
+    .map((one, mode) => ({
+      mode,
+      name: one.name,
+      band: manifest.bands.findIndex((band) => band.mode === mode),
+    }))
+    .filter((one) => one.band >= 0);
 }
 
 /** One shard, read off disk, decoded. */
@@ -188,6 +195,38 @@ export function shippedData(band: number = DEFAULT_BAND): GameData {
     puzzles: decodeShard(shard),
   });
   cached.set(band, built);
+  return built;
+}
+
+/** A game's open map: the mode it is drawn on (see `mapMode`), with that mode's regions. */
+export interface ShippedMap extends GameData {
+  regions: Regions;
+}
+
+const maps = new Map<string, ShippedMap>();
+
+/** The open map of `game`, read the way `Explore` reads it. */
+export function shippedMap(game = 'letters'): ShippedMap {
+  const held = maps.get(game);
+  if (held) return held;
+  const manifest = read<RawManifest>(join('puzzles', 'manifest.json'));
+  const mode = mapMode(game, manifest);
+  const file = (what: string) => modeFile(what, mode, manifest);
+  const data = decodeGameData({
+    dictionary: read<RawDictionary>(file('dictionary')),
+    graph: read<RawGraph>(file('graph')),
+    manifest,
+    mode,
+    common: read<RawCommon>(file('common')),
+    lexicon:
+      manifest.modes[mode]?.alphabet !== 'letters' ? read<RawLexicon>(file('lexicon')) : undefined,
+    puzzles: [],
+  });
+  const built = {
+    ...data,
+    regions: buildRegions(read<RawRegions>(file('regions')), data.graph.words),
+  };
+  maps.set(game, built);
   return built;
 }
 

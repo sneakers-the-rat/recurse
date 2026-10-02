@@ -12,6 +12,8 @@
  *   starts on one used to select it as the finger came up. Anything that moved more
  *   than a few pixels swallows the click that follows it, in the capture phase, before
  *   the node ever hears about it.
+ * - A one-finger drag shifts the drawn picture and redraws only when it ends or runs past
+ *   `OVERDRAW`. See `nudgeOf` in camera.ts.
  * - **Nothing in here moves the camera on its own.** `jumpTo` and `glideTo` are how the
  *   game asks — the opening, following a guess onto the board, the button that puts the
  *   whole puzzle back in shot — and every one of those is an answer to something the
@@ -24,12 +26,16 @@ import {
   between,
   clampCamera,
   ease,
+  leastScale,
+  nudgeOf,
+  OVERDRAW,
   panBy,
   zoomAround,
   type Box,
   type Camera,
   type Plate,
 } from './camera';
+import { watchBox, type ScreenBox } from './screenBox';
 
 /** Pixels of movement past which a gesture is a drag and not a tap. */
 const DRAG_SLOP = 6;
@@ -79,7 +85,17 @@ function pageScrolls(): boolean {
 }
 
 export interface PanZoom {
+  /** Where the board is looked at from now, mid-drag included. For everything but drawing. */
   camera: Camera;
+  /** Where the board was last drawn from; the `viewBox`. See `nudgeOf`. */
+  drawnFrom: Camera;
+  /** `nudgeOf(drawnFrom, camera)`: how far to shift the drawing, in pixels. */
+  nudge: { x: number; y: number };
+  /**
+   * A drag past `DRAG_SLOP` is in progress, so the surface should draw its `OVERDRAW`. Not set
+   * on a tap, which then pays nothing for it.
+   */
+  dragging: boolean;
   /** Put the camera somewhere at once, with no animation. */
   jumpTo: (camera: Camera) => void;
   /** Move the camera over `ms`, easing. Returns nothing; it is fire and forget. */
@@ -114,11 +130,31 @@ export function usePanZoom(
   bounds: Box,
   target: HTMLElement | null,
 ): PanZoom {
+  // `drawn` differs from `camera` only during a drag.
   const [camera, setCamera] = useState(initial);
+  const [drawn, setDrawn] = useState(initial);
   const [moving, setMoving] = useState(false);
+
+  /**
+   * The cameras as refs the handlers read and write, with state following. Two pointer moves in
+   * one tick get no render between them, so a ref written during render would drop one's delta.
+   * Nothing writes these during a render.
+   */
+  const looking = useRef(initial);
+  const drawnAt = useRef(initial);
+
+  /** Set the camera and redraw there, together, so no stale `nudge` applies. */
+  const settle = useCallback((next: Camera | ((was: Camera) => Camera)) => {
+    const value = typeof next === 'function' ? next(looking.current) : next;
+    looking.current = value;
+    drawnAt.current = value;
+    setCamera(value);
+    setDrawn(value);
+  }, []);
 
   // Live pointers, by id, so one finger pans and two pinch.
   const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const [dragging, setDragging] = useState(false);
   const travelled = useRef(0);
   const glide = useRef<number | null>(null);
 
@@ -126,6 +162,18 @@ export function usePanZoom(
   plateRef.current = plate;
   const boundsRef = useRef(bounds);
   boundsRef.current = bounds;
+
+  /** The plate's screen rectangle, watched rather than measured per event. See screenBox.ts. */
+  const box = useRef<ScreenBox | null>(null);
+  useEffect(() => {
+    if (!target) return;
+    const watching = watchBox(target);
+    box.current = watching;
+    return () => {
+      box.current = null;
+      watching.stop();
+    };
+  }, [target]);
 
   const stopGlide = useCallback(() => {
     if (glide.current !== null) cancelAnimationFrame(glide.current);
@@ -136,9 +184,9 @@ export function usePanZoom(
   const jumpTo = useCallback(
     (next: Camera) => {
       stopGlide();
-      setCamera(next);
+      settle(next);
     },
-    [stopGlide],
+    [stopGlide, settle],
   );
 
   const glideTo = useCallback((next: Camera, ms: number) => {
@@ -149,7 +197,7 @@ export function usePanZoom(
     const step = (now: number) => {
       if (start === null) start = now;
       const t = Math.min(1, (now - start) / ms);
-      setCamera((current) => {
+      settle((current) => {
         from ??= current;
         return between(from, next, ease(t));
       });
@@ -161,7 +209,7 @@ export function usePanZoom(
       }
     };
     glide.current = requestAnimationFrame(step);
-  }, [stopGlide]);
+  }, [stopGlide, settle]);
 
   useEffect(() => () => stopGlide(), [stopGlide]);
 
@@ -264,14 +312,20 @@ export function usePanZoom(
       // still an answer and letting the page have the leftovers would be the old bug back.
       event.preventDefault();
       stopGlide();
-      const box = target.getBoundingClientRect();
-      const over = { x: event.clientX - box.left, y: event.clientY - box.top };
+      const rect = box.current?.at() ?? target.getBoundingClientRect();
+      const over = { x: event.clientX - rect.left, y: event.clientY - rect.top };
       // Exponential in the delta, so a trackpad's stream of small deltas and a mouse's
       // single large one both feel like the same gesture.
       const factor = Math.exp(-event.deltaY * WHEEL_STEP);
-      setCamera((current) =>
+      settle((current) =>
         clampCamera(
-          zoomAround(current, plateRef.current, factor, over),
+          zoomAround(
+            current,
+            plateRef.current,
+            factor,
+            over,
+            leastScale(boundsRef.current, plateRef.current),
+          ),
           boundsRef.current,
           plateRef.current,
         ),
@@ -316,9 +370,10 @@ export function usePanZoom(
       };
     };
 
+    /** A pointer in pixels across and down the plate, off the watched `box`. */
     const local = (event: React.PointerEvent | React.WheelEvent) => {
-      const box = (event.currentTarget as Element).getBoundingClientRect();
-      return { x: event.clientX - box.left, y: event.clientY - box.top };
+      const rect = box.current?.at() ?? (event.currentTarget as Element).getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
     };
 
     return {
@@ -338,14 +393,22 @@ export function usePanZoom(
         const dx = now.x - was.x;
         const dy = now.y - was.y;
         travelled.current += Math.hypot(dx, dy);
+        // A drag, not a tap: the same threshold that swallows the closing click.
+        if (travelled.current > DRAG_SLOP) setDragging(true);
 
         if (pointers.current.size >= 2) {
           const pinch = spread();
           if (pinch && lastSpread.current && lastSpread.current > 0) {
             const factor = pinch.gap / lastSpread.current;
-            setCamera((current) =>
+            settle((current) =>
               clampCamera(
-                zoomAround(current, plateRef.current, factor, pinch.mid),
+                zoomAround(
+                  current,
+                  plateRef.current,
+                  factor,
+                  pinch.mid,
+                  leastScale(boundsRef.current, plateRef.current),
+                ),
                 boundsRef.current,
                 plateRef.current,
               ),
@@ -355,19 +418,36 @@ export function usePanZoom(
           return;
         }
 
-        setCamera((current) =>
-          clampCamera(panBy(current, dx, dy), boundsRef.current, plateRef.current),
+        // One finger: shift the picture, redrawing only past `OVERDRAW`.
+        const next = clampCamera(
+          panBy(looking.current, dx, dy),
+          boundsRef.current,
+          plateRef.current,
         );
+        const shifted = nudgeOf(drawnAt.current, next);
+        if (Math.abs(shifted.x) > OVERDRAW || Math.abs(shifted.y) > OVERDRAW) {
+          settle(next);
+        } else {
+          looking.current = next;
+          setCamera(next);
+        }
       },
 
       onPointerUp: (event: React.PointerEvent) => {
         pointers.current.delete(event.pointerId);
         lastSpread.current = spread()?.gap ?? null;
+        // Last pointer up: redraw where the board is looked at.
+        if (pointers.current.size > 0) return;
+        settle(looking.current);
+        setDragging(false);
       },
 
       onPointerCancel: (event: React.PointerEvent) => {
         pointers.current.delete(event.pointerId);
         lastSpread.current = null;
+        if (pointers.current.size > 0) return;
+        settle(looking.current);
+        setDragging(false);
       },
 
       onClickCapture: (event: React.MouseEvent) => {
@@ -379,7 +459,9 @@ export function usePanZoom(
         }
       },
     };
-  }, [stopGlide]);
+  }, [stopGlide, settle]);
 
-  return { camera, jumpTo, glideTo, moving, engaged, handlers };
+  const nudge = useMemo(() => nudgeOf(drawn, camera), [drawn, camera]);
+
+  return { camera, drawnFrom: drawn, nudge, dragging, jumpTo, glideTo, moving, engaged, handlers };
 }

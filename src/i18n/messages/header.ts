@@ -19,15 +19,16 @@ export const header = defineMessages({
     description: 'The puzzle number, beside the title. № is the numero sign.',
   },
 
-  chooseLength: {
-    id: 'header.chooseLength',
-    defaultMessage: 'Choose a length',
-    description: 'Accessible name of the button that opens the length menu.',
+  chooseBoard: {
+    id: 'header.chooseBoard',
+    defaultMessage: 'Choose a board',
+    description:
+      'Accessible name of the button that opens the board menu, which lists every length of each daily game and the open maps.',
   },
-  lengthMenu: {
-    id: 'header.lengthMenu',
-    defaultMessage: 'Length',
-    description: 'Accessible name of the open length menu itself.',
+  boardMenu: {
+    id: 'header.boardMenu',
+    defaultMessage: 'Board',
+    description: 'Accessible name of the open board menu itself.',
   },
   lengthHolds: {
     id: 'header.lengthHolds',

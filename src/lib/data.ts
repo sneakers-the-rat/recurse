@@ -30,6 +30,7 @@
 import { dateForDay, dayIndex, dayNumber, dayOfYear } from './daily';
 import { buildGraph, type Rows } from './graph';
 import { buildLexicon, PLAIN, type Lexicon, type RawLexicon } from './lexicon';
+import { buildRegions, type RawRegions, type Regions } from './regions';
 import type { Graph, GraphParams, Puzzle } from './types';
 
 /** `dictionary.json`. */
@@ -95,6 +96,12 @@ export interface RawMode {
   slack: number;
   minPar: number;
   maxPar: number;
+  /**
+   * For an open-map graph, the game it maps (`explore-letters` has `of: "letters"`); absent for
+   * a daily game. Such modes have no bands and come after the daily games in `modes`, so band
+   * `mode` indices are unaffected. See `mapMode`.
+   */
+  of?: string;
 }
 
 /**
@@ -249,10 +256,27 @@ export function modeName(mode: number, manifest: RawManifest): string {
   return manifest.modes[mode]?.name ?? manifest.modes[0]?.name ?? 'letters';
 }
 
+/** The modes with daily puzzles, which bands belong to. */
+export function dailyGames(manifest: RawManifest): RawMode[] {
+  return manifest.modes.filter((one) => one.of === undefined);
+}
+
 /**
- * Where one of a mode's four files lives: `letters/dictionary-1f4c2e8a.json`.
+ * The mode a game's map is drawn on: the one whose `of` names it, or else the game's own.
  *
- * **The digest is of their bytes**, so any change to any of the four renames all four. They are
+ * Paths, stored maps and the switch all name the game, so the map's graph can change without
+ * any of them moving.
+ */
+export function mapMode(game: string, manifest: RawManifest): number {
+  const own = manifest.modes.findIndex((one) => one.of === game);
+  if (own >= 0) return own;
+  return Math.max(0, manifest.modes.findIndex((one) => one.name === game));
+}
+
+/**
+ * Where one of a mode's files lives: `letters/dictionary-1f4c2e8a.json`.
+ *
+ * **The digest is of their bytes**, so any change to any of them renames all of them. They are
  * fetched immutably — their names promise they cannot change — so an unversioned name let a
  * returning browser pair a fresh shard with a dictionary from a build ago, and a board code's
  * indices would resolve against the wrong list. The same rule the shards follow.
@@ -495,6 +519,25 @@ async function getJson<T>(name: string, immutable = true): Promise<T> {
  * letters board should pay for it.
  */
 const modes = new Map<number, Promise<ModeData>>();
+
+/** A mode's regions. Separate from `loadMode` because the daily game never needs them. */
+export function loadRegions(mode: number, manifest: RawManifest): Promise<Regions> {
+  const cached = maps.get(mode);
+  if (cached) return cached;
+  const wanted = Promise.all([
+    getJson<RawRegions>(modeFile('regions', mode, manifest)),
+    loadMode(mode, manifest),
+  ])
+    .then(([raw, loaded]) => buildRegions(raw, loaded.graph.words))
+    .catch((error: unknown) => {
+      maps.delete(mode);
+      throw error;
+    });
+  maps.set(mode, wanted);
+  return wanted;
+}
+
+const maps = new Map<number, Promise<Regions>>();
 
 export function loadMode(mode: number, manifest: RawManifest): Promise<ModeData> {
   const cached = modes.get(mode);

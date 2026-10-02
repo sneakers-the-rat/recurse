@@ -31,11 +31,15 @@ const LABELS: Record<string, (typeof bands)[keyof typeof bands]> = {
   long: bands.long,
 };
 
-/** And the games. */
+/** And the games. `explore` is not in the manifest, so it is only named here. */
 const GAMES: Record<string, (typeof modes)[keyof typeof modes]> = {
   letters: modes.letters,
   phonemes: modes.phonemes,
+  explore: modes.explore,
 };
+
+/** The open game's name, as a key into `GAMES`. */
+export const EXPLORE = 'explore';
 
 /** Enough of the manifest to name a board: the bands, and what the games are called. */
 interface Naming {
@@ -67,8 +71,10 @@ export function gameName(intl: IntlShape, name: string): string {
 export function boardName(intl: IntlShape, band: number, manifest: Naming): string {
   const one = manifest.bands[band];
   if (!one) return '';
-  return intl.formatMessage(modes.board, {
-    game: gameName(intl, manifest.modes[one.mode]?.name ?? ''),
-    band: bandName(intl, one.label),
-  });
+  return playName(intl, manifest.modes[one.mode]?.name ?? '', bandName(intl, one.label));
+}
+
+/** `boardName` from a game and an already-translated label, for boards that are not bands. */
+export function playName(intl: IntlShape, game: string, band: string): string {
+  return intl.formatMessage(modes.board, { game: gameName(intl, game), band });
 }

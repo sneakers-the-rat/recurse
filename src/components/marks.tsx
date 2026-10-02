@@ -18,6 +18,7 @@
  */
 
 /* eslint-disable formatjs/no-literal-string-in-jsx -- marks and ornament: the whole point of this file */
+import {base} from "../lib/route"
 
 /**
  * What separates one figure from the next.
@@ -76,6 +77,10 @@ export const Ticked = () => (
 export const StepBack = () => <>‹</>;
 export const StepOn = () => <>›</>;
 
+/** The keys for back and next. See useTrail.ts. */
+export const KeyUp = () => <span aria-hidden>↑</span>;
+export const KeyDown = () => <span aria-hidden>↓</span>;
+
 /** Dev mode's, which step the calendar rather than the lesson. */
 export const TrackBack = () => <>◀</>;
 export const TrackOn = () => <>▶</>;
@@ -133,9 +138,11 @@ export const Space = () => <>{' '}</>;
  * Two spans, so `Curse` can be blood-red and italic.
  */
 export const Wordmark = () => (
-  <span className="text-bone text-xl leading-none font-semibold tracking-tight">
-    Re<span className="text-blood-lit italic">Curse</span>
-  </span>
+  <a href={base()}>
+    <span className="text-bone text-xl leading-none font-semibold tracking-tight">
+      Re<span className="text-blood-lit italic">Curse</span>
+    </span>
+  </a>
 );
 
 /**
@@ -176,12 +183,15 @@ export const Wordmark = () => (
  * icons. The letters mark carries far more detail in the same box and so reads heavier at the
  * same weight; that is the cost of the two being legibly one system.
  *
+ * The open game's mark is three words joined by two moves: a graph rather than an alphabet.
+ *
  * **A game with no icon draws nothing**, and the caller falls back to its name. Same rule as
  * `bandName`: adding a mode must not be able to break a screen that has never heard of it.
  */
 const GAME_ICONS: Record<string, string> = {
   letters: 'icons/letters.svg',
   phonemes: 'icons/phonemes.svg',
+  explore: 'icons/explore.svg',
 };
 
 export function GameIcon({ game, className = '' }: { game: string; className?: string }) {
@@ -219,6 +229,9 @@ export function hasGameIcon(game: string): boolean {
  * glyph, and the button's own label — which *is* language — says what it opens.
  */
 export const Query = () => <>?</>;
+
+/** The plus on the open map's power that drops a word onto it. Uncoloured: it is not a move. */
+export const Plus = () => <>+</>;
 
 /**
  * The cross that shuts a page.

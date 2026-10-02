@@ -16,6 +16,7 @@
 import { memo, useMemo, useState } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { dev as says } from '../i18n/messages/dev';
+import { Key, Stat } from './DevKeys';
 import { Arrow, Space, Times, TrackBack, TrackOn } from './marks';
 import type { Pair } from '../lib/data';
 import { PLAIN, type Lexicon } from '../lib/lexicon';
@@ -68,43 +69,6 @@ interface Props {
   onReset: () => void;
   /** Put the instruments away and look at the game as a player sees it. */
   onHide: () => void;
-}
-
-/** Every control here is the same flat outlined thing. */
-function Key({
-  onClick,
-  label,
-  children,
-}: {
-  onClick: () => void;
-  label?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="border border-neutral-700 px-1.5 hover:border-neutral-500 hover:text-neutral-200"
-      aria-label={label}
-      type="button"
-    >
-      {children}
-    </button>
-  );
-}
-
-/** `name value`, the only other shape in the bar. */
-function Stat({
-  name,
-  children,
-}: {
-  name: (typeof says)[keyof typeof says];
-  children: React.ReactNode;
-}) {
-  return (
-    <span>
-      <FormattedMessage {...name} /> <span className="text-neutral-200">{children}</span>
-    </span>
-  );
 }
 
 /** How many words a dropdown offers. Enough to choose from, few enough to read. */
