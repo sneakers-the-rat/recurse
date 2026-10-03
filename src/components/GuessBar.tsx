@@ -123,7 +123,7 @@ export const GuessBar = memo(function GuessBar({
     <form
       onSubmit={submit}
       data-tour="guess"
-      className="border-rule bg-noir-2/95 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur"
+      className="above-keyboard border-rule bg-noir-2/95 border-t px-4 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] backdrop-blur sm:pt-3 sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
       <div className="mx-auto max-w-2xl">
         <div className="mb-2 flex items-baseline justify-between gap-3">
@@ -190,12 +190,17 @@ export const GuessBar = memo(function GuessBar({
           </button>
         </div>
 
-        {/* Reserved line: the layout must not jump when a message appears. */}
+        {/*
+          Reserved line on a wide screen, so the layout does not jump when a message appears.
+          On a phone the height is worth more than the stillness, so it takes room only when
+          there is a message; kept in the DOM, empty, so it is still announced.
+        */}
         <p
           id="guess-error"
           role="status"
           aria-live="assertive"
-          className="text-blood-lit mt-2 min-h-[1.25rem] text-sm leading-snug"
+          className="text-blood-lit mt-2 min-h-[1.25rem] text-sm leading-snug empty:mt-0
+            empty:min-h-0 sm:empty:mt-2 sm:empty:min-h-[1.25rem]"
         >
           {error}
         </p>

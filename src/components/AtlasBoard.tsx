@@ -493,7 +493,7 @@ export function AtlasBoard({
   );
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="fits-view flex flex-col">
       {devMode && (
         <AtlasDevBar
           found={revealed.size}

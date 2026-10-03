@@ -1095,6 +1095,20 @@ export default function App() {
     glideTo,
   });
 
+  /**
+   * A resized plate keeps the view the player has, zoomed as the play view is: the same point
+   * in the middle, and a player at the play view still at it, both ends in shot.
+   */
+  const sizedFor = useRef(plateSize);
+  useEffect(() => {
+    const was = sizedFor.current;
+    if (was === plateSize) return;
+    sizedFor.current = plateSize;
+    if (was.height <= 0) return;
+    const by = playCamera(spineHeight, plateSize).scale / playCamera(spineHeight, was).scale;
+    if (by !== 1) jumpTo({ ...camera, scale: camera.scale * by });
+  }, [plateSize, spineHeight, camera, jumpTo]);
+
   // `view` is the current window; `frame` is what the surface was last drawn for, which lags a
   // drag and overhangs by `OVERDRAW`. See `nudgeOf` in camera.ts.
   const view = useMemo(() => viewOf(camera, plateSize), [camera, plateSize]);
@@ -2001,7 +2015,7 @@ export default function App() {
      * the board a strip with both of the puzzle's own words clipped off the ends.
      */
     <>
-      <div className="flex h-dvh flex-col">
+      <div className="fits-view flex flex-col">
         {devMode && (
           <DevBar
             lexicon={data.lexicon}

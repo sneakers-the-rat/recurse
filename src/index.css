@@ -58,6 +58,20 @@ body {
 }
 
 /*
+ * A board, one screen tall, held still on screen when a keyboard opens; the guess bar rides on
+ * the keyboard, over the board. See viewport.ts for when the variables are set.
+ */
+.fits-view {
+  position: relative;
+  top: var(--view-top, 0px);
+  height: 100dvh;
+}
+
+.above-keyboard {
+  transform: translateY(calc(-1 * var(--keyboard, 0px)));
+}
+
+/*
  * Marginalia. Letter-spaced caps, the way a title page sets its secondary lines,
  * and the one place the display face is asked for a weight above the text around
  * it. Used for every label, count and caption.
