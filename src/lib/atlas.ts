@@ -57,6 +57,14 @@ export function dropCost(word: string, spell: Spell = ITSELF): number {
 /** How many missions a new map can hold at once. Stored per map in `Atlas.slots`. */
 export const SLOTS = 2;
 
+/**
+ * Whether a map can start from a token: it is on the map and has a rim. A word whose moves are
+ * all legal-only is in a region but would be drawn alone.
+ */
+export function canStart(graph: Graph, regions: Regions, token: string): boolean {
+  return regions.has(token) && graph.commonNeighbors(token).some((near) => regions.has(near));
+}
+
 export function openAtlas(word: string): Atlas {
   return {
     ...open(word),

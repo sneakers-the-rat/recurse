@@ -12,7 +12,7 @@ import { Atlases } from './Atlases';
 import { AtlasBoard } from './AtlasBoard';
 import type { Ways } from './Masthead';
 import type { Playing } from './Boards';
-import { loadAtlas, openAtlas, saveAtlas, type Atlas } from '../lib/atlas';
+import { loadAtlas, openAtlas, saveAtlas, canStart, type Atlas } from '../lib/atlas';
 import { NOTHING, type Remembered } from '../lib/atlasLayout';
 import {
   listAtlases,
@@ -117,7 +117,7 @@ export const Explore = memo(function Explore({ manifest, open, ways, onOpen, onP
     };
   }, [open, stamp, manifest, onOpen]);
 
-  /** Start a map. The word must be on the map (in a region), not merely in the dictionary. */
+  /** Start a map, from a word with something around it (`canStart`). */
   const start = useCallback(
     (game: string, typed: string) => {
       void (async () => {
@@ -127,7 +127,11 @@ export const Explore = memo(function Explore({ manifest, open, ways, onOpen, onP
           loadRegions(mode, manifest),
         ]);
         const raw = typed.trim().toLowerCase();
-        const token = data.lexicon.parse(raw).find((one) => regions.has(one));
+        // A word can parse into several possible tokens,
+        // e.g. in phonemes mode, a word said multiple ways.
+        // start from the first that can be started from.
+        // `unknown` then means that none of the tokens are a valid starting point
+        const token = data.lexicon.parse(raw).find((one) => canStart(data.graph, regions, one));
         if (token === undefined) {
           setRefusal(intl.formatMessage(says.notOnTheMap, { word: raw }));
           return;

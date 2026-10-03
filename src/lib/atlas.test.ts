@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { walk } from './trail';
 import {
   abandon,
+  canStart,
   collect,
   drop,
   dropCost,
@@ -56,6 +57,35 @@ function grown(steps: number): Atlas {
   }
   return atlas;
 }
+
+describe('starting a map', () => {
+  /** What the rim around a word alone would hold. See `atlasFigure`. */
+  const rim = (word: string) => graph.commonNeighbors(word).filter((near) => regions.has(near));
+
+  it('starts from a word with something drawn around it', () => {
+    expect(canStart(graph, regions, START)).toBe(true);
+  });
+
+  it('refuses a word on the map whose only moves are to words it does not draw', () => {
+    // The reported case: in a region, with legal moves, and not one common one.
+    expect(regions.has('gym')).toBe(true);
+    expect(graph.neighbors('gym').length).toBeGreaterThan(0);
+    expect(rim('gym')).toEqual([]);
+    expect(canStart(graph, regions, 'gym')).toBe(false);
+  });
+
+  it('refuses every word that would start alone, and no other', () => {
+    for (let region = 0; region < regions.count; region++) {
+      for (const word of regions.words(region)) {
+        expect(canStart(graph, regions, word), word).toBe(rim(word).length > 0);
+      }
+    }
+  });
+
+  it('refuses words off the map and words not in the dictionary', () => {
+    expect(canStart(graph, regions, 'qqqqqq')).toBe(false);
+  });
+});
 
 describe('a guess', () => {
   it('reveals what it lands on and costs nothing', () => {
